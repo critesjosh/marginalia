@@ -11,6 +11,22 @@ export async function getBookMemory(bookId: string): Promise<string | undefined>
   return row?.summary
 }
 
+/**
+ * Replaces the digest with the reader's own wording.
+ *
+ * Later automatic updates merge into whatever is stored here rather than
+ * starting over, so an edit carries forward instead of being summarised away.
+ * Saving an empty digest deletes it, which is how the screen's clear works.
+ */
+export async function saveBookMemory(bookId: string, summary: string): Promise<void> {
+  const trimmed = summary.trim()
+  if (!trimmed) {
+    await db.bookMemory.delete(bookId)
+    return
+  }
+  await db.bookMemory.put({ bookId, summary: trimmed, updatedAt: Date.now() })
+}
+
 /** One digest update at a time per book, so concurrent replies cannot overwrite each other. */
 const inFlight = new Map<string, Promise<void>>()
 

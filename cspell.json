@@ -9,7 +9,9 @@
     "public/**"
   ],
   "words": [
+    "behaviour",
     "behaviours",
+    "bookdata",
     "colours",
     "Dexie",
     "epub",
@@ -20,9 +22,13 @@
     "memoised",
     "moby",
     "noimages",
+    "openrouter",
     "oxlint",
     "rects",
+    "summarise",
+    "summarised",
     "summariser",
+    "synthesise",
     "tailwindcss",
     "tappable",
     "Workbox"

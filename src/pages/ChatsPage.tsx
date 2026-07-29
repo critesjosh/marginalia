@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, deleteConversation } from '../db/db'
+import { db, deleteConversation, getSettings } from '../db/db'
+import { DEFAULT_SETTINGS } from '../db/types'
 import { HIGHLIGHT_COLORS } from '../lib/highlights'
 import ChatSheet from '../components/ChatSheet'
+import MemoryPanel from '../components/MemoryPanel'
 import { BackIcon, TrashIcon } from '../components/Icons'
 
-type Tab = 'chats' | 'highlights'
+type Tab = 'chats' | 'highlights' | 'memory'
 
 export default function ChatsPage() {
   const { bookId } = useParams<{ bookId: string }>()
@@ -30,6 +32,7 @@ export default function ChatsPage() {
     () => (bookId ? db.bookMemory.get(bookId) : undefined),
     [bookId],
   )
+  const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
 
   return (
     <div className="min-h-full bg-stone-950 text-stone-100">
@@ -53,6 +56,9 @@ export default function ChatsPage() {
           </TabButton>
           <TabButton active={tab === 'highlights'} onClick={() => setTab('highlights')}>
             Highlights {highlights?.length ? `(${highlights.length})` : ''}
+          </TabButton>
+          <TabButton active={tab === 'memory'} onClick={() => setTab('memory')}>
+            Memory
           </TabButton>
         </div>
       </header>
@@ -93,17 +99,6 @@ export default function ChatsPage() {
                 </li>
               ))}
             </ul>
-
-            {memory?.summary && (
-              <section className="mt-6 rounded-xl border border-stone-800 bg-stone-900/40 p-3">
-                <h2 className="text-xs font-semibold tracking-wide text-stone-400 uppercase">
-                  What the AI remembers about this book
-                </h2>
-                <p className="mt-2 text-sm whitespace-pre-line text-stone-300">
-                  {memory.summary}
-                </p>
-              </section>
-            )}
           </>
         )}
 
@@ -140,6 +135,15 @@ export default function ChatsPage() {
               ))}
             </ul>
           </>
+        )}
+
+        {tab === 'memory' && (
+          <MemoryPanel
+            book={book}
+            memory={memory}
+            latest={conversations?.[0]}
+            settings={settings}
+          />
         )}
       </main>
 

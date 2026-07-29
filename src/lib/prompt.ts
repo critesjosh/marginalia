@@ -23,6 +23,17 @@ function fenced(fence: string, body: string): string {
   return `${fence}\n${body}\n${fence}`
 }
 
+/**
+ * The parts of a conversation the system prompt actually draws on.
+ *
+ * Narrower than `Conversation` so the memory screen can render the prompt for a
+ * reader without inventing an id and timestamps for a chat that doesn't exist.
+ */
+export type PromptContext = Pick<
+  Conversation,
+  'chapter' | 'progress' | 'seedText' | 'context'
+>
+
 export function buildSystemPrompt({
   book,
   conversation,
@@ -30,7 +41,7 @@ export function buildSystemPrompt({
   spoilerGuard,
 }: {
   book: Book
-  conversation: Conversation
+  conversation: PromptContext
   memory?: string
   spoilerGuard: boolean
 }): string {
