@@ -4,6 +4,8 @@ A mobile-friendly EPUB reader that lets you highlight a passage and start an AI 
 
 Built as a PWA: installable on Android, works offline, stores everything locally in IndexedDB.
 
+Chat works for every visitor with no signup and no API key: requests go through a Netlify edge function that holds an OpenRouter key server-side. A public-domain copy of Moby Dick ships with the app, so a first-time visitor has something to read immediately.
+
 ## Status
 
 Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified end to end against Project Gutenberg's Moby Dick.
@@ -13,7 +15,7 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 | M1 Library | EPUB import, OPF metadata + cover extraction, library grid, delete with cascade |
 | M2 Reader | Paginated epub.js rendition, position persistence, TOC, themes, font size |
 | M3 Highlights | Selection action bar, four colours, painted annotations, tap a highlight to reopen its chat, per-book list |
-| M4 Chat | API key settings, context assembly, streaming replies, persisted conversations |
+| M4 Chat | Hosted relay or own OpenAI key, context assembly, streaming replies, persisted conversations |
 | M5 Memory | Rolling per-book digest injected into every new conversation |
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
@@ -25,7 +27,13 @@ npm install
 npm run dev
 ```
 
-Then open the app, go to **Settings**, and paste an OpenAI API key.
+For chat to work locally, put an OpenRouter key in `.env.local` (gitignored):
+
+```
+OPENROUTER_API_KEY=<a key from openrouter.ai/keys>
+```
+
+A Vite plugin serves `/api/chat` in dev using the same handler the deployed edge function runs, so `npm run dev` exercises the real relay — no Netlify CLI needed.
 
 ```bash
 npm run build     # production build + service worker
@@ -33,13 +41,30 @@ npm run lint      # oxlint
 npx tsc -b        # typecheck
 ```
 
-## Configuration
+## Inference
 
-The OpenAI key is stored in IndexedDB in your browser and is sent only to `api.openai.com`. **This is a single-user personal tool** — there is no backend, so anyone with access to the browser profile can read the key. Don't use it on a shared device. If this is ever shared, move the key behind a small proxy (a Cloudflare Worker) instead.
+Two providers, chosen in **Settings**:
 
-Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read the key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` restricts `connect-src` to this origin and OpenAI as a second layer.
+**Built-in (default).** The browser POSTs to `/api/chat`, a Netlify edge function that adds the OpenRouter key and forwards to OpenRouter. Visitors need no account, and the key never reaches the client.
 
-Defaults to `gpt-4o-mini` for both chat and the memory digest; both are configurable in Settings.
+| | Model | Provider routing |
+| --- | --- | --- |
+| Primary | `google/gemma-4-26b-a4b-it:free` | Google AI Studio, no OpenRouter fallback |
+| Fallback | `google/gemma-4-26b-a4b-it` | Cloudflare first (fastest endpoint for this model), others allowed |
+
+The free tier draws on a shared upstream pool that is regularly exhausted, so the paid model is used more often than the word "fallback" suggests. When the free tier returns 429 the relay stops trying it for a minute, so readers don't each pay the latency of a request that will be refused.
+
+**Own OpenAI key.** Stored in IndexedDB, sent only to `api.openai.com`, billed to the reader. Defaults to `gpt-4o-mini` for chat and the digest. Anyone with access to the browser profile can read it, so don't use that option on a shared device.
+
+### Deploying
+
+Set `OPENROUTER_API_KEY` in the Netlify site's environment variables. Nothing else is required — `netlify.toml` declares the edge function, which runs before the SPA redirect so `/api/chat` never falls through to `index.html`.
+
+Because the relay is open to anyone who loads the site, `shared/relay.ts` pins the model and provider server-side and caps message count, payload size and output tokens. It also rejects cross-origin requests and throttles per IP, but both are best-effort — an Origin header can be forged, and edge isolates don't share the throttle state. **Set a credit limit on the OpenRouter key**; that is the only hard ceiling on spend.
+
+### Untrusted book content
+
+Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read any stored key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` is the second layer: `connect-src` allows only this origin — which covers `/api/chat`, since the relay is same-origin — and `api.openai.com` for readers using their own key.
 
 ## How it works
 
@@ -51,7 +76,10 @@ Library ──> Reader (epub.js) ──> Selection bar ──> Chat sheet
      bookMemory · settings
                                                   │ fetch
                                                   ▼
-                                            OpenAI API
+                                   /api/chat (Netlify edge function)
+                                                  │
+                                                  ▼
+                                       OpenRouter ──> Gemma 4 26B
 ```
 
 Each conversation's system prompt carries the book metadata, the current chapter and percentage, the highlighted passage, roughly 2,400 characters of surrounding prose, the book's memory digest, and an optional spoiler guard.

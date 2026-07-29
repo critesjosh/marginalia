@@ -2,6 +2,11 @@
   command = "npm run build"
   publish = "dist"
 
+# Runs before the SPA redirect below, so /api/chat never falls through to index.html.
+[[edge_functions]]
+  path = "/api/chat"
+  function = "chat"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

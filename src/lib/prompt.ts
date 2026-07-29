@@ -1,5 +1,5 @@
 import type { Book, Conversation, Message, Settings } from '../db/types'
-import type { ChatMessage } from './openai'
+import type { ChatMessage } from './inference'
 import { newId } from './id'
 
 /** Keeps the request bounded on long conversations. */

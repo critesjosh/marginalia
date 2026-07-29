@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings, saveSettings } from '../db/db'
-import { DEFAULT_SETTINGS } from '../db/types'
-import { verifyKey } from '../lib/openai'
+import { DEFAULT_SETTINGS, type Provider } from '../db/types'
+import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
 import { BackIcon } from '../components/Icons'
 
 // Keep retired models listed: a stored value with no matching option renders the
@@ -15,6 +15,8 @@ const MODELS = [
   { value: 'gpt-4o-mini', label: 'gpt-4o-mini — small and fast, older' },
   { value: 'gpt-4o', label: 'gpt-4o — older' },
 ]
+
+const ISSUES_URL = 'https://github.com/critesjosh/marginalia/issues'
 
 export default function SettingsPage() {
   const stored = useLiveQuery(() => getSettings(), [])
@@ -65,77 +67,103 @@ export default function SettingsPage() {
 
       <main className="mx-auto max-w-2xl space-y-8 px-4 py-6">
         <section>
-          <h2 className="text-sm font-semibold">OpenAI API key</h2>
+          <h2 className="text-sm font-semibold">Chat model</h2>
           <p className="mt-1 text-sm text-stone-400">
-            Stored only in this browser and sent only to api.openai.com. This is a single-user
-            tool; don't use it on a shared device.
+            Chat works out of the box — no account or key needed.
           </p>
 
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => {
-              setApiKey(e.target.value)
-              setDirtyKey(true)
-              setStatus('idle')
-              setMessage(undefined)
-            }}
-            placeholder="sk-…"
-            autoComplete="off"
-            spellCheck={false}
-            className="mt-3 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 font-mono text-sm outline-none focus:border-amber-500"
-          />
-
-          <div className="mt-3 flex items-center gap-3">
-            <button
-              onClick={() => void testAndSave()}
-              disabled={status === 'checking'}
-              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 disabled:opacity-50"
-            >
-              {status === 'checking' ? 'Checking…' : 'Test and save'}
-            </button>
-            {message && (
-              <p
-                className={`text-sm ${
-                  status === 'error' ? 'text-red-300' : 'text-emerald-300'
-                }`}
-              >
-                {message}
-              </p>
-            )}
+          <div className="mt-3 space-y-2">
+            <ProviderOption
+              value="hosted"
+              current={settings.provider}
+              title="Built-in model"
+              detail={`${HOSTED_MODEL_LABEL}. Free, and your key stays out of it — requests go through this site's relay.`}
+            />
+            <ProviderOption
+              value="openai"
+              current={settings.provider}
+              title="My own OpenAI key"
+              detail="Sends your conversations straight to api.openai.com, billed to you."
+            />
           </div>
         </section>
 
-        <section>
-          <h2 className="text-sm font-semibold">Chat model</h2>
-          <select
-            value={settings.model}
-            onChange={(e) => void saveSettings({ model: e.target.value })}
-            className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 text-sm"
-          >
-            {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+        {settings.provider === 'openai' && (
+          <>
+            <section>
+              <h2 className="text-sm font-semibold">OpenAI API key</h2>
+              <p className="mt-1 text-sm text-stone-400">
+                Stored only in this browser and sent only to api.openai.com. Don't use this on a
+                shared device.
+              </p>
 
-          <h2 className="mt-5 text-sm font-semibold">Summary model</h2>
-          <p className="mt-1 text-xs text-stone-500">
-            Used for the per-book memory digest. A cheap model is plenty.
-          </p>
-          <select
-            value={settings.summaryModel}
-            onChange={(e) => void saveSettings({ summaryModel: e.target.value })}
-            className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 text-sm"
-          >
-            {MODELS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </section>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => {
+                  setApiKey(e.target.value)
+                  setDirtyKey(true)
+                  setStatus('idle')
+                  setMessage(undefined)
+                }}
+                placeholder="sk-…"
+                autoComplete="off"
+                spellCheck={false}
+                className="mt-3 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 font-mono text-sm outline-none focus:border-amber-500"
+              />
+
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() => void testAndSave()}
+                  disabled={status === 'checking'}
+                  className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 disabled:opacity-50"
+                >
+                  {status === 'checking' ? 'Checking…' : 'Test and save'}
+                </button>
+                {message && (
+                  <p
+                    className={`text-sm ${
+                      status === 'error' ? 'text-red-300' : 'text-emerald-300'
+                    }`}
+                  >
+                    {message}
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-sm font-semibold">OpenAI models</h2>
+              <select
+                value={settings.model}
+                onChange={(e) => void saveSettings({ model: e.target.value })}
+                className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 text-sm"
+              >
+                {MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+
+              <h3 className="mt-5 text-sm font-semibold">Summary model</h3>
+              <p className="mt-1 text-xs text-stone-500">
+                Used for the per-book memory digest. A cheap model is plenty.
+              </p>
+              <select
+                value={settings.summaryModel}
+                onChange={(e) => void saveSettings({ summaryModel: e.target.value })}
+                className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 text-sm"
+              >
+                {MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </section>
+          </>
+        )}
 
         <section>
           <label className="flex items-start gap-3">
@@ -169,8 +197,58 @@ export default function SettingsPage() {
             Export highlights and chats
           </button>
         </section>
+
+        <section>
+          <h2 className="text-sm font-semibold">Feedback</h2>
+          <p className="mt-1 text-sm text-stone-400">
+            Something broken, or an idea for the app? Open an issue on GitHub.
+          </p>
+          <a
+            href={ISSUES_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-block rounded-lg border border-stone-700 px-4 py-2 text-sm font-medium"
+          >
+            Send feedback on GitHub ↗
+          </a>
+        </section>
       </main>
     </div>
+  )
+}
+
+function ProviderOption({
+  value,
+  current,
+  title,
+  detail,
+}: {
+  value: Provider
+  current: Provider
+  title: string
+  detail: string
+}) {
+  const selected = current === value
+
+  return (
+    <label
+      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${
+        selected ? 'border-amber-500 bg-stone-900' : 'border-stone-700'
+      }`}
+    >
+      <input
+        type="radio"
+        name="provider"
+        value={value}
+        checked={selected}
+        onChange={() => void saveSettings({ provider: value })}
+        className="mt-0.5 h-4 w-4 accent-amber-500"
+      />
+      <span>
+        <span className="text-sm font-medium">{title}</span>
+        <span className="mt-0.5 block text-sm text-stone-400">{detail}</span>
+      </span>
+    </label>
   )
 }
 

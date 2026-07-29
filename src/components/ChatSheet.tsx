@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
 import type { ReaderTheme } from '../db/types'
 import { newId } from '../lib/id'
-import { OpenAIError, streamChat } from '../lib/openai'
+import { InferenceError, streamChat, targetFor } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { THEMES } from '../lib/themes'
@@ -62,9 +62,11 @@ export default function ChatSheet({
 
     try {
       const settings = await getSettings()
-      if (!settings.apiKey) {
-        throw new Error('Add your OpenAI API key in Settings to start chatting.')
-      }
+      // Throws only when the reader chose their own key and has not entered
+      // one; the built-in provider needs nothing. Thrown here rather than
+      // before the try so a missing key rolls the turn back like any other
+      // failure, keeping the question in the composer.
+      const target = targetFor(settings)
 
       // Only clear the composer once the message is safely stored. Clearing it
       // first loses the text outright if IndexedDB rejects the write.
@@ -88,8 +90,7 @@ export default function ChatSheet({
 
       let acc = ''
       const reply = await streamChat({
-        apiKey: settings.apiKey,
-        model: settings.model,
+        target,
         signal: controller.signal,
         messages: buildMessages({ book, conversation, history, memory, settings }),
         onDelta: (delta) => {
@@ -121,9 +122,9 @@ export default function ChatSheet({
       }
       setDraft((current) => (current.trim() ? current : content))
       setError(
-        err instanceof OpenAIError || err instanceof Error
+        err instanceof InferenceError || err instanceof Error
           ? err.message
-          : 'Something went wrong talking to OpenAI.',
+          : 'Something went wrong talking to the model.',
       )
     } finally {
       setStreaming('')

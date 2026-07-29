@@ -34,7 +34,13 @@ export const db = new MarginaliaDB()
 
 export async function getSettings(): Promise<Settings> {
   const stored = await db.settings.get('settings')
-  return { ...DEFAULT_SETTINGS, ...stored }
+  const settings = { ...DEFAULT_SETTINGS, ...stored }
+
+  // Records written before the hosted relay existed have a key but no provider;
+  // those readers were using OpenAI directly and should stay on it.
+  if (stored && !stored.provider && stored.apiKey) settings.provider = 'openai'
+
+  return settings
 }
 
 /**
@@ -46,8 +52,11 @@ export async function getSettings(): Promise<Settings> {
  */
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   await db.transaction('rw', db.settings, async () => {
-    const stored = await db.settings.get('settings')
-    await db.settings.put({ ...DEFAULT_SETTINGS, ...stored, ...patch, id: 'settings' })
+    // Through getSettings, not the raw row: it applies the provider migration,
+    // and reading around it would write `hosted` over a reader who is on their
+    // own key the first time they change any unrelated setting.
+    const current = await getSettings()
+    await db.settings.put({ ...current, ...patch, id: 'settings' })
   })
 }
 

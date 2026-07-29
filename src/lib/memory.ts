@@ -1,6 +1,6 @@
 import { db, getSettings } from '../db/db'
 import type { Message } from '../db/types'
-import { completeChat } from './openai'
+import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
 
 /** Fold a conversation into the book's digest after this many new messages. */
@@ -38,7 +38,7 @@ export function updateBookMemory(bookId: string, conversationId: string): Promis
 
 async function runUpdate(bookId: string, conversationId: string): Promise<void> {
   const settings = await getSettings()
-  if (!settings.apiKey) return
+  const target = targetFor(settings, 'summary')
 
   const [book, conversation, existing, messages] = await Promise.all([
     db.books.get(bookId),
@@ -52,8 +52,7 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   if (fresh.length < MESSAGES_PER_UPDATE) return
 
   const summary = await completeChat({
-    apiKey: settings.apiKey,
-    model: settings.summaryModel || settings.model,
+    target,
     messages: buildSummaryMessages({
       book,
       existingSummary: existing?.summary,

@@ -76,8 +76,15 @@ export interface BookMemory {
 
 export type ReaderTheme = 'light' | 'sepia' | 'dark'
 
+/**
+ * `hosted` routes through this site's relay, which holds an OpenRouter key
+ * server-side. `openai` sends the reader's own key straight to OpenAI.
+ */
+export type Provider = 'hosted' | 'openai'
+
 export interface Settings {
   id: 'settings'
+  provider: Provider
   apiKey?: string
   model: string
   summaryModel: string
@@ -85,10 +92,13 @@ export interface Settings {
   fontSize: number
   /** Ask the model to avoid spoiling content past the reader's position. */
   spoilerGuard: boolean
+  /** Set once the bundled sample book has been offered, so deleting it sticks. */
+  sampleBookSeeded?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   id: 'settings',
+  provider: 'hosted',
   model: 'gpt-4o-mini',
   summaryModel: 'gpt-4o-mini',
   theme: 'dark',

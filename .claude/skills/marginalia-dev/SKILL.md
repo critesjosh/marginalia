@@ -5,8 +5,9 @@ description: Run, verify and debug Marginalia locally. Use when starting the dev
 
 # Running and verifying Marginalia
 
-Everything is client side. There is no backend, no test suite and no fixtures in the
-repo, so "does it work" is answered by driving the real app in a browser.
+Almost everything is client side. The one server piece is `/api/chat`, the inference
+relay. There is no test suite, so "does it work" is answered by driving the real app in
+a browser.
 
 ## Commands
 
@@ -37,20 +38,17 @@ died, so read `/tmp/vite.log`.
 
 ## Get a test book
 
-`test-books/` is gitignored, so a fresh clone has no EPUB. Fetch Moby Dick:
+`public/books/moby-dick.epub` ships with the app and is imported automatically on a
+first run, so an empty profile already has a book. It is Gutenberg's `.images` variant
+deliberately, not `.noimages`: late-loading images are what reflow the paginated strip
+and break navigation, so this is the build that exercises `goToSettled` in
+`src/lib/useReader.ts`. Testing on `.noimages` hides that whole class of bug.
 
-```bash
-mkdir -p test-books
-curl -sL https://www.gutenberg.org/ebooks/2701.epub3.images -o test-books/moby-dick.epub
-```
+The auto-import is one-shot — `sampleBookSeeded` in settings stops it coming back after
+a delete. To re-test seeding, clear the `marginalia` IndexedDB database.
 
-Use the `.images` variant deliberately, not `.noimages`. Late-loading images are what
-reflow the paginated strip and break navigation, so the images build is the one that
-exercises `goToSettled` in `src/lib/useReader.ts`. Testing on `.noimages` hides that
-whole class of bug.
-
-Import it through the UI (Add EPUB, or Choose a file on the empty library) rather than
-seeding IndexedDB, since import parses the OPF and extracts the cover.
+To test the import path itself, use a different EPUB through the UI (Add EPUB) rather
+than seeding IndexedDB, since import parses the OPF and extracts the cover.
 
 ## Reading the reader from a browser: the one real trap
 
@@ -119,10 +117,29 @@ const b = g.getBoundingClientRect();       // already parent-viewport coords
 
 ## Testing chat
 
-Chat needs a real OpenAI key, entered in Settings and stored in IndexedDB. A key for
-local runs lives in gitignored `.env.local` as `OPENAI_TEST_KEY`; paste the value into
-Settings and press Test and save. Keep both models on `gpt-4o-mini`, which is the
-default, since every exchange also triggers a background digest call.
+Chat defaults to the built-in provider, which POSTs to `/api/chat`. In dev that route is
+served by the `marginalia-chat-relay` Vite plugin in `vite.config.ts`, running the same
+`shared/relay.ts` handler the Netlify edge function runs in production. It needs
+`OPENROUTER_API_KEY` in gitignored `.env.local`; without it the relay answers 503 and
+the chat sheet shows the message.
+
+Vite restarts when `vite.config.ts` or `shared/relay.ts` changes, so relay edits take a
+second to land. Check the relay directly before blaming the UI:
+
+```bash
+curl -s -X POST http://localhost:5173/api/chat \
+  -H 'Content-Type: application/json' -H 'Origin: http://localhost:5173' \
+  -d '{"messages":[{"role":"user","content":"Say ok"}]}' | head -c 300
+```
+
+The `model` and `provider` fields in that response tell you which route answered. Seeing
+`google/gemma-4-26b-a4b-it` (no `:free`) means the free tier was rate limited upstream
+and the paid fallback took over — normal, not a bug. The Origin header matters: the relay
+rejects cross-origin requests, and curl without one is treated as same-origin.
+
+The other provider is the reader's own OpenAI key, entered in Settings. Keep both models
+on `gpt-4o-mini` when testing it, since every exchange also triggers a background digest
+call.
 
 Memory digests fire every 4 messages (`MESSAGES_PER_UPDATE` in `src/lib/memory.ts`) and
 all summariser failures are swallowed by design, so a broken digest is invisible in the
@@ -134,9 +151,14 @@ UI. Check `db.bookMemory` directly when testing that path.
 gitignored files, so a clean result from it proves nothing. Use find instead:
 
 ```bash
-find . -type f -not -path "./node_modules/*" -not -path "./.git/*" \
-  -exec grep -lE "sk-(proj|ant|live)" {} +
+find . -type f -not -path "./node_modules/*" -not -path "./.git/*" -not -path "./dist/*" \
+  -exec grep -lE "sk-(proj|ant|live|or)" {} +
 ```
+
+The `or` branch catches OpenRouter keys, which is what `.env.local` now holds and what
+the deployed relay reads from Netlify's environment. Keep placeholder keys out of docs
+for the same reason the pattern above is split: a placeholder that matches the scan
+buries the real hit.
 
 The pattern is split so this file does not match itself; searching for the joined
 literal instead makes every scan report this doc and bury the real hit.

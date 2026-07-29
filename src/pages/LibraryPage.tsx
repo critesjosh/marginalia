@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
+import { seedSampleBook } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
 import { useModal } from '../lib/useModal'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
@@ -11,6 +12,7 @@ import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 export default function LibraryPage() {
   const fileInput = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+  const [seeding, setSeeding] = useState(true)
   const [error, setError] = useState<string>()
   const [confirmDelete, setConfirmDelete] = useState<Book>()
 
@@ -21,6 +23,18 @@ export default function LibraryPage() {
       acc[c.bookId] = (acc[c.bookId] ?? 0) + 1
       return acc
     }, {})
+  }, [])
+
+  // A first-time visitor gets the bundled Moby Dick, so there is something to
+  // open before they have found an EPUB of their own.
+  useEffect(() => {
+    let active = true
+    void seedSampleBook().then(() => {
+      if (active) setSeeding(false)
+    })
+    return () => {
+      active = false
+    }
   }, [])
 
   async function handleFiles(files: FileList | null) {
@@ -89,8 +103,12 @@ export default function LibraryPage() {
           </div>
         )}
 
-        {books && books.length === 0 && (
+        {books && books.length === 0 && !seeding && (
           <EmptyState onPick={() => fileInput.current?.click()} />
+        )}
+
+        {books && books.length === 0 && seeding && (
+          <p className="mt-24 text-center text-sm text-stone-500">Setting up your library…</p>
         )}
 
         {books && books.length > 0 && (
