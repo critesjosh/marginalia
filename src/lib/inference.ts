@@ -102,7 +102,7 @@ export async function streamChat({
       try {
         parsed = JSON.parse(payload)
       } catch {
-        // Ignore keep-alives and any non-JSON frames.
+        // Ignore keepalives and any non-JSON frames.
         continue
       }
 

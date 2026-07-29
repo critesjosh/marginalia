@@ -89,8 +89,25 @@ The same offset applies to synthetic input, in the other direction. A mouse even
 dispatched from inside the book iframe carries a `clientX` in strip coordinates, so a
 tap at screen x 620 arrives as 59120. Playwright's `page.mouse` works in screen
 coordinates and is what you want; only convert when reading a rect back out. Assert
-page turns on `.epub-container.scrollLeft`, which moves by exactly one `clientWidth`
-per turn, rather than on rendered text.
+page turns on `.epub-container.scrollLeft` rather than on rendered text.
+
+It moves by exactly one column pitch per turn, and the pitch is the *body box width* of
+the rendered document, not `.epub-container.clientWidth`. The two agree at an integer
+viewport width and diverge at a fractional one, which is the common case on a phone.
+Take it from the frame:
+
+```js
+document.querySelector('.epub-view iframe').contentDocument.body.getBoundingClientRect().width
+```
+
+`scrollLeft % pitch` is the alignment invariant and should always be 0. `snapToPage` in
+`src/lib/useReader.ts` re-establishes it after every relocation, because epub.js turns
+pages with a relative `scrollLeft += layout.delta` that the compositor rounds to whole
+device pixels, losing a fraction of a CSS pixel per turn with nothing to re-anchor it.
+Left alone the error accumulates without bound: paging back and forth inside one section
+reached 80px after 200 turns and kept climbing, until the viewport straddled two columns
+and showed half of each page. Any change near navigation should assert that remainder
+over a few hundred turns, since a handful of turns looks perfectly fine.
 
 ## Checking a reader interaction
 
@@ -114,6 +131,71 @@ const g = document.querySelector('svg g');
 const b = g.getBoundingClientRect();       // already parent-viewport coords
 // click at (b.left + b.width * 0.9, b.top + b.height / 2)
 ```
+
+Two things that will waste an hour before they look like anything but a broken fix.
+
+**The book opens on the cover.** A fresh profile lands on `wrap0000.xhtml`, an image with
+no text and a spine section only one page wide. Page-turn assertions there read 0 to 0,
+because `next()` moves to the next section rather than scrolling, and anything that
+selects text finds an `image` element and quietly gives up. Neither reports an error. Jump
+to real prose first and wait for it to settle:
+
+```js
+await page.click('button[aria-label="Table of contents"]');
+await new Promise(r => setTimeout(r, 600));
+await page.evaluate(() => document.querySelectorAll('nav button')[6].click()); // CHAPTER 1
+await new Promise(r => setTimeout(r, 6000));
+```
+
+Aim presses at a line box rather than a guessed point, and stay clear of the chrome: the
+header and footer are `absolute` overlays *on top of* the page, so a y of 60 hits the
+header and never reaches the book. Take rects from `range.getClientRects()` on a
+paragraph, not `getBoundingClientRect()`, or the point lands in the gap between lines.
+
+**`page.mouse.move` kills the browser on the reader page.** Both the headless shell and
+`channel: 'chromium'` die with "Target page, context or browser has been closed", or hang
+forever mid-drag. `page.mouse.click` survives — a hundred of them in a row is fine — so
+it is specifically the move-and-hold that goes. Drive anything that needs a press
+duration, a drag, or touch through CDP instead:
+
+```js
+const cdp = await context.newCDPSession(page);
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+await new Promise(r => setTimeout(r, 700));         // the hold is the point
+await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+```
+
+CDP coordinates are screen coordinates and the browser routes them into the iframe
+itself, so the strip offset described above does not apply on the way in — only when you
+read a rect back out.
+
+## Testing touch behaviour
+
+Selection inside the book is touch-specific: `src/lib/touchSelect.ts` only arms on
+`(pointer: coarse)` and is a no-op with a mouse, so the desktop browser proves nothing
+about it either way. Use a phone context with a fractional device pixel ratio, which is
+also what surfaces pagination drift:
+
+```js
+const context = await browser.newContext({
+  ...devices['Galaxy S9+'],
+  viewport: { width: 360, height: 740 },
+  deviceScaleFactor: 2.625,
+  hasTouch: true,
+  isMobile: true,
+});
+```
+
+Assert both directions of the threshold, not just one. A tap held 400ms, 500ms and 600ms
+must turn the page and leave `getSelection()` collapsed; a press held past 650ms must
+select a word and *not* turn the page. Checking only the long press passes happily while
+every ordinary tap is still selecting, which was the original bug.
+
+The book frame is sandboxed without `allow-scripts`. Timers scheduled on its window never
+fire, so a handler that looks correct will simply never run — schedule on the host window.
+And a programmatic selection is collapsed again by the mouse events the browser
+synthesises at `touchend` unless that event is cancelled, which reads as "the selection
+never happened" a full second after it did.
 
 ## Testing chat
 
