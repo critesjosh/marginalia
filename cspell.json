@@ -1,0 +1,30 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "ignorePaths": [
+    "node_modules/**",
+    "dist/**",
+    "package-lock.json",
+    "test-books/**",
+    "public/**"
+  ],
+  "words": [
+    "behaviours",
+    "colours",
+    "Dexie",
+    "epub",
+    "epubjs",
+    "Gutenberg",
+    "Marginalia",
+    "Melville",
+    "memoised",
+    "moby",
+    "noimages",
+    "oxlint",
+    "rects",
+    "summariser",
+    "tailwindcss",
+    "tappable",
+    "Workbox"
+  ]
+}
