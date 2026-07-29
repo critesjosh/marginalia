@@ -106,7 +106,13 @@ export function useReader(
           flow: 'paginated',
           spread: 'none',
           manager: 'default',
-          allowScriptedContent: true,
+          // Deliberately left off. epub.js turns this into
+          // sandbox="allow-same-origin allow-scripts" on the content iframe,
+          // which is the combination that voids the sandbox: a book's own
+          // scripts would then run on this origin and could read the API key
+          // and every highlight and conversation straight out of IndexedDB.
+          // Scripted EPUBs lose interactivity; the text still renders.
+          allowScriptedContent: false,
         })
 
         const opts = optionsRef.current
@@ -296,6 +302,9 @@ async function goToSettled(rendition: Rendition | undefined, target: string) {
   }
 }
 
+/** Longest we will wait on images before repositioning anyway. */
+const LAYOUT_SETTLE_TIMEOUT_MS = 3000
+
 async function waitForIdleLayout(rendition: Rendition) {
   const contents = rendition.getContents() as unknown as Contents[] | Contents
   const current = (Array.isArray(contents) ? contents : [contents]).find((c) => c?.document)
@@ -303,16 +312,28 @@ async function waitForIdleLayout(rendition: Rendition) {
   if (!doc) return
 
   const pending = [...doc.images].filter((img) => !img.complete)
-  await Promise.all(
-    pending.map(
-      (img) =>
-        new Promise<void>((resolve) => {
-          const done = () => resolve()
-          img.addEventListener('load', done, { once: true })
-          img.addEventListener('error', done, { once: true })
-        }),
+
+  // A stalled remote image would otherwise hold this promise open forever, and
+  // with it the document and rendition, long after the reader has navigated
+  // away. Settling late is better than never settling.
+  await Promise.race([
+    Promise.all(
+      pending.map(
+        (img) =>
+          new Promise<void>((resolve) => {
+            const done = () => {
+              img.removeEventListener('load', done)
+              img.removeEventListener('error', done)
+              resolve()
+            }
+            img.addEventListener('load', done, { once: true })
+            img.addEventListener('error', done, { once: true })
+          }),
+      ),
     ),
-  )
+    new Promise((resolve) => setTimeout(resolve, LAYOUT_SETTLE_TIMEOUT_MS)),
+  ])
+
   // Let the renderer finish its own reflow pass before measuring again.
   await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 60)))
 }

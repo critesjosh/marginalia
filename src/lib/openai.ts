@@ -50,6 +50,29 @@ export async function streamChat({
   const decoder = new TextDecoder()
   let buffer = ''
   let full = ''
+  let complete = false
+
+  const consume = (frame: string) => {
+    for (const line of frame.split('\n')) {
+      if (!line.startsWith('data:')) continue
+      const payload = line.slice(5).trim()
+      if (!payload) continue
+      if (payload === '[DONE]') {
+        complete = true
+        continue
+      }
+      try {
+        const parsed = JSON.parse(payload)
+        const delta: string = parsed.choices?.[0]?.delta?.content ?? ''
+        if (delta) {
+          full += delta
+          onDelta(delta)
+        }
+      } catch {
+        // Ignore keep-alives and any non-JSON frames.
+      }
+    }
+  }
 
   while (true) {
     const { done, value } = await reader.read()
@@ -59,24 +82,20 @@ export async function streamChat({
     // SSE frames are separated by a blank line; keep any partial tail buffered.
     const frames = buffer.split('\n\n')
     buffer = frames.pop() ?? ''
+    for (const frame of frames) consume(frame)
+  }
 
-    for (const frame of frames) {
-      for (const line of frame.split('\n')) {
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        try {
-          const parsed = JSON.parse(payload)
-          const delta: string = parsed.choices?.[0]?.delta?.content ?? ''
-          if (delta) {
-            full += delta
-            onDelta(delta)
-          }
-        } catch {
-          // Ignore keep-alives and any non-JSON frames.
-        }
-      }
-    }
+  // A final frame arriving without its trailing blank line is still a whole
+  // frame; flush it rather than dropping the last of the answer.
+  if (buffer.trim()) consume(buffer)
+
+  // OpenAI closes the stream with [DONE]. Reaching EOF without it means the
+  // connection dropped mid-answer, so `full` is a fragment. Returning it would
+  // store a truncated reply that looks complete.
+  if (!complete) {
+    throw new OpenAIError(
+      'The reply was cut off before it finished. Check your connection and try again.',
+    )
   }
 
   return full

@@ -37,9 +37,18 @@ export async function getSettings(): Promise<Settings> {
   return { ...DEFAULT_SETTINGS, ...stored }
 }
 
+/**
+ * Applies a patch atomically.
+ *
+ * Read-modify-write outside a transaction lets two overlapping saves read the
+ * same record, so the slower write puts back stale values for fields the other
+ * one owned. The font-size slider alone fires this on every change.
+ */
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
-  const current = await getSettings()
-  await db.settings.put({ ...current, ...patch, id: 'settings' })
+  await db.transaction('rw', db.settings, async () => {
+    const stored = await db.settings.get('settings')
+    await db.settings.put({ ...DEFAULT_SETTINGS, ...stored, ...patch, id: 'settings' })
+  })
 }
 
 /** Removes a book and everything anchored to it. */

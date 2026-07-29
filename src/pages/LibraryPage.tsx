@@ -5,6 +5,7 @@ import { db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
 import { useBlobUrl } from '../lib/useBlobUrl'
+import { useModal } from '../lib/useModal'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 
 export default function LibraryPage() {
@@ -198,7 +199,7 @@ function BookCard({
       <button
         onClick={onDelete}
         aria-label={`Delete ${book.title}`}
-        className="absolute top-1.5 left-1.5 rounded-full bg-stone-950/70 p-1.5 text-stone-300 opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+        className="absolute top-0.5 left-0.5 flex h-11 w-11 items-center justify-center rounded-full text-stone-300 opacity-0 transition group-hover:opacity-100 focus:opacity-100"
       >
         <TrashIcon className="h-4 w-4" />
       </button>
@@ -215,15 +216,27 @@ function ConfirmDeleteDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  // Cancel is the safe default, so focus lands there rather than on Delete.
+  const ref = useModal<HTMLDivElement>(onCancel, '[data-cancel]')
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-sm rounded-xl border border-stone-800 bg-stone-900 p-5">
-        <h2 className="text-base font-medium">Delete “{book.title}”?</h2>
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-delete-title"
+        className="w-full max-w-sm rounded-xl border border-stone-800 bg-stone-900 p-5"
+      >
+        <h2 id="confirm-delete-title" className="text-base font-medium">
+          Delete “{book.title}”?
+        </h2>
         <p className="mt-1.5 text-sm text-stone-400">
           This also removes its highlights and conversations. It cannot be undone.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <button
+            data-cancel
             onClick={onCancel}
             className="rounded-lg px-3.5 py-2 text-sm font-medium text-stone-300"
           >

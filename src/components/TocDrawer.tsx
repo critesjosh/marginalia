@@ -1,6 +1,7 @@
 import type { NavItem } from 'epubjs'
 import type { ReaderTheme } from '../db/types'
 import { THEMES } from '../lib/themes'
+import { useModal } from '../lib/useModal'
 import { CloseIcon } from './Icons'
 
 export default function TocDrawer({
@@ -18,6 +19,7 @@ export default function TocDrawer({
   onClose: () => void
 }) {
   const palette = THEMES[theme]
+  const ref = useModal<HTMLElement>(onClose)
 
   return (
     <div className="fixed inset-0 z-40 flex">
@@ -27,6 +29,10 @@ export default function TocDrawer({
         aria-hidden
       />
       <aside
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Table of contents"
         className={`relative flex h-full w-[85%] max-w-sm flex-col ${palette.chrome} ${palette.chromeText} shadow-2xl`}
       >
         <header
@@ -35,7 +41,11 @@ export default function TocDrawer({
           <h2 className="text-sm font-semibold tracking-wide uppercase opacity-60">
             Contents
           </h2>
-          <button onClick={onClose} aria-label="Close contents" className="p-1 opacity-70">
+          <button
+            onClick={onClose}
+            aria-label="Close contents"
+            className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center opacity-70"
+          >
             <CloseIcon />
           </button>
         </header>

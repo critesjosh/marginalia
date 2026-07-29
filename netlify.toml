@@ -6,3 +6,19 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Defence in depth around untrusted EPUB content. The actual containment is
+# allowScriptedContent: false in src/lib/useReader.ts; this limits the damage if
+# anything does execute.
+#
+# style-src must allow both 'unsafe-inline' and blob:. React inline styles and
+# epub.js's injected typography need the former; the book's own stylesheets are
+# handed to the iframe as blob: URLs, and without that the reader renders a blank
+# page with no pagination at all. Verified against a real build, because a CSP
+# that breaks the reader is worse than none.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self' https://api.openai.com; frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"

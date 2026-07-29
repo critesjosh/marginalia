@@ -46,16 +46,22 @@ export default function SelectionBar({
               key={color}
               onClick={() => onHighlight(color)}
               aria-label={`Highlight ${color}`}
-              style={{ background: HIGHLIGHT_COLORS[color] }}
-              className="h-8 w-8 rounded-full ring-1 ring-black/20"
-            />
+              className="flex h-11 w-11 items-center justify-center rounded-full"
+            >
+              {/* The swatch stays 32px; the button around it meets the 44px
+                  minimum touch target. */}
+              <span
+                style={{ background: HIGHLIGHT_COLORS[color] }}
+                className="block h-8 w-8 rounded-full ring-1 ring-black/20"
+              />
+            </button>
           ))}
           <div className="flex-1" />
           {existing && onDelete && (
             <button
               onClick={onDelete}
               aria-label="Delete highlight"
-              className="rounded-lg p-2 opacity-70"
+              className="flex h-11 w-11 items-center justify-center rounded-lg opacity-70"
             >
               <TrashIcon className="h-4 w-4" />
             </button>

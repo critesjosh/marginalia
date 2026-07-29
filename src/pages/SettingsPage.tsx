@@ -6,9 +6,14 @@ import { DEFAULT_SETTINGS } from '../db/types'
 import { verifyKey } from '../lib/openai'
 import { BackIcon } from '../components/Icons'
 
+// Keep retired models listed: a stored value with no matching option renders the
+// select blank, so anything a user might already have saved has to stay.
 const MODELS = [
-  { value: 'gpt-4o-mini', label: 'gpt-4o-mini — fast and cheap' },
-  { value: 'gpt-4o', label: 'gpt-4o — stronger, pricier' },
+  { value: 'gpt-5.6-luna', label: 'gpt-5.6-luna — newest' },
+  { value: 'gpt-5', label: 'gpt-5 — general purpose' },
+  { value: 'gpt-5.4-mini', label: 'gpt-5.4-mini — small and fast' },
+  { value: 'gpt-4o-mini', label: 'gpt-4o-mini — small and fast, older' },
+  { value: 'gpt-4o', label: 'gpt-4o — older' },
 ]
 
 export default function SettingsPage() {
@@ -152,8 +157,10 @@ export default function SettingsPage() {
         <section>
           <h2 className="text-sm font-semibold">Data</h2>
           <p className="mt-1 text-sm text-stone-400">
-            Everything lives in this browser's IndexedDB. Export keeps a JSON backup of your
-            highlights and conversations (books themselves are not included).
+            Everything lives in this browser's IndexedDB. The export is a JSON file containing
+            your highlighted passages and the surrounding text, every chat message, and the
+            AI's running notes on each book. It does not include your API key or the book
+            files. Treat it as a record of what you read and thought.
           </p>
           <button
             onClick={() => void exportData()}

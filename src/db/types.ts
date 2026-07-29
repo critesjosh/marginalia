@@ -47,6 +47,13 @@ export interface Conversation {
   context?: string
   chapter?: string
   progress?: number
+  /**
+   * How many of this conversation's messages are already in the book digest.
+   *
+   * Belongs to the conversation, not the book: a single book-wide counter gets
+   * indexed into one conversation's message list and silently starves the others.
+   */
+  summarizedCount?: number
   createdAt: number
   updatedAt: number
 }
@@ -64,8 +71,6 @@ export interface Message {
 export interface BookMemory {
   bookId: string
   summary: string
-  /** Number of messages already folded into the summary, to avoid redundant calls. */
-  messagesSummarized: number
   updatedAt: number
 }
 

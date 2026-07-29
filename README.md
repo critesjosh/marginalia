@@ -37,6 +37,8 @@ npx tsc -b        # typecheck
 
 The OpenAI key is stored in IndexedDB in your browser and is sent only to `api.openai.com`. **This is a single-user personal tool** — there is no backend, so anyone with access to the browser profile can read the key. Don't use it on a shared device. If this is ever shared, move the key behind a small proxy (a Cloudflare Worker) instead.
 
+Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read the key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` restricts `connect-src` to this origin and OpenAI as a second layer.
+
 Defaults to `gpt-4o-mini` for both chat and the memory digest; both are configurable in Settings.
 
 ## How it works

@@ -8,6 +8,7 @@ import { OpenAIError, streamChat } from '../lib/openai'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { THEMES } from '../lib/themes'
+import { useModal } from '../lib/useModal'
 import { CloseIcon, SendIcon } from './Icons'
 
 export default function ChatSheet({
@@ -26,6 +27,9 @@ export default function ChatSheet({
   const [error, setError] = useState<string>()
   const abortRef = useRef<AbortController>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Land on the composer: opening a chat to ask something and having to tab
+  // past the close button first is the wrong default.
+  const sheetRef = useModal<HTMLElement>(onClose, 'textarea')
 
   const conversation = useLiveQuery(
     () => db.conversations.get(conversationId),
@@ -46,29 +50,35 @@ export default function ChatSheet({
     const content = text.trim()
     if (!content || busy || !conversation) return
 
-    const settings = await getSettings()
-    if (!settings.apiKey) {
-      setError('Add your OpenAI API key in Settings to start chatting.')
-      return
-    }
-
     setError(undefined)
-    setDraft('')
     setBusy(true)
-
-    await db.messages.add({
-      id: newId(),
-      conversationId,
-      role: 'user',
-      content,
-      createdAt: Date.now(),
-    })
-    await db.conversations.update(conversationId, { updatedAt: Date.now() })
 
     const controller = new AbortController()
     abortRef.current = controller
 
+    // Tracks how far we got, so a failure can put the reader back where they
+    // were instead of stranding a question with no answer.
+    let userMessageId: string | undefined
+
     try {
+      const settings = await getSettings()
+      if (!settings.apiKey) {
+        throw new Error('Add your OpenAI API key in Settings to start chatting.')
+      }
+
+      // Only clear the composer once the message is safely stored. Clearing it
+      // first loses the text outright if IndexedDB rejects the write.
+      userMessageId = newId()
+      await db.messages.add({
+        id: userMessageId,
+        conversationId,
+        role: 'user',
+        content,
+        createdAt: Date.now(),
+      })
+      await db.conversations.update(conversationId, { updatedAt: Date.now() })
+      setDraft('')
+
       const [book, history, memory] = await Promise.all([
         db.books.get(conversation.bookId),
         db.messages.where('conversationId').equals(conversationId).sortBy('createdAt'),
@@ -100,7 +110,16 @@ export default function ChatSheet({
         void updateBookMemory(conversation.bookId, conversationId)
       }
     } catch (err) {
+      // A cancelled request keeps its question: the reader chose to stop, and
+      // deleting what they typed would read as data loss. Any other failure
+      // rolls the turn back so the transcript never shows a question that was
+      // never actually asked, and hands the text back to the composer.
       if ((err as Error)?.name === 'AbortError') return
+
+      if (userMessageId) {
+        await db.messages.delete(userMessageId).catch(() => {})
+      }
+      setDraft((current) => (current.trim() ? current : content))
       setError(
         err instanceof OpenAIError || err instanceof Error
           ? err.message
@@ -118,6 +137,10 @@ export default function ChatSheet({
       <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden />
 
       <section
+        ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={conversation?.title ?? 'Conversation'}
         className={`relative flex h-[85%] flex-col rounded-t-2xl border-t ${palette.chrome} ${palette.chromeText} ${palette.border} shadow-2xl`}
       >
         <header className={`flex items-start gap-2 border-b px-4 py-3 ${palette.border}`}>
@@ -129,7 +152,11 @@ export default function ChatSheet({
               <p className="truncate text-xs opacity-55">{conversation.chapter}</p>
             )}
           </div>
-          <button onClick={onClose} aria-label="Close chat" className="p-1 opacity-70">
+          <button
+            onClick={onClose}
+            aria-label="Close chat"
+            className="-m-2 flex h-11 w-11 shrink-0 items-center justify-center opacity-70"
+          >
             <CloseIcon />
           </button>
         </header>

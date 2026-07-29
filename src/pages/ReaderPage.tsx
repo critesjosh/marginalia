@@ -328,11 +328,11 @@ export default function ReaderPage() {
           />
         </div>
         <div className="flex items-center justify-between px-4 py-2 text-xs opacity-60">
-          <button onClick={reader.prev} className="py-1">
+          <button onClick={reader.prev} className="-my-1 px-4 py-3">
             ‹ Prev
           </button>
           <span>{percent}%</span>
-          <button onClick={reader.next} className="py-1">
+          <button onClick={reader.next} className="-my-1 px-4 py-3">
             Next ›
           </button>
         </div>

@@ -1,5 +1,6 @@
 import type { ReaderTheme } from '../db/types'
 import { THEMES } from '../lib/themes'
+import { useModal } from '../lib/useModal'
 
 const THEME_OPTIONS: { value: ReaderTheme; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -22,11 +23,16 @@ export default function DisplaySheet({
   onClose: () => void
 }) {
   const palette = THEMES[theme]
+  const ref = useModal<HTMLDivElement>(onClose)
 
   return (
     <div className="fixed inset-0 z-40 flex items-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} aria-hidden />
       <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Display settings"
         className={`pb-safe relative w-full rounded-t-2xl border-t px-5 pt-5 ${palette.chrome} ${palette.chromeText} ${palette.border} shadow-2xl`}
       >
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-current opacity-20" />
