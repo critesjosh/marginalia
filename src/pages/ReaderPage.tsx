@@ -113,11 +113,31 @@ export default function ReaderPage() {
     return (Array.isArray(contents) ? contents : [contents]).find((c) => c?.document)
   }
 
+  /**
+   * Tapping a highlight reopens the conversation it started, if there is one.
+   * Highlights with no conversation fall back to the selection bar, which is
+   * also where recolouring and deleting live.
+   */
   function openHighlight(highlight: Highlight) {
-    const contents = currentContents()
-    const rect = contents && selectionRect(contents, highlight.cfiRange)
-    if (!rect) return
-    setActive({ cfiRange: highlight.cfiRange, text: highlight.text, rect, contents, highlight })
+    reader.suppressTap()
+
+    void (async () => {
+      const existing = await db.conversations
+        .where('highlightId')
+        .equals(highlight.id)
+        .first()
+
+      if (existing) {
+        setActive(undefined)
+        setChatId(existing.id)
+        return
+      }
+
+      const contents = currentContents()
+      const rect = contents && selectionRect(contents, highlight.cfiRange)
+      if (!rect) return
+      setActive({ cfiRange: highlight.cfiRange, text: highlight.text, rect, contents, highlight })
+    })()
   }
 
   async function saveHighlight(color: HighlightColor): Promise<Highlight | undefined> {

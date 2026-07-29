@@ -12,7 +12,7 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 | --- | --- |
 | M1 Library | EPUB import, OPF metadata + cover extraction, library grid, delete with cascade |
 | M2 Reader | Paginated epub.js rendition, position persistence, TOC, themes, font size |
-| M3 Highlights | Selection action bar, four colours, painted annotations, per-book list |
+| M3 Highlights | Selection action bar, four colours, painted annotations, tap a highlight to reopen its chat, per-book list |
 | M4 Chat | API key settings, context assembly, streaming replies, persisted conversations |
 | M5 Memory | Rolling per-book digest injected into every new conversation |
 
@@ -58,7 +58,19 @@ After every few messages, a cheap background call folds the exchange into that b
 
 ## Notes on the tricky parts
 
-Two behaviours are worth knowing about, because both were bugs found during testing:
+These all came out of bugs found by driving the real UI, and they share one root
+cause: epub.js lays a spine section out as a single strip far wider than the screen,
+so anything measured against the viewport needs the scroll offset applied first.
+
+**Tap coordinates.** epub.js re-emits iframe clicks with a `clientX` measured from the
+start of that strip, not the visible page. Comparing it against the viewport width made
+every tap past the first page read as "right edge", so the reader turned forward on
+every tap and both tap-back and tap-to-toggle-chrome were unreachable. The click handler
+in `src/lib/useReader.ts` subtracts `.epub-container`'s `scrollLeft` before deciding.
+Two related rules live there too: a click that finishes a drag-selection is not a page
+turn, and a tap on a highlight is claimed by the annotation callback, which needs the
+turn deferred by a task because marks-pane hand-proxies the same DOM event and the
+handler order is not guaranteed.
 
 **Single-file books.** Project Gutenberg puts an entire book in one XHTML file and splits chapters with `#anchor` fragments. Matching the table of contents on document href alone marks *every* chapter as current at once, so chapter detection resolves each anchor to a CFI and compares it against the reading position (`src/lib/chapters.ts`). Anchors are memoised per document — a 135-chapter book would otherwise re-measure the DOM on every page turn.
 

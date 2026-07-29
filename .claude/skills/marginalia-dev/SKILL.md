@@ -87,6 +87,36 @@ Two related notes. Navigation and rendering are async beyond one tick, so wait r
 subtitle (`header p + p`) is an independent read of the same position through
 `chapterAt`, so agreeing with it is a genuine cross-check.
 
+The same offset applies to synthetic input, in the other direction. A mouse event
+dispatched from inside the book iframe carries a `clientX` in strip coordinates, so a
+tap at screen x 620 arrives as 59120. Playwright's `page.mouse` works in screen
+coordinates and is what you want; only convert when reading a rect back out. Assert
+page turns on `.epub-container.scrollLeft`, which moves by exactly one `clientWidth`
+per turn, rather than on rendered text.
+
+## Checking a reader interaction
+
+Interaction bugs here hide behind plausible-looking screenshots, so assert on numbers:
+
+```js
+// scrollLeft before/after, in screen coordinates
+await page.mouse.click(80, 300);   // left third  -> back one page
+await page.mouse.click(700, 300);  // right third -> forward one page
+await page.mouse.click(390, 300);  // centre      -> toggles chrome, must not move
+```
+
+A tap that should not move the page and a tap that should are different assertions;
+check both, because the original bug turned the page on *every* tap and a test that
+only checked "forward works" passed happily. To click a painted highlight, take the
+mark's rect from the parent document and aim at its middle. The marks are short, around
+17px tall, so a click a couple of pixels off silently misses and reads as a page turn:
+
+```js
+const g = document.querySelector('svg g');
+const b = g.getBoundingClientRect();       // already parent-viewport coords
+// click at (b.left + b.width * 0.9, b.top + b.height / 2)
+```
+
 ## Testing chat
 
 Chat needs a real OpenAI key, entered in Settings and stored in IndexedDB. A key for

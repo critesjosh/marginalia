@@ -34,6 +34,8 @@ export interface ReaderApi {
   next: () => void
   prev: () => void
   goTo: (target: string) => void
+  /** Claims the in-flight tap so it does not also turn the page. */
+  suppressTap: () => void
 }
 
 const THEME_NAME = 'marginalia'
@@ -64,6 +66,7 @@ export function useReader(
   const tocRef = useRef<NavItem[]>([])
   tocRef.current = toc
   const anchorCache = useRef(new Map<string, ChapterAnchor[]>())
+  const suppressTapUntil = useRef(0)
 
   useEffect(() => {
     // `container` is a state-held element, not a ref: the viewer div mounts a
@@ -200,13 +203,31 @@ export function useReader(
       if (event.key === 'ArrowLeft') void rendition.prev()
     }
 
-    // epub.js re-emits clicks from inside the iframe with page coordinates.
     const onClick = (event: MouseEvent) => {
-      const width = container?.clientWidth ?? window.innerWidth
-      const x = event.clientX
-      if (x < width * 0.28) void rendition.prev()
-      else if (x > width * 0.72) void rendition.next()
-      else optionsRef.current.onTapCenter?.()
+      const scroller = container?.querySelector('.epub-container') as HTMLElement | null
+      const width = scroller?.clientWidth || container?.clientWidth || window.innerWidth
+
+      // epub.js re-emits clicks from inside the book iframe, and that iframe is
+      // as wide as the whole paginated strip rather than the visible page. Its
+      // clientX therefore counts from the start of the section, so on any page
+      // but the first it is far larger than the viewport and every tap reads as
+      // "right edge". Subtracting the scroll offset puts it back in page space.
+      const x = event.clientX - (scroller?.scrollLeft ?? 0)
+
+      // The click that finishes a drag-selection is not a page turn.
+      const selection = (event.target as Node | null)?.ownerDocument?.getSelection()
+      if (selection && !selection.isCollapsed && selection.toString().trim()) return
+
+      // A tap on a highlight rides the same DOM event: marks-pane hand-proxies
+      // mouse events to its annotations, so both handlers see this click and the
+      // order between them is not guaranteed. Defer the turn by a task to let an
+      // annotation callback claim the tap first.
+      window.setTimeout(() => {
+        if (Date.now() < suppressTapUntil.current) return
+        if (x < width * 0.28) void rendition.prev()
+        else if (x > width * 0.72) void rendition.next()
+        else optionsRef.current.onTapCenter?.()
+      }, 0)
     }
 
     rendition.on('selected', onSelected)
@@ -249,6 +270,9 @@ export function useReader(
     next: () => void rendition?.next(),
     prev: () => void rendition?.prev(),
     goTo: (target: string) => void goToSettled(rendition, target),
+    suppressTap: () => {
+      suppressTapUntil.current = Date.now() + 400
+    },
   }
 }
 
