@@ -8,6 +8,17 @@ import { parseEpubFile } from './epub'
 const SAMPLE_URL = '/books/moby-dick.epub'
 const SAMPLE_FILENAME = 'moby-dick.epub'
 
+/**
+ * Fixed, rather than generated per import. Two tabs opened at once on a fresh
+ * profile both see an empty library and both fetch, and `inFlight` only guards
+ * one JavaScript realm. Sharing a primary key means the second insert loses to
+ * a ConstraintError instead of producing a second copy of the book.
+ *
+ * Claiming the flag before the fetch would also prevent it, but a first run
+ * that is offline would then never retry.
+ */
+const SAMPLE_BOOK_ID = 'sample-moby-dick'
+
 /** StrictMode mounts effects twice in dev; one import attempt is enough. */
 let inFlight: Promise<boolean> | undefined
 
@@ -40,7 +51,7 @@ async function run(): Promise<boolean> {
     if (!response.ok) return false
 
     const book = await parseEpubFile(await response.blob(), SAMPLE_FILENAME)
-    await db.books.add(book)
+    await db.books.add({ ...book, id: SAMPLE_BOOK_ID })
     await saveSettings({ sampleBookSeeded: true })
     return true
   } catch {

@@ -97,15 +97,31 @@ export async function streamChat({
         complete = true
         continue
       }
+
+      let parsed
       try {
-        const parsed = JSON.parse(payload)
-        const delta: string = parsed.choices?.[0]?.delta?.content ?? ''
-        if (delta) {
-          full += delta
-          onDelta(delta)
-        }
+        parsed = JSON.parse(payload)
       } catch {
         // Ignore keep-alives and any non-JSON frames.
+        continue
+      }
+
+      // A failure after the response headers are committed cannot come back as
+      // an HTTP status, so it arrives in-band: a frame carrying a top-level
+      // `error` and an empty delta. Left unhandled it reads as a turn that
+      // produced nothing, and any text streamed before it would be stored as a
+      // complete answer.
+      if (parsed?.error) {
+        throw new InferenceError(
+          parsed.error.message || 'The model provider failed part-way through the reply.',
+          parsed.error.code,
+        )
+      }
+
+      const delta: string = parsed?.choices?.[0]?.delta?.content ?? ''
+      if (delta) {
+        full += delta
+        onDelta(delta)
       }
     }
   }
