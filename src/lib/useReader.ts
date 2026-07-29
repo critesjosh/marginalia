@@ -5,6 +5,7 @@ import type { ReaderTheme } from '../db/types'
 import { db } from '../db/db'
 import { epubThemeStyles } from './themes'
 import { buildAnchors, chapterAt, normalizeHref, type ChapterAnchor } from './chapters'
+import { longPressToSelect } from './touchSelect'
 
 export interface ReaderLocation {
   cfi: string
@@ -76,6 +77,7 @@ export function useReader(
     let cancelled = false
     let epubBook: EpubBook | undefined
     let rend: Rendition | undefined
+    const detachTouch = new Set<() => void>()
     setReady(false)
     setError(undefined)
     anchorCache.current.clear()
@@ -115,6 +117,11 @@ export function useReader(
           allowScriptedContent: false,
         })
 
+        // Registered before the first display so section one gets it too.
+        rend.hooks.content.register((contents: Contents) => {
+          detachTouch.add(longPressToSelect(contents))
+        })
+
         const opts = optionsRef.current
         rend.themes.register(THEME_NAME, epubThemeStyles(opts.theme))
         rend.themes.select(THEME_NAME)
@@ -151,6 +158,8 @@ export function useReader(
       setRendition(undefined)
       setEpub(undefined)
       setReady(false)
+      for (const detach of detachTouch) detach()
+      detachTouch.clear()
       try {
         rend?.destroy()
         epubBook?.destroy()
@@ -168,6 +177,8 @@ export function useReader(
       start?: { cfi: string; href: string; percentage?: number }
       end?: { cfi: string }
     }) => {
+      snapToPage(container, rendition)
+
       const cfi = loc?.start?.cfi
       const href = loc?.start?.href
       if (!cfi || !href) return
@@ -194,7 +205,7 @@ export function useReader(
     return () => {
       rendition.off('relocated', handler)
     }
-  }, [rendition, epub, bookId])
+  }, [rendition, epub, bookId, container])
 
   // Selection, taps, and keyboard navigation inside the book iframe.
   useEffect(() => {
@@ -302,13 +313,52 @@ async function goToSettled(rendition: Rendition | undefined, target: string) {
   }
 }
 
+/** Single-spread paginated mode renders one section at a time. */
+function currentContents(rendition: Rendition): Contents | undefined {
+  const contents = rendition.getContents() as unknown as Contents[] | Contents
+  if (!contents) return undefined
+  return (Array.isArray(contents) ? contents : [contents]).find((c) => c?.document)
+}
+
+/**
+ * Re-aligns the paginated strip to a column boundary.
+ *
+ * epub.js turns a page with `scrollLeft += layout.delta`, never with an absolute
+ * position, and a phone's compositor rounds each of those writes to whole device
+ * pixels. At a device pixel ratio of 2.625 that discards up to a third of a CSS
+ * pixel per turn, and nothing re-anchors it, so a few hundred turns leave the
+ * viewport straddling two columns: half of one page beside half of the next.
+ * The same drift is why a table-of-contents jump lands short of its chapter --
+ * epub.js resolves the anchor to `floor(x / delta) * delta`, which is only the
+ * right column while `delta` still matches the pitch the browser laid out.
+ *
+ * Snapping after every relocation makes the error absolute rather than
+ * cumulative, so it can never exceed a single turn.
+ */
+function snapToPage(container: HTMLElement | null, rendition: Rendition) {
+  const scroller = container?.querySelector('.epub-container') as HTMLElement | null
+  if (!scroller) return
+
+  // The body box is one column plus its gap, which is exactly the scroll pitch.
+  // Read it from the rendered document rather than from `layout.delta`, since
+  // the drift being corrected is precisely the two disagreeing.
+  const body = currentContents(rendition)?.document?.body
+  const pitch = body?.getBoundingClientRect().width || scroller.clientWidth
+  if (!pitch) return
+
+  const snapped = Math.min(
+    Math.round(scroller.scrollLeft / pitch) * pitch,
+    scroller.scrollWidth - scroller.clientWidth,
+  )
+  if (Math.abs(snapped - scroller.scrollLeft) < 0.5) return
+  scroller.scrollLeft = snapped
+}
+
 /** Longest we will wait on images before repositioning anyway. */
 const LAYOUT_SETTLE_TIMEOUT_MS = 3000
 
 async function waitForIdleLayout(rendition: Rendition) {
-  const contents = rendition.getContents() as unknown as Contents[] | Contents
-  const current = (Array.isArray(contents) ? contents : [contents]).find((c) => c?.document)
-  const doc = current?.document
+  const doc = currentContents(rendition)?.document
   if (!doc) return
 
   const pending = [...doc.images].filter((img) => !img.complete)
@@ -372,9 +422,7 @@ function anchorsForHref(
   const cached = cache.get(key)
   if (cached) return cached
 
-  // Single-spread paginated mode renders one section at a time.
-  const contents = rendition.getContents() as unknown as Contents[] | Contents
-  const current = (Array.isArray(contents) ? contents : [contents]).find((c) => c?.document)
+  const current = currentContents(rendition)
   if (!current) return []
 
   const anchors = buildAnchors(toc, href, current)
