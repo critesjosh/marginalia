@@ -139,6 +139,10 @@ export default function ChatsPage() {
 
         {tab === 'memory' && (
           <MemoryPanel
+            // Keyed so an unsaved draft cannot follow the reader to another
+            // book: this page is reused across `bookId`, and Save writes to
+            // whichever book is current.
+            key={bookId}
             book={book}
             memory={memory}
             latest={conversations?.[0]}

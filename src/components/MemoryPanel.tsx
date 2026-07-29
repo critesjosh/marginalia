@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Book, BookMemory, Conversation, Settings } from '../db/types'
 import { saveBookMemory } from '../lib/memory'
 import { buildSystemPrompt, type PromptContext } from '../lib/prompt'
@@ -28,6 +28,11 @@ export default function MemoryPanel({
   const [dirty, setDirty] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  // Read by `commit` after its write resolves, by which point `draft` may have
+  // moved on.
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+
   // Digest updates land in the background after a reply. Adopt them, but never
   // over the top of an edit the reader is in the middle of writing.
   useEffect(() => {
@@ -46,9 +51,13 @@ export default function MemoryPanel({
 
   const commit = async (text: string) => {
     await saveBookMemory(book.id, text)
-    setDirty(false)
     setSaved(true)
     window.setTimeout(() => setSaved(false), 2000)
+
+    // Only call it clean if it still is. Typing during the write would
+    // otherwise be marked saved, and the effect above would then replace those
+    // keystrokes with the text that actually went to disk.
+    if (draftRef.current === text) setDirty(false)
   }
 
   return (

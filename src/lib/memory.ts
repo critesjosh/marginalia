@@ -78,6 +78,14 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   if (!summary.trim()) return
 
   await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
+    // The digest this was merged from can have been rewritten by the reader
+    // while the model was working, and the result would put their wording back
+    // to what it replaced. Theirs wins. Leaving `summarizedCount` alone as well
+    // means these messages fold into the edited digest on the next reply rather
+    // than being dropped.
+    const current = await db.bookMemory.get(bookId)
+    if (current?.updatedAt !== existing?.updatedAt) return
+
     await db.bookMemory.put({ bookId, summary: summary.trim(), updatedAt: Date.now() })
     await db.conversations.update(conversationId, { summarizedCount: messages.length })
   })
