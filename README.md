@@ -17,10 +17,11 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 | M3 Highlights | Selection action bar, four colours, painted annotations, tap a highlight to reopen its chat, per-book list |
 | M4 Chat | Hosted relay or own OpenAI key, context assembly, streaming replies, persisted conversations |
 | M5 Memory | Rolling per-book digest injected into every new conversation, readable and editable under the reader's Memory tab |
+| M7a Book index | Every book indexed on the device as it is read, so a chat carries matching passages from earlier in the book — and the spoiler guard becomes a filter rather than a request |
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
 
-`local-agent-plan.md` reviews a possible M7: a small model running on the phone crawling the whole book so the remote model sees more than the passage in front of the reader. Research only, nothing implemented.
+`local-agent-plan.md` is the review behind M7. The rest of it — a small model running on the phone to summarise what the index only quotes — is still proposal.
 
 ## Running it
 
@@ -72,10 +73,12 @@ Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.
 
 ```
 Library ──> Reader (epub.js) ──> Selection bar ──> Chat sheet
-   │            │                                      │
+   │            │                    │                 │
+   │            └─> Book index ──> Retrieval ──────────┤
+   │                                                   │
    └──────── IndexedDB (Dexie) ───────────────────────┘
      books · highlights · conversations · messages
-     bookMemory · settings
+     bookMemory · bookChunks · bookIndexState · settings
                                                   │ fetch
                                                   ▼
                                    /api/chat (Netlify edge function)
@@ -84,7 +87,15 @@ Library ──> Reader (epub.js) ──> Selection bar ──> Chat sheet
                                        OpenRouter ──> Gemma 4 26B
 ```
 
-Each conversation's system prompt carries the book metadata, the current chapter and percentage, the highlighted passage, roughly 2,400 characters of surrounding prose, the book's memory digest, and an optional spoiler guard.
+Each conversation's system prompt carries the book metadata, the current chapter and percentage, the highlighted passage, roughly 2,400 characters of surrounding prose, the book's memory digest, an outline of the chapters reached, up to four matching passages from earlier in the book, and an optional spoiler guard.
+
+## The book index
+
+Opening a book cuts it into roughly 6,000-character chunks, each addressed by a CFI and labelled with its chapter, and stores them in IndexedDB (`src/lib/bookIndex/`). Moby Dick becomes 191 chunks in about 250 ms. Nothing is uploaded and no model is involved: when a chat starts, chunks are scored by IDF-weighted term overlap against the highlighted passage and the reader's question, and the best few are quoted into the prompt. Names score highest, which is the point — "who was Bulkington?" finds the two chapters that name him, and no amount of surrounding prose would have.
+
+A relevance floor keeps ordinary English out. A chunk is quoted only when the terms it shares with the query are distinctive enough: measured against this book, "Bulkington" scores 9.1 and "Queequeg" 2.9 against a bar of 2.2, while "whale" reaches 1.6 and "day" plus "men" 1.9. The vocabulary of asking about books — *mentioned*, *describes*, *chapter* — is stoplisted, because Melville writes "mentioned" far less often than he writes his own harpooneer, and without that "where has Queequeg been mentioned?" ranks on the wrong word.
+
+Because every chunk knows where it is, the spoiler guard stops being a request. Chunks past the reader's position are not sent at all, the cursor found by comparing CFIs rather than percentages. A conversation that cannot be placed gets no excerpts, since any of them might be the ending. The Memory tab shows what was found and the whole prompt it lands in; **Search the whole book** in Settings turns it off.
 
 After every few messages, a cheap background call folds the exchange into that book's digest (capped around 250 words), which is then injected into every future conversation for the book. Failures there are swallowed so the summariser can never break the chat.
 
@@ -113,6 +124,10 @@ handler order is not guaranteed.
 Chapter titles are matched against the page's **end** CFI, not its start: when a chapter heading appears partway down a page, the reader can see the new chapter even though the page still opens with the tail of the previous one.
 
 `useReader` takes a book *id* rather than a book record, because `useLiveQuery` returns a fresh object after every write and the hook writes the reading position on every relocate — depending on the record rebuilt the rendition in a loop.
+
+**CFIs from element ranges do not compare.** The index addresses each chunk with `section.cfiFromElement(firstBlock)`, never with a range over the chunk's blocks, and this is not a style preference. A range built with `setStartBefore(block)` has the block's *parent* as its container and the child index as its offset, and epub.js encodes that offset as a character position in the parent's first text node — so every chunk in a section comes out as something like `/4,/1:20,/1:31`, which compares as the very start of the document. The failure is silent: the CFIs are well-formed and resolve fine, only their ordering is wrong. All 191 chunks of Moby Dick collapsed onto their section's first chapter, and the index reported 12 chapters for a 135-chapter book. `cfiFromRange` is right for a text selection, where the boundaries really are text nodes with offsets, which is why highlights use it.
+
+**Chunk boundaries are not chapter boundaries.** A chunk is a fixed length of prose, so several short chapters can start inside one. Labelling each chunk only with the chapter it opens in dropped 24 of this book's 141 table-of-contents entries from the outline, and named the chapter *before* the one the reader could see in the header. Each chunk therefore also records the chapters that begin inside it.
 
 ## Limitations
 

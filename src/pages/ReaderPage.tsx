@@ -22,6 +22,7 @@ import {
   type SelectionRect,
 } from '../lib/highlights'
 import { titleFromSeed } from '../lib/prompt'
+import { ensureBookIndex } from '../lib/bookIndex/build'
 import TocDrawer from '../components/TocDrawer'
 import DisplaySheet from '../components/DisplaySheet'
 import SelectionBar from '../components/SelectionBar'
@@ -96,6 +97,15 @@ export default function ReaderPage() {
     // render would make highlights flicker on each page turn.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reader.rendition, highlights, isDark, reader.ready])
+
+  // Index the book once it is open and on screen. Deliberately after `ready`:
+  // extraction parses every spine document on this thread, and doing that while
+  // epub.js is still laying out the first page competes with the reader for it.
+  useEffect(() => {
+    if (!bookId || !reader.ready || !settings.bookIndex) return
+    const started = window.setTimeout(() => void ensureBookIndex(bookId), 1500)
+    return () => window.clearTimeout(started)
+  }, [bookId, reader.ready, settings.bookIndex])
 
   // Deep link from the highlights list: jump once, then drop the param so a
   // later page turn isn't undone by a re-render.
@@ -209,6 +219,9 @@ export default function ReaderPage() {
       context: highlight.context,
       chapter: highlight.chapter ?? reader.location?.chapter,
       progress: highlight.progress ?? reader.location?.progress,
+      // Where this chat sits in the book, exactly. The index compares CFIs to
+      // decide what the reader has already read, and a percentage cannot.
+      seedCfi: highlight.cfiRange,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }

@@ -6,6 +6,7 @@ import type { ReaderTheme } from '../db/types'
 import { newId } from '../lib/id'
 import { InferenceError, streamChat, targetFor } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
+import { retrieveBookContext } from '../lib/bookIndex/retrieve'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { THEMES } from '../lib/themes'
 import { useModal } from '../lib/useModal'
@@ -81,10 +82,23 @@ export default function ChatSheet({
       await db.conversations.update(conversationId, { updatedAt: Date.now() })
       setDraft('')
 
-      const [book, history, memory] = await Promise.all([
+      const [book, history, memory, bookContext] = await Promise.all([
         db.books.get(conversation.bookId),
         db.messages.where('conversationId').equals(conversationId).sortBy('createdAt'),
         getBookMemory(conversation.bookId),
+        // Retrieval sees the question as well as the passage, so a chat that
+        // drifts to "where was this mentioned before?" pulls the right excerpts
+        // rather than the ones the highlight happened to match.
+        settings.bookIndex
+          ? retrieveBookContext({
+              bookId: conversation.bookId,
+              seedText: conversation.seedText,
+              question: content,
+              cfi: conversation.seedCfi,
+              progress: conversation.progress,
+              spoilerGuard: settings.spoilerGuard,
+            })
+          : undefined,
       ])
       if (!book) throw new Error('This book is no longer in your library.')
 
@@ -92,7 +106,7 @@ export default function ChatSheet({
       const reply = await streamChat({
         target,
         signal: controller.signal,
-        messages: buildMessages({ book, conversation, history, memory, settings }),
+        messages: buildMessages({ book, conversation, history, memory, bookContext, settings }),
         onDelta: (delta) => {
           acc += delta
           setStreaming(acc)

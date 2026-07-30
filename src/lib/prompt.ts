@@ -1,4 +1,5 @@
 import type { Book, Conversation, Message, Settings } from '../db/types'
+import type { BookContext } from './bookIndex/retrieve'
 import type { ChatMessage } from './inference'
 import { newId } from './id'
 
@@ -38,11 +39,14 @@ export function buildSystemPrompt({
   book,
   conversation,
   memory,
+  bookContext,
   spoilerGuard,
 }: {
   book: Book
   conversation: PromptContext
   memory?: string
+  /** What the on-device index found, already filtered to the reader's position. */
+  bookContext?: BookContext
   spoilerGuard: boolean
 }): string {
   const fence = fenceToken()
@@ -83,6 +87,33 @@ export function buildSystemPrompt({
     )
   }
 
+  if (bookContext?.chapters.length) {
+    const outline = bookContext.chaptersElided
+      ? [...bookContext.chapters.slice(0, 5), '…', ...bookContext.chapters.slice(5)]
+      : bookContext.chapters
+    lines.push(
+      '',
+      '## The chapters the reader has reached, in order',
+      fenced(fence, outline.join('\n')),
+    )
+  }
+
+  if (bookContext?.excerpts.length) {
+    lines.push(
+      '',
+      '## Passages from earlier in the book',
+      fenced(
+        fence,
+        bookContext.excerpts
+          .map((e) => `[${e.percent}%${e.chapter ? ` · ${e.chapter}` : ''}] ${e.text}`)
+          .join('\n\n'),
+      ),
+      'These are the book’s own words, pulled from the reader’s copy by keyword search on their',
+      'device — not chosen by anyone who understood the question. Quote and reason from them when',
+      'they are relevant, and ignore them when they are not. Do not describe how they were found.',
+    )
+  }
+
   if (memory?.trim()) {
     lines.push(
       '',
@@ -98,6 +129,12 @@ export function buildSystemPrompt({
       '## Spoilers',
       "The reader is partway through. Do not reveal plot developments beyond their current position unless they explicitly ask. If answering well requires going further, say so and ask first.",
     )
+    if (bookContext) {
+      lines.push(
+        'Everything quoted above comes from at or before their position, so none of it can spoil',
+        'anything. What you know of this book from elsewhere still can.',
+      )
+    }
   }
 
   return lines.join('\n')
@@ -108,18 +145,21 @@ export function buildMessages({
   conversation,
   history,
   memory,
+  bookContext,
   settings,
 }: {
   book: Book
   conversation: Conversation
   history: Message[]
   memory?: string
+  bookContext?: BookContext
   settings: Settings
 }): ChatMessage[] {
   const system = buildSystemPrompt({
     book,
     conversation,
     memory,
+    bookContext,
     spoilerGuard: settings.spoilerGuard,
   })
 

@@ -227,6 +227,48 @@ Memory digests fire every 4 messages (`MESSAGES_PER_UPDATE` in `src/lib/memory.t
 all summariser failures are swallowed by design, so a broken digest is invisible in the
 UI. Check `db.bookMemory` directly when testing that path.
 
+## Testing the book index
+
+The index and retrieval are pure functions over IndexedDB, so they are the one part of this app
+that can be tested without pretending to be a reader. In dev, Vite serves the app's own modules,
+so a page can import them and call them directly:
+
+```js
+await page.evaluate(async () => {
+  const { db } = await import('/src/db/db.ts')
+  const { retrieveBookContext } = await import('/src/lib/bookIndex/retrieve.ts')
+  const book = (await db.books.toArray())[0]
+  const chunks = await db.bookChunks.where('bookId').equals(book.id).sortBy('index')
+  return retrieveBookContext({ bookId: book.id, seedText: 'Queequeg', cfi: chunks[80].cfiStart, spoilerGuard: true })
+})
+```
+
+epub.js is CommonJS, so `import('epubjs')` fails in the page. Vite's pre-bundled copy at
+`/node_modules/.vite/deps/epubjs.js` works, and is how to exercise `extract.ts` against a real
+spine without the reader.
+
+Three things to know before believing a result:
+
+`page.waitForFunction` treats an **async** predicate's Promise as truthy and resolves
+immediately, so `waitForFunction(async () => (await db.books.count()) > 0)` passes against an
+empty database. Poll from Node with a loop of `page.evaluate` instead.
+
+Indexing starts 1.5 s after the rendition is ready, so a book opened and immediately queried has
+no index. Each Playwright launch is a fresh profile, so it always rebuilds.
+
+To see what a chat really sends, stub the relay and read the request rather than inferring from
+the UI:
+
+```js
+await page.route('**/api/chat', async (route) => {
+  captured = route.request().postDataJSON()
+  await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":{"message":"stub"}}' })
+})
+```
+
+That is the only assertion that proves the prompt, since `buildSystemPrompt` is assembled from
+four sources and the Memory tab renders it through a second code path.
+
 ## Before committing
 
 `.env.local` holds a live API key. Recursive `grep -r` in this repo silently skips

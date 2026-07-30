@@ -2,6 +2,8 @@ import Dexie, { type EntityTable } from 'dexie'
 import {
   DEFAULT_SETTINGS,
   type Book,
+  type BookChunk,
+  type BookIndexState,
   type BookMemory,
   type Conversation,
   type Highlight,
@@ -15,6 +17,8 @@ class MarginaliaDB extends Dexie {
   conversations!: EntityTable<Conversation, 'id'>
   messages!: EntityTable<Message, 'id'>
   bookMemory!: EntityTable<BookMemory, 'bookId'>
+  bookChunks!: EntityTable<BookChunk, 'id'>
+  bookIndexState!: EntityTable<BookIndexState, 'bookId'>
   settings!: EntityTable<Settings, 'id'>
 
   constructor() {
@@ -25,6 +29,18 @@ class MarginaliaDB extends Dexie {
       conversations: 'id, bookId, highlightId, updatedAt, [bookId+updatedAt]',
       messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
       bookMemory: 'bookId, updatedAt',
+      settings: 'id',
+    })
+    // The on-device book index. Existing tables are repeated because Dexie takes
+    // each version as the whole schema, not a delta.
+    this.version(2).stores({
+      books: 'id, title, author, addedAt, lastOpenedAt',
+      highlights: 'id, bookId, createdAt, [bookId+createdAt]',
+      conversations: 'id, bookId, highlightId, updatedAt, [bookId+updatedAt]',
+      messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
+      bookMemory: 'bookId, updatedAt',
+      bookChunks: 'id, bookId',
+      bookIndexState: 'bookId',
       settings: 'id',
     })
   }
@@ -64,7 +80,15 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 export async function deleteBook(bookId: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.books, db.highlights, db.conversations, db.messages, db.bookMemory],
+    [
+      db.books,
+      db.highlights,
+      db.conversations,
+      db.messages,
+      db.bookMemory,
+      db.bookChunks,
+      db.bookIndexState,
+    ],
     async () => {
       const conversationIds = await db.conversations
         .where('bookId')
@@ -74,9 +98,19 @@ export async function deleteBook(bookId: string): Promise<void> {
       await db.conversations.where('bookId').equals(bookId).delete()
       await db.highlights.where('bookId').equals(bookId).delete()
       await db.bookMemory.delete(bookId)
+      await db.bookChunks.where('bookId').equals(bookId).delete()
+      await db.bookIndexState.delete(bookId)
       await db.books.delete(bookId)
     },
   )
+}
+
+/** Drops a book's index. Reopening the book rebuilds it. */
+export async function deleteBookIndex(bookId: string): Promise<void> {
+  await db.transaction('rw', [db.bookChunks, db.bookIndexState], async () => {
+    await db.bookChunks.where('bookId').equals(bookId).delete()
+    await db.bookIndexState.delete(bookId)
+  })
 }
 
 /** Removes a conversation and its messages. */

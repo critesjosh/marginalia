@@ -5,8 +5,13 @@ running on the reader's phone crawl large sections of a book and feed summaries,
 information and other distilled notes to the remote model over the API? And what would that
 require of this application's architecture?
 
-Nothing here is implemented. This document is the review; the milestones at the end are the
-proposal.
+**Status.** M7a — the index, retrieval and the position filter — is implemented and verified
+against the bundled Moby Dick; the sections below are marked where they describe shipped code,
+and where building it contradicted this review, the review is corrected rather than tidied.
+M7b onwards, everything involving a model on the device, is still proposal.
+
+The PWA constraint has since been relaxed: going native is acceptable where the advantage is
+large, which reopens the option in the table below and is noted in the open questions.
 
 ## Verdict
 
@@ -185,56 +190,72 @@ everything else regardless of which local runtime wins.
 
 ## Architecture changes
 
-### 1. Headless spine extraction — new
+### 1. Headless spine extraction — new — **built, `src/lib/bookIndex/extract.ts`**
 
 The missing primitive. epub.js can do it without a rendition:
 
 ```ts
-// src/lib/bookIndex/extract.ts
 const request = book.load.bind(book)          // what locations.js passes to section.load
 // Sequentially: spine.each is Array.forEach, so an async callback there would load
 // every section at once and hold the whole book in memory.
 for (const section of book.spine.spineItems) {
   await section.load(request)                 // resolves to documentElement; the .d.ts claims a Document
   const doc = section.document
-  // accumulate block elements to a ~2,000-token budget, then:
-  const range = doc.createRange()
-  range.setStartBefore(firstBlock)
-  range.setEndAfter(lastBlock)
-  const cfi = section.cfiFromRange(range)     // addressable without ever rendering
+  // accumulate leaf block elements to a character budget, then:
+  const cfi = section.cfiFromElement(firstBlock)
   section.unload()                            // or a 135-chapter book stays resident
 }
 ```
 
 Requirements this has that the reader does not:
 
-- **Chunk on block boundaries with a token budget**, carrying the chapter label from
-  `buildAnchors` (`src/lib/chapters.ts`) and the progress fraction from `book.locations`, which
-  the reader already generates and caches in `books.locations`.
-- **Run off the main thread.** The parse is cheap next to inference but a 160 KB XHTML
-  document per section is not free, and the reader is mid-page-turn.
+- **Chunk on block boundaries with a length budget**, carrying the chapter label from
+  `buildAnchors` (`src/lib/chapters.ts`), which now takes the two capabilities it needs
+  structurally so a headless `Section` can stand in for a rendered `Contents`.
+- **Address each chunk with `cfiFromElement`, never `cfiFromRange`.** This one cost an
+  afternoon and is worth writing down. A range built with `setStartBefore(block)` has the
+  block's *parent* as its container and the child index as its offset, and epub.js encodes
+  that offset as a character position in the parent's first text node. Every chunk in a
+  section therefore came out as `/4,/1:20,/1:31` — which compares as the very start of the
+  document, so all 191 chunks of Moby Dick collapsed onto their section's first chapter and
+  the index reported 12 chapters for a 135-chapter book. It fails silently: the CFIs are
+  well-formed, they resolve, and only comparison is wrong. `cfiFromElement` gives an element
+  path that orders correctly against a reading position, which is all the index needs.
+- **Run on the main thread, and yield.** Not a choice: a Worker has no `DOMParser`, and
+  epub.js parses every spine document into one. Extraction hands the thread back between
+  sections instead, and starts a beat after the rendition is ready rather than competing with
+  first layout. Measured on the bundled Moby Dick — 217,000 words — that is 250 ms of work,
+  or 830 ms with the CPU throttled 4×. This is the constraint that will decide where the
+  local model runs in M7b: it cannot share this thread.
 - **Never touch the rendition.** Loading a section the reader is on would fight `useReader`
-  for `section.contents`; extraction gets its own `ePub(buffer)` instance inside the worker.
+  for `section.contents`, so extraction gets its own `ePub(buffer)` instance.
 
-### 2. Schema — new tables, Dexie v2
+### 2. Schema — new tables, Dexie v2 — **built for M7a**
 
 ```ts
 this.version(2).stores({
-  bookChunks: 'id, bookId, [bookId+index], [bookId+progress]',
-  chunkNotes: 'chunkId, bookId, [bookId+progress]',
-  bookEntities: 'id, bookId, [bookId+name], [bookId+firstProgress]',
-  bookIndexState: 'bookId',                    // cursor, model id, prompt version, counts
+  bookChunks: 'id, bookId',
+  bookIndexState: 'bookId',
+  // M7c adds:
+  // chunkNotes: 'chunkId, bookId',
+  // bookEntities: 'id, bookId, [bookId+name]',
 })
 ```
 
-- `bookChunks` — `cfiStart`/`cfiEnd`, `href`, `chapter`, `progress`, token count. Text is *not*
-  stored: it is re-derivable from the EPUB and would roughly double the storage a book costs.
-- `chunkNotes` — the local model's output, plus which model and prompt version produced it, so
-  a model upgrade can invalidate rather than silently mix vintages.
-- `bookEntities` — name, kind, aliases, `firstProgress`, chunk references. This is what makes
-  "who is this?" answerable without spoilers.
-- `bookIndexState` — the resumable cursor. `deleteBook` in `src/db/db.ts` must cascade to all
-  four.
+- `bookChunks` — `cfiStart`, `href`, `chapter`, `chapterStarts`, `progress`, and **the text**.
+  This review said not to store the text and that was wrong: retrieval has to score and quote
+  it, and re-parsing a spine document to do that would put an XHTML parse on the path of
+  sending a message. A book's plain text is about the size of its EPUB (1.2 MB against
+  812 KB here), which is nothing beside the multi-gigabyte quota the model would need.
+- `chapterStarts` was not in the plan either. A chunk is a fixed length of prose, so short
+  chapters begin *inside* one, and an outline built from each chunk's opening chapter silently
+  dropped 24 of Moby Dick's 141 entries — and named the chapter before the one the reader
+  could see in the header.
+- `bookIndexState` — version, counts, timestamp. Not a resumable cursor: for M7a the build is
+  seconds of parsing, so it runs in memory and commits once, and nothing ever reads a
+  half-built index. That inverts in M7c, where each chunk costs GPU seconds and resuming is
+  the whole point.
+- `deleteBook` in `src/db/db.ts` cascades to both, and `deleteBookIndex` drops just the index.
 
 ### 3. Local runtime — new, and in a Worker
 
@@ -273,40 +294,52 @@ the reader is actively using.
 - **Visible and stoppable.** A line in the reader's Memory tab: *indexed 41 of 154 chunks,
   paused (battery)*, with a stop control and a delete-index control.
 
-### 5. Retrieval and prompt assembly — changed
+### 5. Retrieval and prompt assembly — changed — **built, `src/lib/bookIndex/retrieve.ts`**
 
-`src/lib/prompt.ts` gains one section, and the selection logic lives in
-`src/lib/bookIndex/retrieve.ts`:
+`buildSystemPrompt` gains two sections: the chapters the reader has reached, and up to four
+excerpts, each labelled with its position.
 
-```
-## Notes from earlier in the book (compiled on your device)
-<fence>
-[12% · Ch. 3 Etc.] …
-</fence>
-```
-
-- **Selection**: chapter summaries up to the reader's position, notes for entities named in
-  the seed passage, notes for the surrounding chunks. Lexical scoring (BM25 over note text) is
-  enough to start; local embeddings are a later question and the JS API does not offer them.
-- **Budget it explicitly.** Something like 6,000 characters of notes, chosen to leave the relay's
-  120,000-character cap far away.
-- **The spoiler guard stops being a request and becomes a filter.** Today
-  `buildSystemPrompt` *asks* the model not to spoil. With `progress` on every note, notes past
-  the reader's position are simply not sent. That is the single clearest win in this document
-  and it does not require the local model to be good at anything.
-- **The fence is non-negotiable.** Notes are book-derived text and go inside `fenced()` with
-  the per-request `fenceToken()`, exactly like the passage and the digest.
+- **Selection is IDF-weighted term overlap** against the highlighted passage *and* the
+  reader's current question, with capitalised terms weighted double. Names are what lexical
+  retrieval is uniquely good at and what a model cannot guess from context.
+- **A relevance floor, not a frequency cutoff.** A chunk qualifies only if the summed weight
+  of the terms it shares with the query clears 2.2. Measured against this book: "Bulkington"
+  (in 1% of chunks) scores 9.1, "Queequeg" (30%) 2.9, "whale" (85%) 1.6, "day" plus "men" 1.9.
+  So a passage is quoted for sharing a name or a rare word and never for sharing ordinary
+  English. The first attempt used a hard "term must appear in under a third of the book"
+  rule, which puts the cut straight through a novel's main characters — Ahab is in 46% of
+  this one, Starbuck 32%, Queequeg 30%.
+- **Words about asking are not words from the book.** "Where has Queequeg been *mentioned*
+  before?" ranked chapters containing "mentioned" above chapters containing Queequeg, because
+  Melville writes "mentioned" far less often than he writes his own harpooneer. A short
+  stoplist of the vocabulary of literary discussion fixes the exact case the feature exists
+  for.
+- **The spoiler guard stops being a request and becomes a filter.** `buildSystemPrompt` still
+  *asks* the model not to spoil, but nothing past the reader's position is now sent to be
+  spoiled with. The cursor is found by comparing CFIs, exact rather than approximate, which is
+  why `Conversation` gained a `seedCfi`; a chat from before that field existed falls back to
+  its progress percentage. A conversation that cannot be placed at all gets no excerpts, since
+  any of them might be the ending. With the guard off the whole book is in scope — the reader
+  has said they want that.
+- **The fence is non-negotiable.** Excerpts are book text and go inside `fenced()` with the
+  per-request `fenceToken()`, exactly like the passage and the digest. The prompt also tells
+  the model how they were chosen and to ignore them when they are irrelevant, because keyword
+  retrieval is sometimes wrong and a model that trusts them unconditionally answers worse than
+  one that does not.
 
 Untouched: `shared/relay.ts`, `src/lib/inference.ts`, streaming, and the digest in
 `src/lib/memory.ts`. The remote path does not learn that a local model exists — it just
 receives a richer system prompt.
 
-### 6. Settings and UI — changed
+### 6. Settings and UI — changed — **M7a's share built**
 
-`Settings` gains `localAssist`, `localModelId`, `crawlPolicy`. `SettingsPage` gains a section
-that states the download size before anything is fetched, shows storage used, and offers
-delete-model and delete-all-indexes. `MemoryPanel` is the natural home for per-book index
-state, since it is already the screen that shows the reader what the model has been told.
+`Settings.bookIndex` turns the index on and off, defaulting on; `MemoryPanel` reports how many
+passages a book was indexed as and how many the last conversation matched, above the prompt
+preview it already renders — so the retrieved excerpts are visible in the exact form the model
+receives them.
+
+M7b and M7c still need: the download size stated before anything is fetched, storage used,
+delete-model, delete-all-indexes, and crawl policy.
 
 ### 7. Deployment — changed
 
@@ -380,12 +413,17 @@ setting; a dependency on an early-preview API.
 
 Staged so each step ships something and the risky step is last.
 
-**M7a — Book index, no ML.** Headless extraction, chunking with CFIs, `bookChunks` +
-`bookIndexState`, lexical retrieval, prompt section, position filtering for the spoiler guard.
-Runs everywhere, needs no model, and delivers the spoiler-guard win on its own. Note that
-without a local model there is nothing to summarise with, so what it retrieves is an outline
-plus verbatim excerpts. *Done when: a chat about chapter 40 carries the chapter outline up to
-that point and excerpts from the chunks around the passage, and nothing from chapter 41.*
+**M7a — Book index, no ML. Done.** Headless extraction, chunking with CFIs, `bookChunks` +
+`bookIndexState`, lexical retrieval, prompt sections, position filtering for the spoiler guard.
+Runs everywhere, needs no model, and delivers the spoiler-guard win on its own. Without a local
+model there is nothing to summarise with, so what it retrieves is an outline plus verbatim
+excerpts.
+
+Verified by driving the real reader against the bundled Moby Dick: 191 chunks and 117 chapter
+labels from 1.22 M characters in 250 ms; jumping to chapter 36 puts the cursor on *CHAPTER 36.
+The Quarter-Deck*, matching the header; "who was Bulkington?" returns the two chapters that
+name him and nothing else; a request captured off the wire carries both new sections, with
+every excerpt at or before the reader's 29%; turning the setting off removes them.
 
 **M7b — Local runtime spike, behind a flag.** `@litert-lm/core` in a worker, capability probe,
 model download and Cache API storage, one chunk summarised end to end on a real Android phone,
@@ -401,10 +439,14 @@ index can answer better than either model can guess.
 
 ## Open questions for the repo owner
 
-1. **Does the PWA line hold?** The strongest local-agent story on Android is the native ML Kit
-   Prompt API against a Gemini Nano that is *already on the device* — no 2 GB download at all.
-   Taking it means a Capacitor or TWA shell. The original plan deferred that; is it still
-   deferred?
+1. ~~**Does the PWA line hold?**~~ **Answered: it is not strict.** Going native is on the table
+   if the advantage is large, which puts the native ML Kit Prompt API against an
+   already-resident Gemini Nano — no 2 GB download, and inference that survives the screen
+   going off — squarely in scope for M7b to weigh against the browser runtime. M7a is
+   unaffected either way: extraction, the index and retrieval are the same code in a
+   Capacitor shell as in the browser, since epub.js and Dexie come along unchanged. The
+   decision point is where the *model* runs, and the DOMParser constraint above already says
+   it cannot be this thread.
 2. **Who pays for 2 GB?** Hugging Face directly, or an object store we control (and pay egress
    on)?
 3. **Whole book or just ahead of the reader?** This review assumes crawl-ahead. Whole-book-on-import
