@@ -21,6 +21,25 @@ const EXCERPT_CHARS = 700
 const MAX_CHAPTERS = 30
 
 /**
+ * How close to the best match an excerpt has to be to travel with it.
+ *
+ * The absolute floor below decides whether *anything* is worth quoting; this
+ * decides how many. Sending four passages when only one is a real match spends
+ * the reader's context on prose the model has to work out is irrelevant, and it
+ * competes for attention with the passage they actually highlighted. Better to
+ * send one good excerpt than one good and three passable.
+ */
+const MIN_RELATIVE_SCORE = 0.45
+
+/**
+ * A question is what the reader wants; the highlighted passage is only where
+ * they are. Both feed retrieval, but a chat that has drifted to "where was this
+ * mentioned before?" should follow the question rather than stay pinned to the
+ * sentence that started the conversation.
+ */
+const QUESTION_WEIGHT = 1.5
+
+/**
  * How distinctive a chunk's overlap with the query has to be to be worth sending.
  *
  * The weighted inverse document frequencies of the terms a chunk shares with the
@@ -202,7 +221,10 @@ function bestExcerpts(
 ): BookExcerpt[] {
   if (candidates.length === 0) return []
 
-  const query = queryTerms(`${request.seedText ?? ''} ${request.question ?? ''}`)
+  const query = queryTerms(request.seedText, 1)
+  for (const [term, weight] of queryTerms(request.question, QUESTION_WEIGHT)) {
+    query.set(term, Math.max(query.get(term) ?? 0, weight))
+  }
   if (query.size === 0) return []
 
   const counted = candidates.map((chunk) => ({ chunk, terms: countTerms(chunk.text) }))
@@ -248,9 +270,27 @@ function bestExcerpts(
     if (anchor && matchWeight >= MIN_MATCH_WEIGHT) scored.push({ chunk, score, anchor })
   }
 
-  return scored
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_EXCERPTS)
+  if (scored.length === 0) return []
+  scored.sort((a, b) => b.score - a.score)
+
+  const cutoff = scored[0].score * MIN_RELATIVE_SCORE
+  const chosen: ScoredChunk[] = []
+  const chapters = new Set<string>()
+
+  for (const candidate of scored) {
+    if (chosen.length >= MAX_EXCERPTS) break
+    if (candidate.score < cutoff) break
+
+    // One excerpt per chapter. Consecutive chunks of the same chapter score
+    // alike and read as the same passage twice, which spends the budget on
+    // repetition instead of on a second place in the book to look.
+    const chapter = candidate.chunk.chapter ?? `#${candidate.chunk.index}`
+    if (chapters.has(chapter)) continue
+    chapters.add(chapter)
+    chosen.push(candidate)
+  }
+
+  return chosen
     .sort((a, b) => a.chunk.index - b.chunk.index)
     .map(({ chunk, anchor }) => ({
       chapter: chunk.chapter,
@@ -260,8 +300,10 @@ function bestExcerpts(
 }
 
 /** Query terms mapped to a weight: capitalised words are the ones worth finding. */
-function queryTerms(text: string): Map<string, number> {
+function queryTerms(text: string | undefined, base: number): Map<string, number> {
   const terms = new Map<string, number>()
+  if (!text) return terms
+
   for (const match of text.matchAll(/[\p{L}][\p{L}']{2,}/gu)) {
     const raw = match[0]
     const term = raw.toLowerCase().replace(/'s$/, '')
@@ -269,7 +311,7 @@ function queryTerms(text: string): Map<string, number> {
 
     // A capitalised occurrence is a name, a place or a ship far more often than
     // it is the first word of a sentence, and those are what retrieval is for.
-    const weight = raw[0] === raw[0].toUpperCase() ? 2 : 1
+    const weight = base * (raw[0] === raw[0].toUpperCase() ? 2 : 1)
     terms.set(term, Math.max(terms.get(term) ?? 0, weight))
   }
   return terms
@@ -305,15 +347,39 @@ function excerptAround(text: string, term: string): string {
   let end = Math.min(text.length, start + EXCERPT_CHARS)
   start = Math.max(0, end - EXCERPT_CHARS)
 
-  // Snap to word boundaries so an excerpt never opens or closes mid-word.
-  if (start > 0) {
-    const space = text.indexOf(' ', start)
-    if (space !== -1 && space < centre) start = space + 1
-  }
-  if (end < text.length) {
-    const space = text.lastIndexOf(' ', end)
-    if (space > centre) end = space
-  }
+  // Prefer a sentence boundary, and settle for a word boundary. An excerpt that
+  // opens mid-clause reads as a fragment, and the model has to reconstruct who
+  // is speaking before it can use the passage at all.
+  start = snapForward(text, start, centre)
+  end = snapBackward(text, end, centre)
 
   return `${start > 0 ? '…' : ''}${text.slice(start, end).trim()}${end < text.length ? '…' : ''}`
+}
+
+/** Sentence end: a stop, any closing quote, then space. */
+const SENTENCE_END = /[.!?][”"’']?\s/gu
+
+/** Moves a start offset forward to a sentence start, or failing that a word. */
+function snapForward(text: string, from: number, limit: number): number {
+  if (from <= 0) return 0
+
+  const window = text.slice(from, limit)
+  const first = [...window.matchAll(SENTENCE_END)][0]
+  if (first) return from + first.index + first[0].length
+
+  const space = window.search(/\s/)
+  return space === -1 ? from : from + space + 1
+}
+
+/** Moves an end offset back to a sentence end, or failing that a word. */
+function snapBackward(text: string, to: number, limit: number): number {
+  if (to >= text.length) return text.length
+
+  const window = text.slice(limit, to)
+  const matches = [...window.matchAll(SENTENCE_END)]
+  const last = matches[matches.length - 1]
+  if (last) return limit + last.index + 1
+
+  const space = window.lastIndexOf(' ')
+  return space <= 0 ? to : limit + space
 }

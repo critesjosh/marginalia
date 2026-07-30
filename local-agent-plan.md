@@ -313,7 +313,15 @@ excerpts, each labelled with its position.
   before?" ranked chapters containing "mentioned" above chapters containing Queequeg, because
   Melville writes "mentioned" far less often than he writes his own harpooneer. A short
   stoplist of the vocabulary of literary discussion fixes the exact case the feature exists
-  for.
+  for. The question also outweighs the highlighted passage, so a chat that drifts follows the
+  reader rather than staying pinned to the sentence that started it.
+- **Sending a passage costs something.** Every excerpt competes for attention with the one the
+  reader actually highlighted, so quantity is gated twice: an excerpt must score within 45% of
+  the best match, and only one per chapter is sent. On "who was Bulkington?" that turns four
+  excerpts into the two chapters that name him — 1,100 characters instead of 2,800 — and a
+  thematic question with no distinctive overlap sends none at all. Windows are cut at sentence
+  boundaries, because a passage opening mid-clause makes the model reconstruct who is speaking
+  before it can use it.
 - **The spoiler guard stops being a request and becomes a filter.** `buildSystemPrompt` still
   *asks* the model not to spoil, but nothing past the reader's position is now sent to be
   spoiled with. The cursor is found by comparing CFIs, exact rather than approximate, which is
@@ -400,9 +408,19 @@ rather than changing it.
 
 ## What it buys, what it costs
 
-Buys: whole-book awareness instead of a 2,400-character window; a spoiler guard that is a
-filter rather than a polite request; entity lookups that work on books no model has memorised;
-smaller and cheaper remote requests; something useful to do while offline.
+What M7a actually buys, now that it exists and can be judged rather than predicted: a spoiler
+guard that is arithmetic instead of a polite request, which holds even when retrieval finds
+nothing; and grounded answers to callback questions about names, which is the most common thing
+a reader asks mid-novel and the thing ±1,200 characters of surrounding prose can never answer.
+On a book no model has memorised, that is the difference between an answer and fluent
+guesswork.
+
+What it does not buy: anything for a thematic question, which shares no distinctive term with
+the passages that would answer it, and no ability to say what happened in a chapter. Both need
+a model reading the book, which is M7c. Keyword retrieval is a floor, not a ceiling.
+
+The rest of the ladder buys: whole-book awareness rather than quotation; entity lookups that
+survive paraphrase; something useful to do while offline.
 
 Costs: a 2 GB download; 45 minutes to 2 hours of GPU time per book; battery and heat; two new
 subsystems (extraction/index and a scheduled local runtime) roughly doubling the app's moving
