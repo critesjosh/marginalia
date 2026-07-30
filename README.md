@@ -20,6 +20,8 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
 
+`local-agent-plan.md` reviews a possible M7: a small model running on the phone crawling the whole book so the remote model sees more than the passage in front of the reader. Research only, nothing implemented.
+
 ## Running it
 
 ```bash
