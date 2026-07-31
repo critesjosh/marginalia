@@ -1,8 +1,14 @@
-import type { Role, Settings } from '../db/types'
+import type { Citation, Role, Settings } from '../db/types'
 
 export interface ChatMessage {
   role: Role
   content: string
+}
+
+export interface ChatReply {
+  text: string
+  /** Sources the model searched, empty on a turn where it did not. */
+  citations: Citation[]
 }
 
 export class InferenceError extends Error {
@@ -75,7 +81,7 @@ function post({ target, messages, signal }: RequestOptions, stream: boolean): Pr
 export async function streamChat({
   onDelta,
   ...options
-}: RequestOptions & { onDelta: (text: string) => void }): Promise<string> {
+}: RequestOptions & { onDelta: (text: string) => void }): Promise<ChatReply> {
   const response = await post(options, true)
 
   if (!response.ok || !response.body) {
@@ -84,6 +90,7 @@ export async function streamChat({
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
+  const citations = new Map<string, Citation>()
   let buffer = ''
   let full = ''
   let complete = false
@@ -118,7 +125,13 @@ export async function streamChat({
         )
       }
 
-      const delta: string = parsed?.choices?.[0]?.delta?.content ?? ''
+      // Sources arrive on their own frames, before or after the prose that
+      // cites them, so they are collected across the whole stream rather than
+      // read off any one chunk.
+      const choice = parsed?.choices?.[0]
+      collectCitations(choice?.delta?.annotations ?? choice?.message?.annotations, citations)
+
+      const delta: string = choice?.delta?.content ?? ''
       if (delta) {
         full += delta
         onDelta(delta)
@@ -150,7 +163,37 @@ export async function streamChat({
     )
   }
 
-  return full
+  return { text: full, citations: [...citations.values()] }
+}
+
+/**
+ * Pulls web sources out of a frame's annotations, keyed by URL so a page cited
+ * in three places is listed once.
+ *
+ * OpenRouter normalises these to OpenAI's chat schema, which nests the fields
+ * under `url_citation`; its own docs also show them flattened onto the
+ * annotation. Both shapes are read rather than betting on one, since guessing
+ * wrong costs the sources silently.
+ */
+function collectCitations(annotations: unknown, into: Map<string, Citation>): void {
+  if (!Array.isArray(annotations)) return
+
+  for (const entry of annotations) {
+    const nested = (entry as { url_citation?: unknown })?.url_citation
+    const source = (nested ?? entry) as { url?: unknown; title?: unknown }
+    if (typeof source?.url !== 'string' || into.has(source.url)) continue
+
+    // Web pages only. These are rendered as links the reader can tap, and a
+    // `javascript:` or `data:` annotation would run on this origin, where the
+    // reader's own API key is sitting in IndexedDB. Nothing upstream promises
+    // the scheme, so it is checked here rather than trusted.
+    if (!/^https?:\/\//i.test(source.url)) continue
+
+    into.set(source.url, {
+      url: source.url,
+      ...(typeof source.title === 'string' && source.title ? { title: source.title } : {}),
+    })
+  }
 }
 
 /** Non-streaming call, used for background summaries. */

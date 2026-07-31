@@ -35,6 +35,19 @@ const FALLBACK: Route = {
   allowFallbacks: true,
 }
 
+/**
+ * Lets the model look things up mid-answer.
+ *
+ * This is an OpenRouter server tool: the model asks for a search, OpenRouter
+ * runs it and feeds the results back, and the finished reply arrives here with
+ * `url_citation` annotations attached. Nothing in this file issues a query, so
+ * there is no second search key to provision — the OpenRouter key pays for it.
+ *
+ * Searches are billed per result, which is the whole reason `max_results` is
+ * small and the tool is offered on so few requests.
+ */
+const WEB_SEARCH_TOOL = { type: 'openrouter:web_search', parameters: { max_results: 3 } }
+
 /** Caps on what one request may ask for, since anyone can call this endpoint. */
 const MAX_MESSAGES = 60
 const MAX_TOTAL_CHARS = 120_000
@@ -84,9 +97,15 @@ export async function handleRelayRequest(
   if ('error' in parsed) return errorResponse(400, parsed.error)
   const { messages, stream } = parsed
 
+  // Offered on streamed turns only, which are the ones a reader is waiting on.
+  // The background digest calls arrive here non-streamed, and re-summarising a
+  // conversation that already happened never needs the live web — enabling it
+  // there would buy nothing and bill for every reply in the app.
+  const search = stream && !searchCoolingOff()
+
   let detail = ''
   if (!freeTierCoolingOff()) {
-    const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl)
+    const primary = await callRoute(PRIMARY, messages, stream, apiKey, siteUrl, search)
     if (primary.ok) return relayResponse(primary)
 
     // The free tier shares an upstream pool that is regularly exhausted. Note
@@ -97,7 +116,17 @@ export async function handleRelayRequest(
   }
 
   // Fall back to the paid model rather than surfacing the outage to the reader.
-  const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl)
+  // The cooldown is re-read rather than reusing `search`: the primary route may
+  // have just discovered that the tool is refused, and asking again here would
+  // spend another round trip learning it twice in one reply.
+  const fallback = await callRoute(
+    FALLBACK,
+    messages,
+    stream,
+    apiKey,
+    siteUrl,
+    search && !searchCoolingOff(),
+  )
   if (fallback.ok) return relayResponse(fallback)
 
   return errorResponse(
@@ -108,12 +137,71 @@ export async function handleRelayRequest(
   )
 }
 
+/**
+ * Calls one route, retrying without web search if the tool was what upstream
+ * objected to rather than the conversation.
+ *
+ * Tool support belongs to the provider serving the model, not the model name, so
+ * the paid route's `allow_fallbacks` can land the same request somewhere that
+ * refuses tools. Losing the reply over an enhancement would be the wrong trade:
+ * an answer without a lookup beats an error. Callers still get an unread body on
+ * failure, so they can pull the upstream message out of it as before.
+ */
+async function callRoute(
+  route: Route,
+  messages: RelayMessage[],
+  stream: boolean,
+  apiKey: string,
+  siteUrl: string | undefined,
+  search: boolean,
+): Promise<Response> {
+  const response = await callOpenRouter(route, messages, stream, apiKey, siteUrl, search)
+  if (response.ok || !search) return response
+
+  const detail = await response.text().catch(() => '')
+  if (!rejectedTools(detail)) {
+    return new Response(detail, {
+      status: response.status,
+      headers: { 'Content-Type': response.headers.get('content-type') ?? 'application/json' },
+    })
+  }
+
+  // Both routes run the same model, so one flag covers them. Stop asking for a
+  // while: without it every reader pays this extra round trip to be told the
+  // same thing.
+  coolOffSearch()
+  return callOpenRouter(route, messages, stream, apiKey, siteUrl, false)
+}
+
+/**
+ * Whether an upstream refusal was about the tool rather than the request.
+ *
+ * Matched on the message because OpenRouter reports it as an ordinary 404 or
+ * 400; there is no distinct code to key off. Anything unrecognised is treated as
+ * a real failure and surfaced, so a genuine outage is never retried into silence.
+ */
+function rejectedTools(body: string): boolean {
+  const message = (upstreamMessage(body) || body).toLowerCase()
+
+  // Routing that has been narrowed to nothing is reported without naming what
+  // narrowed it: "no allowed providers are available" never says "tool". Since
+  // this is only reached on a request that carried the tool, read it as the
+  // tool. Being wrong costs one retry, whose own failure is still surfaced.
+  if (message.includes('no endpoints') || message.includes('no allowed providers')) return true
+
+  return (
+    message.includes('tool') &&
+    (message.includes('not support') || message.includes('unsupported'))
+  )
+}
+
 function callOpenRouter(
   route: Route,
   messages: RelayMessage[],
   stream: boolean,
   apiKey: string,
-  siteUrl?: string,
+  siteUrl: string | undefined,
+  search: boolean,
 ): Promise<Response> {
   return fetch(OPENROUTER_ENDPOINT, {
     method: 'POST',
@@ -129,6 +217,7 @@ function callOpenRouter(
       stream,
       max_tokens: MAX_OUTPUT_TOKENS,
       provider: { order: route.order, allow_fallbacks: route.allowFallbacks },
+      ...(search ? { tools: [WEB_SEARCH_TOOL] } : {}),
     }),
   })
 }
@@ -207,6 +296,24 @@ function freeTierCoolingOff(): boolean {
 
 function coolOffFreeTier(): void {
   freeTierBlockedUntil = Date.now() + FREE_TIER_COOLDOWN_MS
+}
+
+/**
+ * How long to stop offering web search after upstream refuses the tool.
+ *
+ * Longer than the free-tier cooldown because this tracks a capability rather
+ * than a quota: when the answer is no it stays no until routing changes, and one
+ * wasted request every ten minutes is the price of noticing that it has.
+ */
+const SEARCH_COOLDOWN_MS = 10 * 60_000
+let searchBlockedUntil = 0
+
+function searchCoolingOff(): boolean {
+  return Date.now() < searchBlockedUntil
+}
+
+function coolOffSearch(): void {
+  searchBlockedUntil = Date.now() + SEARCH_COOLDOWN_MS
 }
 
 const hits = new Map<string, number[]>()

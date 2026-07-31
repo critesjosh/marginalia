@@ -17,6 +17,7 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 | M3 Highlights | Selection action bar, four colours, painted annotations, tap a highlight to reopen its chat, per-book list |
 | M4 Chat | Hosted relay or own OpenAI key, context assembly, streaming replies, persisted conversations |
 | M5 Memory | Rolling per-book digest injected into every new conversation, readable and editable under the reader's Memory tab |
+| Web search | The companion looks things up mid-answer when the book cannot answer them, and cites what it read |
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
 
@@ -56,6 +57,20 @@ The free tier draws on a shared upstream pool that is regularly exhausted, so th
 
 **Own OpenAI key.** Stored in IndexedDB, sent only to `api.openai.com`, billed to the reader. Defaults to `gpt-4o-mini` for chat and the digest. Anyone with access to the browser profile can read it, so don't use that option on a shared device.
 
+### Web search
+
+Questions about a book routinely leave it — who the author was, what the period was like, how a translator chose a word. The companion can search the web for those, and decides for itself when a question needs it.
+
+This is `openrouter:web_search`, an OpenRouter *server tool*: the relay lists it on the request, the model asks for a search mid-answer, and OpenRouter runs the query and feeds the results back before the reply finishes. Nothing in this repo issues a search, so there is no second API key to provision — the existing `OPENROUTER_API_KEY` pays for it. Sources come back as `url_citation` annotations, which are stored on the message and shown under the reply.
+
+Searches are billed per result, so the relay is deliberately stingy about offering the tool:
+
+- `max_results` is 3.
+- Only streamed turns get it. The background digest calls come through the same endpoint non-streamed, and re-summarising a conversation that already happened never needs the live web.
+- If a provider refuses the tool, the relay retries the same route without it and stops offering it for ten minutes, so a reply is never lost to an enhancement and readers don't each pay a round trip to rediscover the same refusal. Tool support belongs to the provider serving the model, not the model name, so the paid route's `allow_fallbacks` can land somewhere that has none.
+
+Search is a property of the relay, so it applies to the built-in provider only. A reader on their own key talks to OpenAI directly, where nothing is listening for a tool call, and the system prompt drops the section rather than promising a lookup that cannot happen.
+
 ### Deploying
 
 Set `OPENROUTER_API_KEY` in the Netlify site's environment variables. Nothing else is required — `netlify.toml` declares the edge function, which runs before the SPA redirect so `/api/chat` never falls through to `index.html`.
@@ -64,7 +79,7 @@ Because the relay is open to anyone who loads the site, `shared/relay.ts` pins t
 
 ### Untrusted book content
 
-Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read any stored key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` is the second layer: `connect-src` allows only this origin — which covers `/api/chat`, since the relay is same-origin — and `api.openai.com` for readers using their own key.
+Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read any stored key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. Web search widens what a successful injection would be worth — a book that could talk the companion into a lookup could aim it at a URL of the book's choosing — so the prompt says outright that only the reader can send it searching, and that a URL written into the text is material to discuss rather than somewhere to go. A CSP in `netlify.toml` is the second layer: `connect-src` allows only this origin — which covers `/api/chat`, since the relay is same-origin — and `api.openai.com` for readers using their own key.
 
 ## How it works
 
@@ -80,9 +95,11 @@ Library ──> Reader (epub.js) ──> Selection bar ──> Chat sheet
                                                   │
                                                   ▼
                                        OpenRouter ──> Gemma 4 26B
+                                            │
+                                            └──> web search ──> url_citation
 ```
 
-Each conversation's system prompt carries the book metadata, the current chapter and percentage, the highlighted passage, roughly 2,400 characters of surrounding prose, the book's memory digest, and an optional spoiler guard.
+Each conversation's system prompt carries the book metadata, the current chapter and percentage, the highlighted passage, roughly 2,400 characters of surrounding prose, the book's memory digest, an optional spoiler guard, and — on the built-in provider — when to reach for a web search.
 
 After every few messages, a cheap background call folds the exchange into that book's digest (capped around 250 words), which is then injected into every future conversation for the book. Failures there are swallowed so the summariser can never break the chat.
 

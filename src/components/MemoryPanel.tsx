@@ -47,6 +47,7 @@ export default function MemoryPanel({
     conversation: context,
     memory: draft,
     spoilerGuard: settings.spoilerGuard,
+    webSearch: settings.provider === 'hosted',
   })
 
   const commit = async (text: string) => {
