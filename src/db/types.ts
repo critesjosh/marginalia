@@ -48,6 +48,15 @@ export interface Conversation {
   chapter?: string
   progress?: number
   /**
+   * CFI the chat is anchored to, so the book index can place it exactly.
+   *
+   * Duplicated from the seed highlight for the same reason `chapter` and
+   * `progress` are: the conversation carries where it was started, and the
+   * highlight it came from can be deleted. Chats made before the index existed
+   * have no CFI and fall back to `progress`, which is close but not exact.
+   */
+  seedCfi?: string
+  /**
    * How many of this conversation's messages are already in the book digest.
    *
    * Belongs to the conversation, not the book: a single book-wide counter gets
@@ -74,6 +83,46 @@ export interface BookMemory {
   updatedAt: number
 }
 
+/**
+ * One addressable slice of a book's prose, cut on block boundaries.
+ *
+ * The unit the index is built from and the unit retrieval selects. Text is
+ * stored rather than re-derived at read time: re-parsing a spine document to
+ * quote from it would put an XHTML parse on the path of sending a message, and
+ * a book's plain text is roughly the size of its EPUB.
+ */
+export interface BookChunk {
+  id: string
+  bookId: string
+  /** Position in the book, 0-based, in reading order. */
+  index: number
+  /** Spine href this chunk lives in. */
+  href: string
+  /** CFI of the chunk's first block, comparable against a reading position. */
+  cfiStart: string
+  /** Chapter this chunk opens in, resolved from the table of contents. */
+  chapter?: string
+  /**
+   * Chapters that begin inside this chunk, in order. Several short chapters can
+   * fall inside one chunk, and an outline built from `chapter` alone would omit
+   * them.
+   */
+  chapterStarts?: string[]
+  /** 0..1, from the character offset of the chunk's start within the book. */
+  progress: number
+  text: string
+}
+
+/** Whether a book has an index, and what built it. */
+export interface BookIndexState {
+  bookId: string
+  /** Bumped when chunking changes, so stale indexes are rebuilt not reused. */
+  version: number
+  chunkCount: number
+  charCount: number
+  builtAt: number
+}
+
 export type ReaderTheme = 'light' | 'sepia' | 'dark'
 
 /**
@@ -92,6 +141,12 @@ export interface Settings {
   fontSize: number
   /** Ask the model to avoid spoiling content past the reader's position. */
   spoilerGuard: boolean
+  /**
+   * Index books on this device, and send passages from earlier in the book that
+   * match what the reader highlighted. Costs a few seconds of work the first
+   * time each book is opened.
+   */
+  bookIndex: boolean
   /** Set once the bundled sample book has been offered, so deleting it sticks. */
   sampleBookSeeded?: boolean
 }
@@ -104,4 +159,5 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   fontSize: 100,
   spoilerGuard: true,
+  bookIndex: true,
 }

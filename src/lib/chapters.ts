@@ -1,10 +1,23 @@
-import { EpubCFI, type Contents, type NavItem } from 'epubjs'
+import { EpubCFI, type NavItem } from 'epubjs'
 
 export interface ChapterAnchor {
   label: string
   href: string
   /** CFI of the anchor element, used to compare against the reading position. */
   cfi?: string
+}
+
+/**
+ * The part of a loaded spine document `buildAnchors` needs.
+ *
+ * epub.js exposes the same two capabilities under two shapes: `Contents` for a
+ * document rendered into the reader (`cfiFromNode`), and `Section` for one
+ * loaded headlessly by the indexer (`cfiFromElement`). Taking the pair
+ * structurally lets both callers use this without an epub.js class in between.
+ */
+export interface AddressableDocument {
+  document: Document
+  cfiFromNode(node: Node): string
 }
 
 const cfiComparator = new EpubCFI()
@@ -40,7 +53,7 @@ export function flattenToc(toc: NavItem[]): NavItem[] {
 export function buildAnchors(
   toc: NavItem[],
   href: string,
-  contents: Contents,
+  contents: AddressableDocument,
 ): ChapterAnchor[] {
   const candidates = flattenToc(toc).filter(
     (item) => item.href && sameDoc(item.href, href),
@@ -63,6 +76,21 @@ export function buildAnchors(
     }
     return anchor
   })
+}
+
+/**
+ * Orders two CFIs, or returns undefined if they cannot be compared.
+ *
+ * epub.js compares the spine position first, so CFIs from different documents
+ * order correctly — which is what lets the index place a reading position
+ * against a chunk from anywhere in the book.
+ */
+export function compareCfi(a: string, b: string): number | undefined {
+  try {
+    return cfiComparator.compare(a, b)
+  } catch {
+    return undefined
+  }
 }
 
 /** Picks the last anchor at or before the current position. */

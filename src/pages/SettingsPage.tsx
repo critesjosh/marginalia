@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getSettings, saveSettings } from '../db/db'
+import { clearBookIndexes, db, getSettings, saveSettings } from '../db/db'
 import { DEFAULT_SETTINGS, type Provider } from '../db/types'
 import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
 import { BackIcon } from '../components/Icons'
@@ -165,7 +165,7 @@ export default function SettingsPage() {
           </>
         )}
 
-        <section>
+        <section className="space-y-4">
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
@@ -177,6 +177,31 @@ export default function SettingsPage() {
               <span className="text-sm font-medium">Avoid spoilers</span>
               <span className="mt-0.5 block text-sm text-stone-400">
                 Ask the model not to reveal anything past your current position unless you ask.
+                While this is on, nothing the book index sends comes from past your position
+                either.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={settings.bookIndex}
+              onChange={(e) => {
+                const on = e.target.checked
+                void saveSettings({ bookIndex: on })
+                if (!on) void clearBookIndexes()
+              }}
+              className="mt-0.5 h-4 w-4 accent-amber-500"
+            />
+            <span>
+              <span className="text-sm font-medium">Search the whole book</span>
+              <span className="mt-0.5 block text-sm text-stone-400">
+                Index each book on this device as you read it, so a chat can carry passages from
+                earlier in the book that match what you highlighted — not just the page you are
+                on. Nothing extra is uploaded and no model runs here; it is a keyword search over
+                your own copy, and a full-length novel takes about a second to index the first
+                time you open it. Turning this off deletes everything already indexed.
               </span>
             </span>
           </label>

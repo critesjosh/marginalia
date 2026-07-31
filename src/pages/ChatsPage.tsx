@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, deleteConversation, getSettings } from '../db/db'
 import { DEFAULT_SETTINGS } from '../db/types'
 import { HIGHLIGHT_COLORS } from '../lib/highlights'
+import { retrieveBookContext } from '../lib/bookIndex/retrieve'
 import ChatSheet from '../components/ChatSheet'
 import MemoryPanel from '../components/MemoryPanel'
 import { BackIcon, TrashIcon } from '../components/Icons'
@@ -33,6 +34,27 @@ export default function ChatsPage() {
     [bookId],
   )
   const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
+  const indexState = useLiveQuery(
+    () => (bookId ? db.bookIndexState.get(bookId) : undefined),
+    [bookId],
+  )
+
+  // The same retrieval the next message would run, so the prompt this screen
+  // shows is the prompt that gets sent rather than an approximation of it.
+  const latest = conversations?.[0]
+  const bookContext = useLiveQuery(
+    () =>
+      bookId && settings.bookIndex
+        ? retrieveBookContext({
+            bookId,
+            seedText: latest?.seedText,
+            cfi: latest?.seedCfi,
+            progress: latest?.progress ?? book?.progress,
+            spoilerGuard: settings.spoilerGuard,
+          })
+        : undefined,
+    [bookId, settings.bookIndex, settings.spoilerGuard, latest?.id, book?.progress],
+  )
 
   return (
     <div className="min-h-full bg-stone-950 text-stone-100">
@@ -145,7 +167,9 @@ export default function ChatsPage() {
             key={bookId}
             book={book}
             memory={memory}
-            latest={conversations?.[0]}
+            latest={latest}
+            bookContext={bookContext}
+            indexState={indexState}
             settings={settings}
           />
         )}
