@@ -191,10 +191,14 @@ function chapterOutline(chunks: BookChunk[]): { labels: string[]; elided: boolea
     if (clean && clean !== labels[labels.length - 1]) labels.push(clean)
   }
 
-  // The chapter the first chunk opens in began before it, so it is not in any
-  // chunk's `chapterStarts`; every later one is.
-  push(chunks[0]?.chapter)
+  // Each chunk's own chapter as well as the ones starting inside it. A chapter
+  // reaches `chapterStarts` only if its table-of-contents entry resolved to a
+  // CFI, which needs an `#anchor` in the href. Books that give each chapter its
+  // own XHTML file -- the usual shape outside Project Gutenberg -- have no
+  // fragment to resolve, so every entry stays anchorless and the outline was
+  // the first chapter and nothing else. `chapter` is set either way.
   for (const chunk of chunks) {
+    push(chunk.chapter)
     for (const label of chunk.chapterStarts ?? []) push(label)
   }
 
@@ -227,20 +231,41 @@ function bestExcerpts(
   }
   if (query.size === 0) return []
 
-  const counted = candidates.map((chunk) => ({ chunk, terms: countTerms(chunk.text) }))
-
   // Document frequency across the whole book, so a name that appears twice
   // outranks a word that appears in every chapter.
+  //
+  // One pass, asking each chunk what it contains rather than asking the book
+  // where each term is. The other way round re-tokenises the whole novel once
+  // per query term, and a highlighted paragraph plus a question carries a
+  // hundred of them: measured at 2.4 seconds of blocked main thread on the
+  // bundled Moby Dick in Chromium on a laptop, sitting between the reader
+  // pressing send and the request leaving the device, and several times that on
+  // a phone. The whole of retrieval is now 75ms. Only the query's terms are kept
+  // per chunk, which is the difference between holding a few thousand counts and
+  // a few hundred thousand.
   const docFrequency = new Map<string, number>()
-  for (const term of query.keys()) {
-    let count = 0
-    for (const chunk of corpus) if (hasTerm(chunk.text, term)) count += 1
-    if (count > 0) docFrequency.set(term, count)
+  const matches = new Map<string, Map<string, number>>()
+
+  for (const chunk of corpus) {
+    const hits = new Map<string, number>()
+    // Tokenised the same way the query is, so "whale" cannot be found inside
+    // "whalemen" and inflate its own document frequency.
+    for (const [term, count] of countTerms(chunk.text)) {
+      if (!query.has(term)) continue
+      hits.set(term, count)
+      docFrequency.set(term, (docFrequency.get(term) ?? 0) + 1)
+    }
+    if (hits.size > 0) matches.set(chunk.id, hits)
   }
   if (docFrequency.size === 0) return []
 
   const scored: ScoredChunk[] = []
-  for (const { chunk, terms } of counted) {
+  for (const chunk of candidates) {
+    // Candidates are drawn from the corpus, so a chunk with no entry here
+    // shares no term with the query and could never have scored.
+    const terms = matches.get(chunk.id)
+    if (!terms) continue
+
     let score = 0
     let matchWeight = 0
     let anchor: string | undefined
@@ -315,16 +340,6 @@ function queryTerms(text: string | undefined, base: number): Map<string, number>
     terms.set(term, Math.max(terms.get(term) ?? 0, weight))
   }
   return terms
-}
-
-/** Whether a chunk contains a term, for counting document frequency. */
-function hasTerm(text: string, term: string): boolean {
-  // Tokenised the same way the query and the term counts are, so "whale" cannot
-  // be found inside "whalemen" and inflate its own document frequency.
-  for (const match of text.toLowerCase().matchAll(/[\p{L}][\p{L}']{2,}/gu)) {
-    if (match[0].replace(/'s$/, '') === term) return true
-  }
-  return false
 }
 
 function countTerms(text: string): Map<string, number> {

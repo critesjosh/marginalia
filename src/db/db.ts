@@ -105,11 +105,17 @@ export async function deleteBook(bookId: string): Promise<void> {
   )
 }
 
-/** Drops a book's index. Reopening the book rebuilds it. */
-export async function deleteBookIndex(bookId: string): Promise<void> {
+/**
+ * Drops every stored index. Reopening a book rebuilds it.
+ *
+ * What turning the setting off has to do as well as stopping the reads: an
+ * indexed novel is roughly a megabyte of its own prose sitting in IndexedDB, and
+ * leaving that behind makes the switch a preference rather than a deletion.
+ */
+export async function clearBookIndexes(): Promise<void> {
   await db.transaction('rw', [db.bookChunks, db.bookIndexState], async () => {
-    await db.bookChunks.where('bookId').equals(bookId).delete()
-    await db.bookIndexState.delete(bookId)
+    await db.bookChunks.clear()
+    await db.bookIndexState.clear()
   })
 }
 

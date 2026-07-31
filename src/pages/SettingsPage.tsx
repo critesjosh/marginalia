@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getSettings, saveSettings } from '../db/db'
+import { clearBookIndexes, db, getSettings, saveSettings } from '../db/db'
 import { DEFAULT_SETTINGS, type Provider } from '../db/types'
 import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
 import { BackIcon } from '../components/Icons'
@@ -187,7 +187,11 @@ export default function SettingsPage() {
             <input
               type="checkbox"
               checked={settings.bookIndex}
-              onChange={(e) => void saveSettings({ bookIndex: e.target.checked })}
+              onChange={(e) => {
+                const on = e.target.checked
+                void saveSettings({ bookIndex: on })
+                if (!on) void clearBookIndexes()
+              }}
               className="mt-0.5 h-4 w-4 accent-amber-500"
             />
             <span>
@@ -197,7 +201,7 @@ export default function SettingsPage() {
                 earlier in the book that match what you highlighted — not just the page you are
                 on. Nothing extra is uploaded and no model runs here; it is a keyword search over
                 your own copy, and a full-length novel takes about a second to index the first
-                time you open it.
+                time you open it. Turning this off deletes everything already indexed.
               </span>
             </span>
           </label>

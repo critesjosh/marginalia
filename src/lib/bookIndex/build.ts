@@ -29,11 +29,14 @@ export interface IndexProgress {
  * to redo than to resume, and nothing ever reads a half-built index. That
  * changes the day a model writes the notes; see `local-agent-plan.md`.
  */
-export function ensureBookIndex(bookId: string): Promise<void> {
+export function ensureBookIndex(bookId: string, signal?: AbortSignal): Promise<void> {
+  // A build already running keeps the signal it started with. There is one
+  // reader, so the second caller is the same screen re-mounting, and abandoning
+  // its predecessor's crawl to start an identical one wastes the work done.
   const existing = inFlight.get(bookId)
   if (existing) return existing
 
-  const run = build(bookId)
+  const run = build(bookId, signal)
     .catch(() => {
       // The index is an enhancement. A book that will not index still reads, and
       // still chats with exactly the context it had before this existed.
@@ -46,7 +49,7 @@ export function ensureBookIndex(bookId: string): Promise<void> {
   return run
 }
 
-async function build(bookId: string): Promise<void> {
+async function build(bookId: string, signal?: AbortSignal): Promise<void> {
   const [state, stored] = await Promise.all([
     db.bookIndexState.get(bookId),
     db.books.get(bookId),
@@ -67,8 +70,11 @@ async function build(bookId: string): Promise<void> {
     const chunks = await extractChunks(book, {
       toc: nav?.toc ?? [],
       yieldToUi: idle,
+      cancelled: () => signal?.aborted ?? false,
     })
-    if (chunks.length === 0) return
+    // A cancelled crawl returns what it had reached, which is a book missing its
+    // second half. Committing that would mark it current and never rebuild it.
+    if (signal?.aborted) return
 
     const charCount = chunks.reduce((total, chunk) => total + chunk.text.length, 0)
     const rows: BookChunk[] = chunks.map((chunk) => ({
@@ -87,6 +93,10 @@ async function build(bookId: string): Promise<void> {
       text: chunk.text,
     }))
 
+    // Recorded even when nothing came out. A book the crawl cannot read -- scans
+    // with no text layer, or a spine epub.js will not parse -- fails the same way
+    // every time, and without a state row it is re-crawled in full on every open
+    // for as long as the reader keeps the book.
     await db.transaction('rw', [db.bookChunks, db.bookIndexState], async () => {
       await db.bookChunks.where('bookId').equals(bookId).delete()
       await db.bookChunks.bulkAdd(rows)

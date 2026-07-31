@@ -127,9 +127,11 @@ export default function MemoryPanel({
         <p className="mt-1.5 text-sm leading-relaxed text-stone-500">
           {settings.bookIndex
             ? indexState
-              ? `This book is indexed as ${indexState.chunkCount} passages, read straight out of the
-                 EPUB on this device. When you start a chat, the ones matching your highlight from
-                 earlier in the book are sent along with it — never anything past where you are.`
+              ? indexState.chunkCount === 0
+                ? 'No readable text came out of this EPUB, so there is nothing to search. Chats carry the passage you highlighted and the text around it, as they did before.'
+                : `This book is indexed as ${indexState.chunkCount} passages, read straight out of the
+                   EPUB on this device. When you start a chat, the ones matching your highlight from
+                   earlier in the book are sent along with it — never anything past where you are.`
               : 'Not indexed yet. Open the book and leave it a moment; it is built while you read.'
             : 'Turned off in Settings, so chats carry only the passage you highlighted and the text around it.'}
         </p>

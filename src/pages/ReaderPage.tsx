@@ -103,8 +103,15 @@ export default function ReaderPage() {
   // epub.js is still laying out the first page competes with the reader for it.
   useEffect(() => {
     if (!bookId || !reader.ready || !settings.bookIndex) return
-    const started = window.setTimeout(() => void ensureBookIndex(bookId), 1500)
-    return () => window.clearTimeout(started)
+    // Closing the book stops the crawl. Without this it parses on to the last
+    // spine document of a book nobody is reading, on the thread the library or
+    // the next book is trying to render with.
+    const abort = new AbortController()
+    const started = window.setTimeout(() => void ensureBookIndex(bookId, abort.signal), 1500)
+    return () => {
+      window.clearTimeout(started)
+      abort.abort()
+    }
   }, [bookId, reader.ready, settings.bookIndex])
 
   // Deep link from the highlights list: jump once, then drop the param so a
