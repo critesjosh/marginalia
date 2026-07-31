@@ -25,16 +25,19 @@
     "memoised",
     "moby",
     "noimages",
+    "normalises",
     "openrouter",
     "oxlint",
     "Palatino",
     "pubdate",
+    "recognised",
     "recolouring",
     "rects",
     "sandboxed",
     "summarise",
     "summarised",
     "summariser",
+    "summarising",
     "synthesise",
     "synthesises",
     "tailwindcss",
@@ -42,6 +45,7 @@
     "touchend",
     "unaddressable",
     "unpaint",
+    "unrecognised",
     "Workbox"
   ]
 }

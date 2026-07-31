@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
-import type { ReaderTheme } from '../db/types'
+import type { Citation, ReaderTheme } from '../db/types'
 import { newId } from '../lib/id'
 import { InferenceError, streamChat, targetFor } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
@@ -99,12 +99,13 @@ export default function ChatSheet({
         },
       })
 
-      if (reply.trim()) {
+      if (reply.text.trim()) {
         await db.messages.add({
           id: newId(),
           conversationId,
           role: 'assistant',
-          content: reply,
+          content: reply.text,
+          ...(reply.citations.length ? { citations: reply.citations } : {}),
           createdAt: Date.now(),
         })
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
@@ -179,16 +180,16 @@ export default function ChatSheet({
           )}
 
           {messages?.map((message) => (
-            <Bubble key={message.id} role={message.role} theme={theme}>
-              {message.content}
-            </Bubble>
+            <Bubble
+              key={message.id}
+              role={message.role}
+              theme={theme}
+              content={message.content}
+              citations={message.citations}
+            />
           ))}
 
-          {streaming && (
-            <Bubble role="assistant" theme={theme}>
-              {streaming}
-            </Bubble>
-          )}
+          {streaming && <Bubble role="assistant" theme={theme} content={streaming} />}
 
           {busy && !streaming && <p className="text-sm opacity-50">Thinking…</p>}
 
@@ -244,11 +245,13 @@ export default function ChatSheet({
 function Bubble({
   role,
   theme,
-  children,
+  content,
+  citations,
 }: {
   role: string
   theme: ReaderTheme
-  children: React.ReactNode
+  content: string
+  citations?: Citation[]
 }) {
   const palette = THEMES[theme]
   const isUser = role === 'user'
@@ -261,8 +264,77 @@ function Bubble({
         }`}
         style={isUser ? { background: palette.link } : undefined}
       >
-        {children}
+        {isUser ? content : withLinks(content)}
+
+        {!isUser && citations && citations.length > 0 && (
+          <div className={`mt-2.5 border-t pt-2 text-xs whitespace-normal ${palette.border}`}>
+            <p className="opacity-50">Searched the web</p>
+            <ul className="mt-1 space-y-1">
+              {citations.map((citation) => (
+                <li key={citation.url}>
+                  <Source href={citation.url}>{citation.title || citation.url}</Source>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Markdown links and bare URLs written by the model, as links the reader can
+ * follow. Deliberately not a markdown renderer: only links are recognised, so
+ * everything else still arrives as the plain text this bubble already lays out.
+ * A citation nobody can click is barely a citation.
+ */
+const LINK_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>()[\]]+)/g
+
+function withLinks(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  let done = 0
+
+  for (const match of text.matchAll(LINK_PATTERN)) {
+    const [raw, label, target, bare] = match
+    let href = target ?? bare
+    let end = match.index + raw.length
+
+    // A bare URL at the end of a sentence swallows the punctuation that closed
+    // it. Give those characters back to the prose instead of the href.
+    if (!target) {
+      const trimmed = href.replace(/[.,;:!?]+$/, '')
+      end -= href.length - trimmed.length
+      href = trimmed
+    }
+
+    if (match.index > done) nodes.push(text.slice(done, match.index))
+    nodes.push(
+      <Source key={match.index} href={href}>
+        {label ?? href}
+      </Source>,
+    )
+    done = end
+  }
+
+  if (done < text.length) nodes.push(text.slice(done))
+  return nodes
+}
+
+/**
+ * `noreferrer` as well as `noopener`: where the reader is in a book is their
+ * business, and the referrer would hand the page they open a note saying which
+ * app sent them.
+ */
+function Source({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="underline decoration-1 underline-offset-2 opacity-80 hover:opacity-100"
+    >
+      {children}
+    </a>
   )
 }

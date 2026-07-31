@@ -60,11 +60,25 @@ export interface Conversation {
 
 export type Role = 'system' | 'user' | 'assistant'
 
+/** A page the companion read to answer, from its web search tool. */
+export interface Citation {
+  url: string
+  title?: string
+}
+
 export interface Message {
   id: string
   conversationId: string
   role: Role
   content: string
+  /**
+   * Sources behind this reply, present only on turns where the model searched.
+   *
+   * Stored with the message rather than derived later: the reply is written
+   * against what those pages said at the time, and a link the reader can check
+   * is the only way to tell a grounded answer from a confident guess.
+   */
+  citations?: Citation[]
   createdAt: number
 }
 
