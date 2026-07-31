@@ -181,7 +181,13 @@ function collectCitations(annotations: unknown, into: Map<string, Citation>): vo
   for (const entry of annotations) {
     const nested = (entry as { url_citation?: unknown })?.url_citation
     const source = (nested ?? entry) as { url?: unknown; title?: unknown }
-    if (typeof source?.url !== 'string' || !source.url || into.has(source.url)) continue
+    if (typeof source?.url !== 'string' || into.has(source.url)) continue
+
+    // Web pages only. These are rendered as links the reader can tap, and a
+    // `javascript:` or `data:` annotation would run on this origin, where the
+    // reader's own API key is sitting in IndexedDB. Nothing upstream promises
+    // the scheme, so it is checked here rather than trusted.
+    if (!/^https?:\/\//i.test(source.url)) continue
 
     into.set(source.url, {
       url: source.url,

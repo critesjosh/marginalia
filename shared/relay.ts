@@ -182,12 +182,16 @@ async function callRoute(
  */
 function rejectedTools(body: string): boolean {
   const message = (upstreamMessage(body) || body).toLowerCase()
-  if (!message.includes('tool')) return false
+
+  // Routing that has been narrowed to nothing is reported without naming what
+  // narrowed it: "no allowed providers are available" never says "tool". Since
+  // this is only reached on a request that carried the tool, read it as the
+  // tool. Being wrong costs one retry, whose own failure is still surfaced.
+  if (message.includes('no endpoints') || message.includes('no allowed providers')) return true
+
   return (
-    message.includes('not support') ||
-    message.includes('unsupported') ||
-    message.includes('no endpoints') ||
-    message.includes('no allowed providers')
+    message.includes('tool') &&
+    (message.includes('not support') || message.includes('unsupported'))
   )
 }
 
