@@ -69,6 +69,12 @@ export default function AudiobookPlayer({ token, theme, hidden, initialPosition,
   const retriedPlayback = useRef(false)
   const palette = THEMES[theme]
 
+  // Read through a ref, never an effect dependency: `initialPosition` comes from
+  // the live settings query, and persisting a position feeds straight back into
+  // it. Depending on it here would tear down the session mid-playback.
+  const initialPositionRef = useRef(initialPosition)
+  initialPositionRef.current = initialPosition
+
   useEffect(() => {
     if (!token) return
     if (!document.createElement('audio').canPlayType('audio/ogg; codecs="opus"')) {
@@ -91,7 +97,8 @@ export default function AudiobookPlayer({ token, theme, hidden, initialPosition,
           )
           pendingRestore.current = {
             positionSeconds: clampPlaybackTime(
-              stored?.positionSeconds ?? (serializedPosition === null ? initialPosition : 0),
+              stored?.positionSeconds ??
+                (serializedPosition === null ? initialPositionRef.current : 0),
               nextMetadata.audiobook.durationSeconds,
             ),
             shouldPlay: false,
@@ -112,7 +119,7 @@ export default function AudiobookPlayer({ token, theme, hidden, initialPosition,
     return () => {
       cancelled = true
     }
-  }, [initialPosition, sessionAttempt, token])
+  }, [sessionAttempt, token])
 
   const activeChapterIndex = useMemo(
     () => (metadata ? chapterIndexAtTime(metadata.chapters, currentTime) : -1),
@@ -140,7 +147,10 @@ export default function AudiobookPlayer({ token, theme, hidden, initialPosition,
       updatedAt: Date.now(),
     }
     window.localStorage.setItem(AUDIOBOOK_POSITION_KEY, JSON.stringify(stored))
-    void saveSettings({ audiobookPositionSeconds: position })
+    // localStorage is the hot path; the settings mirror only needs to be current
+    // at the moments a reader can actually leave, and each write re-runs the
+    // live settings query that re-renders the whole reader.
+    if (force) void saveSettings({ audiobookPositionSeconds: position })
   }, [metadata])
 
   useEffect(() => {
