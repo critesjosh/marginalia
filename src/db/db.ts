@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import { normalizeSummary } from '../lib/digest'
 import {
   DEFAULT_SETTINGS,
   type Book,
@@ -26,6 +27,23 @@ class MarginaliaDB extends Dexie {
       messages: 'id, conversationId, createdAt, [conversationId+createdAt]',
       bookMemory: 'bookId, updatedAt',
       settings: 'id',
+    })
+
+    // Digests written before the limits existed carry a pair of echoed fence
+    // tokens for every update that ever ran, and may sit over the ceiling.
+    // Clean them in place rather than waiting for the next write, which for a
+    // book the reader has finished may never come.
+    this.version(2).upgrade(async (tx) => {
+      const memory = tx.table<BookMemory, string>('bookMemory')
+
+      // `updatedAt` stays put: this rewrites how the notes are stored, not what
+      // they say, and the panel shows that date to the reader.
+      await memory.toCollection().modify((row) => {
+        row.summary = normalizeSummary(row.summary)
+      })
+
+      // A digest that was nothing but delimiters holds no notes to keep.
+      await memory.filter((row) => !row.summary).delete()
     })
   }
 }

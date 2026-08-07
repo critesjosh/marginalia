@@ -1,10 +1,28 @@
 import { db, getSettings } from '../db/db'
 import type { Message } from '../db/types'
+import { normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
 
 /** Fold a conversation into the book's digest after this many new messages. */
 const MESSAGES_PER_UPDATE = 4
+
+/**
+ * Ceiling on the transcript handed to the summariser in one update.
+ *
+ * `summarizedCount` only advances when an update completes, and every failure
+ * is swallowed, so without this the messages waiting to be folded in grow by
+ * two per reply for as long as the summariser is down. That is not merely
+ * wasteful: once the accumulated transcript passes what the relay accepts, the
+ * request fails *on size*, and since the backlog only ever grows it can never
+ * succeed again. The digest for that conversation would be dead from then on,
+ * silently.
+ *
+ * Bounding the window is what makes a failure temporary. Measured in
+ * characters rather than messages because one pasted passage can outweigh
+ * twenty short turns.
+ */
+const MAX_TRANSCRIPT_CHARS = 24_000
 
 export async function getBookMemory(bookId: string): Promise<string | undefined> {
   const row = await db.bookMemory.get(bookId)
@@ -19,12 +37,12 @@ export async function getBookMemory(bookId: string): Promise<string | undefined>
  * Saving an empty digest deletes it, which is how the screen's clear works.
  */
 export async function saveBookMemory(bookId: string, summary: string): Promise<void> {
-  const trimmed = summary.trim()
-  if (!trimmed) {
+  const normalized = normalizeSummary(summary)
+  if (!normalized) {
     await db.bookMemory.delete(bookId)
     return
   }
-  await db.bookMemory.put({ bookId, summary: trimmed, updatedAt: Date.now() })
+  await db.bookMemory.put({ bookId, summary: normalized, updatedAt: Date.now() })
 }
 
 /** One digest update at a time per book, so concurrent replies cannot overwrite each other. */
@@ -64,10 +82,11 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   ])
   if (!book || !conversation) return
 
-  const fresh = messages.slice(conversation.summarizedCount ?? 0)
-  if (fresh.length < MESSAGES_PER_UPDATE) return
+  const pending = messages.slice(conversation.summarizedCount ?? 0)
+  if (pending.length < MESSAGES_PER_UPDATE) return
+  const fresh = withinBudget(pending)
 
-  const summary = await completeChat({
+  const generated = await completeChat({
     target,
     messages: buildSummaryMessages({
       book,
@@ -75,7 +94,11 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
       transcript: asTranscript(fresh),
     }),
   })
-  if (!summary.trim()) return
+
+  // A reply that is nothing but echoed delimiters normalises to empty, and
+  // storing that would wipe a digest the reader may have written by hand.
+  const summary = normalizeSummary(generated)
+  if (!summary) return
 
   await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
     // The digest this was merged from can have been rewritten by the reader
@@ -86,9 +109,37 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
     const current = await db.bookMemory.get(bookId)
     if (current?.updatedAt !== existing?.updatedAt) return
 
-    await db.bookMemory.put({ bookId, summary: summary.trim(), updatedAt: Date.now() })
+    await db.bookMemory.put({ bookId, summary, updatedAt: Date.now() })
     await db.conversations.update(conversationId, { summarizedCount: messages.length })
   })
+}
+
+/**
+ * The newest turns that fit in `MAX_TRANSCRIPT_CHARS`.
+ *
+ * Walks back from the latest message, so what survives a backlog is the part
+ * of the conversation closest to where the reader actually is. Turns older
+ * than the window are dropped rather than deferred: `summarizedCount` jumps
+ * past them on success, and they are never folded in. That loses the oldest
+ * few exchanges after an outage, which beats the alternative of a summariser
+ * that can never run again.
+ *
+ * The newest `MESSAGES_PER_UPDATE` turns go out even when they exceed the
+ * budget on their own, so an update always carries something. A single
+ * enormous message can still overrun, but it falls out of that window within
+ * an exchange or two, so the failure clears itself.
+ */
+function withinBudget(pending: Message[]): Message[] {
+  let chars = 0
+  let start = pending.length
+  while (start > 0) {
+    const total = chars + pending[start - 1].content.length
+    if (total > MAX_TRANSCRIPT_CHARS) break
+    chars = total
+    start--
+  }
+
+  return pending.slice(Math.min(start, pending.length - MESSAGES_PER_UPDATE))
 }
 
 function asTranscript(messages: Message[]): string {
