@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -138,6 +139,7 @@ def synthesize(
     bitrate: str,
     gap: float,
     resume: bool,
+    cache_context: dict | None = None,
     log=print,
 ) -> list[dict]:
     """Renders each part to an audio file, returning its sync record.
@@ -157,8 +159,17 @@ def synthesize(
     started = time.monotonic()
 
     for position, part in enumerate(parts, start=1):
+        cache_key = _cache_key(
+            part,
+            backend_name=backend.name,
+            sample_rate=backend.sample_rate,
+            fmt=fmt,
+            bitrate=bitrate,
+            gap=gap,
+            context=cache_context or {},
+        )
         cached = done.get(part.id)
-        if cached and _still_valid(cached, part, out_dir):
+        if cached and _still_valid(cached, out_dir, cache_key):
             log(f'[{position}/{len(parts)}] {part.label} — already done, skipping')
             records.append(cached)
             spoken += len(part.segments)
@@ -193,6 +204,7 @@ def synthesize(
             'fragment': part.fragment,
             'duration': round(len(samples) / backend.sample_rate, 3),
             'bytes': final_path.stat().st_size,
+            'cacheKey': cache_key,
             'segments': [
                 {'id': segment.id, 'start': round(start, 3), 'end': round(end, 3)}
                 for segment, (start, end) in zip(part.segments, bounds)
@@ -216,18 +228,47 @@ def _load_progress(path: Path) -> dict[str, dict]:
     return done
 
 
-def _still_valid(record: dict, part: Part, out_dir: Path) -> bool:
-    """A cached part is reusable only if its file survives and its text is unchanged.
+def _cache_key(
+    part: Part,
+    *,
+    backend_name: str,
+    sample_rate: int,
+    fmt: str,
+    bitrate: str,
+    gap: float,
+    context: dict,
+) -> str:
+    """Content-addresses everything that can change a part's rendered audio."""
+    payload = {
+        'version': 1,
+        'segments': [{'id': segment.id, 'text': segment.text} for segment in part.segments],
+        'backend': backend_name,
+        'sampleRate': sample_rate,
+        'format': fmt,
+        'bitrate': bitrate if fmt == 'opus' else None,
+        'gap': gap,
+        'context': context,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(',', ':'),
+    ).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
 
-    Segmentation is deterministic, so a mismatch means the source book or the
-    segmentation options changed, and the stored audio no longer says what the
-    sync map claims it says.
-    """
-    if not (out_dir / record['file']).exists():
+
+def _still_valid(record: dict, out_dir: Path, cache_key: str) -> bool:
+    """A cached part is reusable only if its complete file and inputs survive."""
+    file_value = record.get('file')
+    if not isinstance(file_value, str):
         return False
-    return [entry['id'] for entry in record['segments']] == [
-        segment.id for segment in part.segments
-    ]
+    path = out_dir / file_value
+    if not path.is_file():
+        return False
+    if record.get('bytes') != path.stat().st_size:
+        return False
+    return record.get('cacheKey') == cache_key
 
 
 def write_sync(

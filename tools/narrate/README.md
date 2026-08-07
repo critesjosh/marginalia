@@ -78,12 +78,12 @@ out/
   parts.jsonl                 # resume log, appended as each part finishes
 ```
 
-`--resume` reuses any part already in `parts.jsonl` whose audio file still exists and
-whose segment ids still match. A full book is hours of GPU time; losing it to a crash
-in the last chapter would be this tool's fault, not the machine's. Changing
-`--max-chars`, `--min-chars` or `--skip-class` changes the segmentation, which
-invalidates those parts automatically — the stored audio would no longer say what the
-sync map claims.
+`--resume` reuses a part only when its audio file is complete and its source text,
+segment ids, backend, voice, speed, gap and encoding settings still match. A full book
+is hours of GPU time; losing it to a crash in the last chapter would be this tool's
+fault, not the machine's. Changing the book, segmentation, synthesis or encoding
+options invalidates affected parts automatically — the stored audio would no longer
+say what the sync map claims.
 
 To smoke-test the whole pipeline with no GPU and no weights:
 

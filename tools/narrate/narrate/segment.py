@@ -144,27 +144,46 @@ def _scan(root, options: SegmentOptions, fragments: set[str]):
     """
     blocks: list[tuple[int, object]] = []
     positions: dict[str, int] = {}
+    elements = list(root.iter())
+    orders = {element: index for index, element in enumerate(elements)}
 
-    for index, element in enumerate(root.iter()):
+    for index, element in enumerate(elements):
         if not isinstance(element.tag, str):
             continue
 
         for key in ('id', 'name'):
             value = element.get(key)
             if value in fragments and value not in positions:
-                positions[value] = index
+                positions[value] = _anchor_order(element, index, orders, options)
 
-        if _skipped(element, options) or _has_skipped_ancestor(element, options):
-            continue
-        if local_name(element) not in BLOCK_TAGS:
-            continue
-        children = [child for child in element if isinstance(child.tag, str)]
-        if any(local_name(child) in BLOCK_TAGS for child in children):
-            continue
-        if ''.join(element.itertext()).strip():
+        if _is_speakable_block(element, options):
             blocks.append((index, element))
 
     return blocks, positions
+
+
+def _anchor_order(element, fallback: int, orders: dict, options: SegmentOptions) -> int:
+    """Returns the order of the leaf block that contains an anchor.
+
+    TOC anchors are commonly nested inside their heading. Using the anchor's
+    own traversal position would put that heading in the previous chapter,
+    because the containing block is visited first.
+    """
+    for candidate in (element, *element.iterancestors()):
+        if _is_speakable_block(candidate, options):
+            return orders.get(candidate, fallback)
+    return fallback
+
+
+def _is_speakable_block(element, options: SegmentOptions) -> bool:
+    if _skipped(element, options) or _has_skipped_ancestor(element, options):
+        return False
+    if local_name(element) not in BLOCK_TAGS:
+        return False
+    children = [child for child in element if isinstance(child.tag, str)]
+    if any(local_name(child) in BLOCK_TAGS for child in children):
+        return False
+    return bool(''.join(element.itertext()).strip())
 
 
 def _has_skipped_ancestor(element, options: SegmentOptions) -> bool:
@@ -207,9 +226,10 @@ def _items(block) -> list[tuple[str, str | None, object]]:
     if block.text:
         items.append(('text', block.text, None))
     for child in block:
-        if not isinstance(child.tag, str):
-            continue
-        items.append(('element', None, child))
+        # Comments and processing instructions are opaque, non-speakable nodes,
+        # but they still belong to the derived EPUB and must survive rebuilding.
+        kind = 'element' if isinstance(child.tag, str) else 'node'
+        items.append((kind, None, child))
         if child.tail:
             items.append(('text', child.tail, None))
     return items
@@ -218,6 +238,8 @@ def _items(block) -> list[tuple[str, str | None, object]]:
 def _item_text(kind: str, value: str | None, element) -> str:
     if kind == 'text':
         return value or ''
+    if kind == 'node':
+        return ''
     return element_text(element)
 
 
@@ -236,9 +258,8 @@ def element_text(element) -> str:
         if node.text:
             out.append(node.text)
         for child in node:
-            if not isinstance(child.tag, str):
-                continue
-            walk(child)
+            if isinstance(child.tag, str):
+                walk(child)
             if child.tail:
                 out.append(child.tail)
 
@@ -274,7 +295,7 @@ def _plan_block(block, options: SegmentOptions) -> list[list[tuple[int, int, int
     for cut in cuts:
         index = _item_at(spans_of_item, cut)
         kind = items[index][0]
-        if kind == 'element':
+        if kind != 'text':
             cut = spans_of_item[index][1]
         if 0 < cut < total and (not snapped or cut > snapped[-1]):
             snapped.append(cut)
@@ -302,11 +323,13 @@ def _slice_items(
     group: list[tuple[int, int, int]] = []
     for index, (item_start, item_end) in enumerate(spans):
         kind = items[index][0]
-        if kind == 'element':
-            # Zero-length elements (`<br/>`) sit exactly on a boundary; assign
-            # them to the group that starts there so they are never dropped.
+        if kind != 'text':
+            # Zero-length opaque nodes can sit exactly on a boundary. Assign
+            # them to the group that starts there (or the final group when they
+            # end the block) so they are preserved exactly once.
             if item_start == item_end:
-                if start <= item_start < end or (end == item_start and item_end == end):
+                total = spans[-1][1]
+                if start <= item_start < end or item_start == end == total:
                     group.append((index, 0, 0))
             elif item_start >= start and item_end <= end:
                 group.append((index, 0, 0))
@@ -371,7 +394,7 @@ def _apply_groups(
         span.set('id', span_id)
         for index, start, end in group:
             kind, value, element = items[index]
-            if kind == 'element':
+            if kind != 'text':
                 span.append(element)
             else:
                 _append_text(span, (value or '')[start:end])

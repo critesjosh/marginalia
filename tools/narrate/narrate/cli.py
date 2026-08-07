@@ -56,6 +56,12 @@ def main(argv: list[str] | None = None) -> int:
         bitrate=args.bitrate,
         gap=args.gap,
         resume=args.resume,
+        cache_context={
+            'voice': args.voice,
+            'language': args.lang,
+            'speed': args.speed,
+            'device': args.device,
+        },
     )
 
     sync_path = pipeline.write_sync(
