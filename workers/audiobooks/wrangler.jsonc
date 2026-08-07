@@ -21,7 +21,7 @@
     }
   ],
   "vars": {
-    "ALLOWED_ORIGINS": "https://lexici.netlify.app,https://deploy-preview-15--lexici.netlify.app,http://localhost:5173,http://127.0.0.1:5173",
+    "ALLOWED_ORIGINS": "https://lexici.netlify.app,https://deploy-preview-17--lexici.netlify.app,http://localhost:5173,http://127.0.0.1:5173",
     "SIGNED_URL_TTL_SECONDS": "86400"
   },
   "observability": {

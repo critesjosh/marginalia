@@ -60,7 +60,7 @@ The `josh-audiobooks` R2 bucket has no public development URL. The Worker in
 `workers/audiobooks/` exposes only the combined audiobook and its metadata;
 checkpoint files remain inaccessible. The personal token and signed URLs are
 the authorization boundary; CORS additionally limits browser response access to
-the live PWA, PR 15's preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
+the live PWA, the active PR preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
 are Cloudflare Worker secrets and must never be committed.
 
 After changing `wrangler.jsonc`, regenerate the binding/runtime types and verify
