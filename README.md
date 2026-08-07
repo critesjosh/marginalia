@@ -49,11 +49,18 @@ this deployment. The token stays in that browser's IndexedDB; the app exchanges
 it for 24-hour signed URLs and streams the combined Opus file with byte-range
 requests, so seeking does not download the whole book.
 
+The combined file stays as one continuous stream. Chapter boundaries from
+`workers/audiobooks/catalog/twilight-of-the-idols.json` drive the chapter picker,
+previous/next buttons, lock-screen Media Session controls, and a progress slider
+whose time is relative to the active chapter. Playback crosses chapter boundaries
+without swapping audio sources. Resume state is saved locally against the audio
+file's SHA-256 identity, so stale positions are discarded if the recording changes.
+
 The `josh-audiobooks` R2 bucket has no public development URL. The Worker in
 `workers/audiobooks/` exposes only the combined audiobook and its metadata;
 checkpoint files remain inaccessible. The personal token and signed URLs are
 the authorization boundary; CORS additionally limits browser response access to
-the live PWA, PR 15's preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
+the live PWA, the active PR preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
 are Cloudflare Worker secrets and must never be committed.
 
 After changing `wrangler.jsonc`, regenerate the binding/runtime types and verify

@@ -1,0 +1,61 @@
+{
+  "version": 2,
+  "title": "Twilight of the Idols",
+  "author": "Friedrich Nietzsche",
+  "translator": "Duncan Large",
+  "startAt": "Introduction",
+  "coverage": "Introduction through the end of the EPUB, including explanatory notes, index, footnotes, and back matter",
+  "generatedAt": "2026-08-07T15:15:25Z",
+  "generator": {
+    "backend": "Kokoro",
+    "model": "hexgrad/Kokoro-82M",
+    "voice": "af_heart",
+    "language": "en-US",
+    "speed": 1.0,
+    "device": "NVIDIA GeForce RTX 3060"
+  },
+  "audiobook": {
+    "object": "twilight-of-the-idols/audiobook.opus",
+    "contentType": "audio/ogg",
+    "codec": "Opus",
+    "channels": 1,
+    "durationSeconds": 28258.668,
+    "sizeBytes": 78460083,
+    "sha256": "1af9579fdf6165cafa5f03b54afb5a96972c52bb07d24e764baea89929af89e6",
+    "audioId": "sha256:1af9579fdf6165cafa5f03b54afb5a96972c52bb07d24e764baea89929af89e6"
+  },
+  "chapters": [
+    { "id": "introduction", "title": "Introduction", "startSeconds": 0, "endSeconds": 4308.0815 },
+    { "id": "translation-note", "title": "Note on the Translation", "startSeconds": 4308.0815, "endSeconds": 4385.888 },
+    { "id": "bibliography", "title": "Select Bibliography", "startSeconds": 4385.888, "endSeconds": 4575.9445 },
+    { "id": "chronology", "title": "A Chronology of Friedrich Nietzsche", "startSeconds": 4575.9445, "endSeconds": 5015.801 },
+    { "id": "foreword", "title": "Foreword", "startSeconds": 5015.801, "endSeconds": 5172.189 },
+    { "id": "chapter-1", "title": "I. Maxims and Barbs", "startSeconds": 5172.189, "endSeconds": 5651.3455 },
+    { "id": "chapter-2", "title": "II. The Problem of Socrates", "startSeconds": 5651.3455, "endSeconds": 6365.152 },
+    { "id": "chapter-3", "title": "III. ‘Reason’ in Philosophy", "startSeconds": 6365.152, "endSeconds": 6953.0335 },
+    { "id": "chapter-4", "title": "IV. How the ‘Real World’ Finally Became a Fable", "startSeconds": 6953.0335, "endSeconds": 7071.34 },
+    { "id": "chapter-5", "title": "V. Morality as Anti-Nature", "startSeconds": 7071.34, "endSeconds": 7733.2465 },
+    { "id": "chapter-6", "title": "VI. The Four Great Errors", "startSeconds": 7733.2465, "endSeconds": 8790.953 },
+    { "id": "chapter-7", "title": "VII. The ‘Improvers’ of Humanity", "startSeconds": 8790.953, "endSeconds": 9303.1845 },
+    { "id": "chapter-8", "title": "VIII. What the Germans Lack", "startSeconds": 9303.1845, "endSeconds": 10149.941 },
+    { "id": "chapter-9", "title": "IX. Reconnaissance Raids of an Untimely Man", "startSeconds": 10149.941, "endSeconds": 15117.1725 },
+    { "id": "chapter-10", "title": "X. What I Owe the Ancients", "startSeconds": 15117.1725, "endSeconds": 15951.679 },
+    { "id": "chapter-11", "title": "XI. The Hammer Speaks", "startSeconds": 15951.679, "endSeconds": 16012.8105 },
+    { "id": "explanatory-notes", "title": "Explanatory Notes", "startSeconds": 16012.8105, "endSeconds": 22298.909 },
+    { "id": "index", "title": "Index", "startSeconds": 22298.909, "endSeconds": 27577.2035 },
+    { "id": "footnotes", "title": "Footnotes", "startSeconds": 27577.2035, "endSeconds": 28258.668 }
+  ],
+  "checkpoints": {
+    "prefix": "twilight-of-the-idols/checkpoints/",
+    "partCount": 421,
+    "folderFileCount": 423,
+    "folderSizeBytes": 78892193,
+    "partsMetadata": "twilight-of-the-idols/checkpoints/parts.jsonl",
+    "partsMetadataSha256": "7c1b2533656d971b18dc910c9d08ff77cb07a4fa7ae4640d7ac73cf5fe52dbfc",
+    "concatManifest": "twilight-of-the-idols/checkpoints/audiobook.concat.txt"
+  },
+  "source": {
+    "filename": "Twilight of the Idols.epub",
+    "sha256": "5ce60b414a4c904254e31431b10fa3b347541b9a3e2d40ddd25fcbbbc93907ea"
+  }
+}
