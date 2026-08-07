@@ -1,0 +1,8 @@
+# Segmentation and packaging. Enough to run --dry-run and --backend silence.
+lxml>=5.0
+numpy>=1.24
+
+# The kokoro backend. Pulls in torch; install the CUDA build for your card first
+# if you do not already have one.
+#   pip install kokoro soundfile
+# Kokoro also needs the espeak-ng system package for its fallback G2P.
