@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
@@ -10,6 +10,9 @@ import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { THEMES } from '../lib/themes'
 import { useModal } from '../lib/useModal'
 import { CloseIcon, SendIcon } from './Icons'
+
+/** Breathing room left above the pinned question, in pixels. */
+const ANCHOR_GAP = 12
 
 export default function ChatSheet({
   conversationId,
@@ -27,6 +30,16 @@ export default function ChatSheet({
   const [error, setError] = useState<string>()
   const abortRef = useRef<AbortController>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // The message the view is anchored to, or null when the reader is in charge.
+  // A turn pins the question that started it just under the top edge, so the
+  // answer fills the space below it instead of hauling the viewport down behind
+  // every token — chasing the newest word makes the top of a long reply
+  // unreadable, which is the whole point of the anchor.
+  const pinnedRef = useRef<string | null>(null)
+  // The last offset this component set, so `handleScroll` can tell its own work
+  // apart from the reader scrolling away.
+  const setTopRef = useRef<number | null>(null)
+  const openedRef = useRef(false)
   // Land on the composer: opening a chat to ask something and having to tab
   // past the close button first is the wrong default.
   const sheetRef = useModal<HTMLElement>(onClose, 'textarea')
@@ -40,11 +53,55 @@ export default function ChatSheet({
     [conversationId],
   )
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages?.length, streaming])
+  // Opening a conversation lands on its most recent message. Only once: every
+  // later move is either the anchor below or the reader's own scrolling.
+  useLayoutEffect(() => {
+    const list = scrollRef.current
+    if (!messages || !list || openedRef.current) return
+    openedRef.current = true
+    scrollList(list, list.scrollHeight)
+  }, [messages])
+
+  // Hold the pinned question in place as the answer grows under it. Before the
+  // reply is long enough to fill the sheet this can only scroll as far as the
+  // content allows, so the question rises to the top over the first few tokens
+  // and then stays put for the rest of the turn. Runs before paint so the text
+  // never appears at one offset and jumps to another.
+  useLayoutEffect(() => {
+    const list = scrollRef.current
+    if (!list || !pinnedRef.current) return
+
+    const anchor = list.querySelector<HTMLElement>(`[data-message="${pinnedRef.current}"]`)
+    if (!anchor) return
+
+    const offset = anchor.getBoundingClientRect().top - list.getBoundingClientRect().top
+    scrollList(list, list.scrollTop + offset - ANCHOR_GAP)
+  }, [messages, streaming, busy, error])
+
+  // The stored reply and the streaming buffer hold the same text. Dropping the
+  // buffer in the frame the message lands keeps the answer from being painted
+  // twice, which would shove everything above it down half a sheet.
+  useLayoutEffect(() => {
+    if (messages?.at(-1)?.role === 'assistant') setStreaming('')
+  }, [messages])
 
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  /** Scrolls without tripping `handleScroll`, which watches for the reader. */
+  function scrollList(list: HTMLDivElement, top: number) {
+    list.scrollTop = top
+    // Read back rather than storing `top`: the browser clamps to the content.
+    setTopRef.current = list.scrollTop
+  }
+
+  // Any scroll this component did not perform is the reader taking over, and
+  // the anchor gets out of the way for the rest of the turn.
+  function handleScroll(event: React.UIEvent<HTMLDivElement>) {
+    const ours = setTopRef.current
+    if (ours !== null && Math.abs(event.currentTarget.scrollTop - ours) <= 1) return
+    pinnedRef.current = null
+    setTopRef.current = null
+  }
 
   async function send(text: string) {
     const content = text.trim()
@@ -79,6 +136,9 @@ export default function ChatSheet({
         createdAt: Date.now(),
       })
       await db.conversations.update(conversationId, { updatedAt: Date.now() })
+      // Anchor on the question rather than the reply: it is the last thing that
+      // stops growing, and reading an answer starts from what was asked.
+      pinnedRef.current = userMessageId
       setDraft('')
 
       const [book, history, memory] = await Promise.all([
@@ -127,6 +187,11 @@ export default function ChatSheet({
           : 'Something went wrong talking to the model.',
       )
     } finally {
+      // The anchor deliberately outlives the turn. Storing the reply, dropping
+      // the buffer and clearing `busy` land in whatever order Dexie's live
+      // query and this continuation happen to interleave, and holding the
+      // question through all of them is what keeps that settling invisible.
+      // The reader's next scroll releases it.
       setStreaming('')
       setBusy(false)
       abortRef.current = null
@@ -171,7 +236,14 @@ export default function ChatSheet({
           </blockquote>
         )}
 
-        <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4">
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          // Browser scroll anchoring would compete with the pin above, moving
+          // the view on its own as the reply grows.
+          style={{ overflowAnchor: 'none' }}
+          className="flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
+        >
           {messages?.length === 0 && !streaming && (
             <p className="mt-6 text-center text-sm opacity-50">
               Ask about this passage, or just say what you think.
@@ -179,7 +251,7 @@ export default function ChatSheet({
           )}
 
           {messages?.map((message) => (
-            <Bubble key={message.id} role={message.role} theme={theme}>
+            <Bubble key={message.id} id={message.id} role={message.role} theme={theme}>
               {message.content}
             </Bubble>
           ))}
@@ -242,10 +314,12 @@ export default function ChatSheet({
 }
 
 function Bubble({
+  id,
   role,
   theme,
   children,
 }: {
+  id?: string
   role: string
   theme: ReaderTheme
   children: React.ReactNode
@@ -254,7 +328,10 @@ function Bubble({
   const isUser = role === 'user'
 
   return (
-    <div className={isUser ? 'flex justify-end' : 'flex justify-start'}>
+    <div
+      data-message={id}
+      className={isUser ? 'flex justify-end' : 'flex justify-start'}
+    >
       <div
         className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
           isUser ? 'text-stone-950' : `border ${palette.border}`
