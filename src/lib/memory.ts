@@ -1,5 +1,6 @@
 import { db, getSettings } from '../db/db'
 import type { Message } from '../db/types'
+import { normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
 
@@ -19,12 +20,12 @@ export async function getBookMemory(bookId: string): Promise<string | undefined>
  * Saving an empty digest deletes it, which is how the screen's clear works.
  */
 export async function saveBookMemory(bookId: string, summary: string): Promise<void> {
-  const trimmed = summary.trim()
-  if (!trimmed) {
+  const normalized = normalizeSummary(summary)
+  if (!normalized) {
     await db.bookMemory.delete(bookId)
     return
   }
-  await db.bookMemory.put({ bookId, summary: trimmed, updatedAt: Date.now() })
+  await db.bookMemory.put({ bookId, summary: normalized, updatedAt: Date.now() })
 }
 
 /** One digest update at a time per book, so concurrent replies cannot overwrite each other. */
@@ -67,7 +68,7 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   const fresh = messages.slice(conversation.summarizedCount ?? 0)
   if (fresh.length < MESSAGES_PER_UPDATE) return
 
-  const summary = await completeChat({
+  const generated = await completeChat({
     target,
     messages: buildSummaryMessages({
       book,
@@ -75,7 +76,11 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
       transcript: asTranscript(fresh),
     }),
   })
-  if (!summary.trim()) return
+
+  // A reply that is nothing but echoed delimiters normalises to empty, and
+  // storing that would wipe a digest the reader may have written by hand.
+  const summary = normalizeSummary(generated)
+  if (!summary) return
 
   await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
     // The digest this was merged from can have been rewritten by the reader
@@ -86,7 +91,7 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
     const current = await db.bookMemory.get(bookId)
     if (current?.updatedAt !== existing?.updatedAt) return
 
-    await db.bookMemory.put({ bookId, summary: summary.trim(), updatedAt: Date.now() })
+    await db.bookMemory.put({ bookId, summary, updatedAt: Date.now() })
     await db.conversations.update(conversationId, { summarizedCount: messages.length })
   })
 }

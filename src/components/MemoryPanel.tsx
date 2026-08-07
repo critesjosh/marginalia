@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Book, BookMemory, Conversation, Settings } from '../db/types'
+import { MAX_SUMMARY_CHARS } from '../lib/digest'
 import { saveBookMemory } from '../lib/memory'
 import { buildSystemPrompt, type PromptContext } from '../lib/prompt'
 
@@ -79,6 +80,7 @@ export default function MemoryPanel({
             setDirty(true)
           }}
           rows={10}
+          maxLength={MAX_SUMMARY_CHARS}
           placeholder="Nothing yet. The companion starts a digest after a few exchanges, or you can write one here."
           className="mt-3 w-full resize-y rounded-xl border border-stone-800 bg-stone-900/60 p-3 text-sm leading-relaxed text-stone-200 outline-none placeholder:text-stone-600 focus:border-stone-600"
         />
@@ -110,6 +112,11 @@ export default function MemoryPanel({
                   ? `Updated ${new Date(memory.updatedAt).toLocaleDateString()}`
                   : ''}
           </span>
+          {draft.length > MAX_SUMMARY_CHARS * 0.9 && (
+            <span className="ml-auto text-xs text-stone-500">
+              {MAX_SUMMARY_CHARS - draft.length} characters left
+            </span>
+          )}
         </div>
       </section>
 
