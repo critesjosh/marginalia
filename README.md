@@ -41,6 +41,30 @@ npm run lint      # oxlint
 npx tsc -b        # typecheck
 ```
 
+## Personal audiobook streaming
+
+The headphone button appears when an imported book's title contains *Twilight
+of the Idols*. In **Settings → Personal audiobook**, enter the private token for
+this deployment. The token stays in that browser's IndexedDB; the app exchanges
+it for 24-hour signed URLs and streams the combined Opus file with byte-range
+requests, so seeking does not download the whole book.
+
+The `josh-audiobooks` R2 bucket has no public development URL. The Worker in
+`workers/audiobooks/` exposes only the combined audiobook and its metadata;
+checkpoint files remain inaccessible. The personal token and signed URLs are
+the authorization boundary; CORS additionally limits browser response access to
+the live PWA, PR 15's preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
+are Cloudflare Worker secrets and must never be committed.
+
+After changing `wrangler.jsonc`, regenerate the binding/runtime types and verify
+the bundle from `workers/audiobooks/`:
+
+```bash
+npx wrangler types --env-file .dev.vars.example
+npx tsc -p tsconfig.json
+npx wrangler deploy --dry-run
+```
+
 ## Inference
 
 Two providers, chosen in **Settings**:
@@ -64,7 +88,7 @@ Because the relay is open to anyone who loads the site, `shared/relay.ts` pins t
 
 ### Untrusted book content
 
-Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read any stored key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` is the second layer: `connect-src` allows only this origin — which covers `/api/chat`, since the relay is same-origin — and `api.openai.com` for readers using their own key.
+Book content is treated as untrusted. EPUB scripts are not allowed to run: epub.js turns `allowScriptedContent` into `sandbox="allow-same-origin allow-scripts"`, and that pair voids the sandbox, so a book's own scripts would run on this origin and could read any stored key and every note out of IndexedDB. The cost is that scripted or interactive EPUBs lose their interactivity; the text still renders. Text drawn from a book is also fenced with a per-request delimiter before it reaches the model, so a passage cannot pose as an instruction. A CSP in `netlify.toml` is the second layer: `connect-src` allows only this origin — which covers `/api/chat`, since the relay is same-origin — `api.openai.com` for readers using their own key, and the exact private-audiobook Worker origin. `media-src` likewise permits only self/blob audio and that Worker.
 
 ## How it works
 

@@ -27,6 +27,12 @@ dist-ssr
 test-books
 .env*.local
 
+# Python bytecode and virtualenvs from tools/
+__pycache__/
+*.py[cod]
+.venv
+venv
+
 # Playwright MCP scratch output
 .playwright-mcp
 *.png

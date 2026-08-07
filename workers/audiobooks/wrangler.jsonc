@@ -1,0 +1,38 @@
+{
+  "$schema": "https://unpkg.com/wrangler/config-schema.json",
+  "name": "marginalia-audiobooks",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-07",
+  "r2_buckets": [
+    {
+      "binding": "AUDIOBOOKS",
+      "bucket_name": "josh-audiobooks",
+      "remote": true
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "SESSION_RATE_LIMITER",
+      "namespace_id": "140015",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": "https://lexici.netlify.app,https://deploy-preview-15--lexici.netlify.app,http://localhost:5173,http://127.0.0.1:5173",
+    "SIGNED_URL_TTL_SECONDS": "86400"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": false
+    },
+    "traces": {
+      "enabled": false
+    }
+  }
+}

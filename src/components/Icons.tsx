@@ -47,6 +47,15 @@ export function TypeIcon({ className = base }: Props) {
   )
 }
 
+export function HeadphonesIcon({ className = base }: Props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+      <path d="M4 14v-2a8 8 0 0116 0v2" strokeLinecap="round" />
+      <path d="M4 14a2 2 0 012-2h1v7H6a2 2 0 01-2-2v-3zM20 14a2 2 0 00-2-2h-1v7h1a2 2 0 002-2v-3z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 export function PlusIcon({ className = base }: Props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
