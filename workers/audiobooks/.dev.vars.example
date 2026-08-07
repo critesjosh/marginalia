@@ -1,0 +1,3 @@
+# Names only: replace these local placeholders; production values use `wrangler secret put`.
+ACCESS_TOKEN=local-development-only
+SIGNING_KEY=local-development-only

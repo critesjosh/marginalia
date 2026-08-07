@@ -26,7 +26,9 @@ import TocDrawer from '../components/TocDrawer'
 import DisplaySheet from '../components/DisplaySheet'
 import SelectionBar from '../components/SelectionBar'
 import ChatSheet from '../components/ChatSheet'
-import { BackIcon, ChatIcon, ListIcon, TypeIcon } from '../components/Icons'
+import AudiobookPlayer from '../components/AudiobookPlayer'
+import { BackIcon, ChatIcon, HeadphonesIcon, ListIcon, TypeIcon } from '../components/Icons'
+import { isTwilightOfTheIdols } from '../lib/audiobooks'
 
 /** A pending selection, or an existing highlight the reader tapped. */
 interface ActiveSelection {
@@ -44,6 +46,8 @@ export default function ReaderPage() {
   const [panel, setPanel] = useState<'toc' | 'display' | null>(null)
   const [active, setActive] = useState<ActiveSelection>()
   const [chatId, setChatId] = useState<string>()
+  const [audiobookOpen, setAudiobookOpen] = useState(false)
+  const [audiobookStarted, setAudiobookStarted] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
 
   const book = useLiveQuery(() => (bookId ? db.books.get(bookId) : undefined), [bookId])
@@ -275,6 +279,19 @@ export default function ReaderPage() {
           >
             <ChatIcon />
           </Link>
+          {isTwilightOfTheIdols(book.title) && (
+            <button
+              onClick={() => {
+                setAudiobookStarted(true)
+                setAudiobookOpen((open) => !open)
+              }}
+              aria-label={audiobookOpen ? 'Hide audiobook controls' : 'Show audiobook controls'}
+              aria-pressed={audiobookOpen}
+              className="rounded-lg p-2.5 opacity-80"
+            >
+              <HeadphonesIcon />
+            </button>
+          )}
           <button
             onClick={() => setPanel('toc')}
             aria-label="Table of contents"
@@ -351,6 +368,16 @@ export default function ReaderPage() {
             clearSelection()
             setActive(undefined)
           }}
+        />
+      )}
+
+      {audiobookStarted && (
+        <AudiobookPlayer
+          token={settings.audiobookAccessToken}
+          theme={settings.theme}
+          hidden={!audiobookOpen}
+          initialPosition={settings.audiobookPositionSeconds ?? 0}
+          onHide={() => setAudiobookOpen(false)}
         />
       )}
 

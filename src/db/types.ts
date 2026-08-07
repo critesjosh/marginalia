@@ -94,6 +94,10 @@ export interface Settings {
   spoilerGuard: boolean
   /** Set once the bundled sample book has been offered, so deleting it sticks. */
   sampleBookSeeded?: boolean
+  /** Personal R2 streaming token. Stored only in this browser's IndexedDB. */
+  audiobookAccessToken?: string
+  /** Playback position for the personal Twilight of the Idols audiobook. */
+  audiobookPositionSeconds?: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {

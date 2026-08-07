@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings, saveSettings } from '../db/db'
 import { DEFAULT_SETTINGS, type Provider } from '../db/types'
 import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
+import { createAudiobookSession } from '../lib/audiobooks'
 import { BackIcon } from '../components/Icons'
 
 // Keep retired models listed: a stored value with no matching option renders the
@@ -24,12 +25,24 @@ export default function SettingsPage() {
   const [dirtyKey, setDirtyKey] = useState(false)
   const [status, setStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle')
   const [message, setMessage] = useState<string>()
+  const [audiobookToken, setAudiobookToken] = useState('')
+  const [dirtyAudiobookToken, setDirtyAudiobookToken] = useState(false)
+  const [audiobookStatus, setAudiobookStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>(
+    'idle',
+  )
+  const [audiobookMessage, setAudiobookMessage] = useState<string>()
 
   const settings = stored ?? DEFAULT_SETTINGS
 
   useEffect(() => {
     if (stored && !dirtyKey) setApiKey(stored.apiKey ?? '')
   }, [stored, dirtyKey])
+
+  useEffect(() => {
+    if (stored && !dirtyAudiobookToken) {
+      setAudiobookToken(stored.audiobookAccessToken ?? '')
+    }
+  }, [stored, dirtyAudiobookToken])
 
   async function testAndSave() {
     const key = apiKey.trim()
@@ -51,6 +64,30 @@ export default function SettingsPage() {
     } catch (err) {
       setStatus('error')
       setMessage(err instanceof Error ? err.message : 'Could not verify that key.')
+    }
+  }
+
+  async function testAndSaveAudiobookToken() {
+    const token = audiobookToken.trim()
+    if (!token) {
+      await saveSettings({ audiobookAccessToken: undefined })
+      setDirtyAudiobookToken(false)
+      setAudiobookStatus('idle')
+      setAudiobookMessage('Token cleared.')
+      return
+    }
+
+    setAudiobookStatus('checking')
+    setAudiobookMessage(undefined)
+    try {
+      await createAudiobookSession(token)
+      await saveSettings({ audiobookAccessToken: token })
+      setDirtyAudiobookToken(false)
+      setAudiobookStatus('ok')
+      setAudiobookMessage('Token works and is saved on this device.')
+    } catch (err) {
+      setAudiobookStatus('error')
+      setAudiobookMessage(err instanceof Error ? err.message : 'Could not verify that token.')
     }
   }
 
@@ -166,6 +203,47 @@ export default function SettingsPage() {
         )}
 
         <section>
+          <h2 className="text-sm font-semibold">Personal audiobook</h2>
+          <p className="mt-1 text-sm text-stone-400">
+            Unlocks the private <em>Twilight of the Idols</em> stream. The token is stored only
+            in this browser's IndexedDB and is sent only to the audiobook Worker. Don't use it
+            on a shared device.
+          </p>
+          <input
+            type="password"
+            value={audiobookToken}
+            onChange={(e) => {
+              setAudiobookToken(e.target.value)
+              setDirtyAudiobookToken(true)
+              setAudiobookStatus('idle')
+              setAudiobookMessage(undefined)
+            }}
+            placeholder="Personal access token"
+            autoComplete="off"
+            spellCheck={false}
+            className="mt-3 w-full rounded-lg border border-stone-700 bg-stone-900 px-3 py-2.5 font-mono text-sm outline-none focus:border-amber-500"
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={() => void testAndSaveAudiobookToken()}
+              disabled={audiobookStatus === 'checking'}
+              className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 disabled:opacity-50"
+            >
+              {audiobookStatus === 'checking' ? 'Checking…' : 'Test and save'}
+            </button>
+            {audiobookMessage && (
+              <p
+                className={`text-sm ${
+                  audiobookStatus === 'error' ? 'text-red-300' : 'text-emerald-300'
+                }`}
+              >
+                {audiobookMessage}
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section>
           <label className="flex items-start gap-3">
             <input
               type="checkbox"
@@ -187,8 +265,8 @@ export default function SettingsPage() {
           <p className="mt-1 text-sm text-stone-400">
             Everything lives in this browser's IndexedDB. The export is a JSON file containing
             your highlighted passages and the surrounding text, every chat message, and the
-            AI's running notes on each book. It does not include your API key or the book
-            files. Treat it as a record of what you read and thought.
+            AI's running notes on each book. It does not include your API key, audiobook token,
+            or the book files. Treat it as a record of what you read and thought.
           </p>
           <button
             onClick={() => void exportData()}
