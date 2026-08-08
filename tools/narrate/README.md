@@ -102,10 +102,15 @@ order is not reading order — part ids are, and the concat manifest is the reco
 of what actually went into the file. And a running total over four hundred parts
 only accumulates error, so each chapter's run of parts is anchored to the
 boundaries the published `metadata.json` already measured on the combined file.
-Any disagreement then stays inside the chapter it came from. A chapter boundary
-that lands nowhere near a part boundary aborts the run: the two artifacts are
-not describing the same assembly, and stretching one onto the other would
-misplace every sentence in the chapter rather than fail.
+Any disagreement then stays inside the chapter it came from.
+
+Chapters are matched to those runs by *length* — each measured from the boundary
+already anchored, never from an absolute running total, or a fifth of a second
+of disagreement per chapter would reach six tenths by the fourth and fail a
+tolerance no single chapter exceeds. A chapter whose length matches no run of
+parts aborts the run: the two artifacts are not describing the same assembly,
+and stretching one onto the other would misplace every sentence in the chapter
+rather than fail.
 
 The published map is flat, and grouped by spine document so a span carries the
 href it lives in:
@@ -166,9 +171,9 @@ realtime and in need of per-utterance retry logic) touches nothing else.
 - **Timestamps assume the encoder preserves duration.** Opus adds a few milliseconds
   of pre-skip, which players handle; segment boundaries are accurate to well under
   the `--gap`.
-- **The reader loads `sync.json` but does not yet follow it.** `src/lib/audiobooks.ts`
-  fetches and validates the map and can look a sentence up by time or by span id;
-  turning pages from the audio is a separate change.
+- **Nothing fetches `sync.json` at runtime yet.** `src/lib/audiobooks.ts` can load,
+  validate and query the map, and the Worker serves it, but `AudiobookPlayer` still
+  ignores the session's `syncUrl`. Turning pages from the audio is a separate change.
 - **Sentence splitting is heuristic.** Abbreviations and initials are handled from a
   list, and a boundary falling inside an inline element is pushed to that element's
   end rather than splitting the markup — a slightly coarser anchor, never a broken

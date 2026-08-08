@@ -228,46 +228,58 @@ def anchor_chapters(
 ) -> list[ChapterRun]:
     """Matches each published chapter to the run of parts that produced it.
 
-    Chapters are cut at part boundaries, so each chapter start should coincide
-    with one. A boundary that sits nowhere near a part boundary means the
+    Chapters are cut at part boundaries, so each chapter should be exactly as
+    long as some run of parts. A chapter whose length matches no run means the
     published catalog and these timings do not describe the same assembly, and
     stretching one onto the other anyway would silently misplace every sentence
-    in the chapter.
+    in it.
+
+    Lengths, not positions. Comparing a chapter's absolute start against a
+    running total of every part before it would fold each earlier chapter's
+    disagreement into the comparison, so a fifth of a second per chapter becomes
+    six tenths by the fourth and fails a tolerance that no single chapter
+    exceeds -- the same accumulation the correction below exists to prevent.
+    Measuring each chapter from the boundary already anchored keeps every match
+    answerable by the parts inside that one chapter.
     """
     if not chapters:
         raise TimelineError('The published metadata lists no chapters.')
+    if abs(chapters[0]['startSeconds']) > tolerance:
+        raise TimelineError('The published chapters do not begin at the start of the recording.')
 
-    starts: list[int] = []
-    previous = -1
-    for chapter in chapters:
-        target = chapter['startSeconds']
-        index = min(range(len(boundaries)), key=lambda i: abs(boundaries[i] - target))
-        residual = abs(boundaries[index] - target)
+    # The parts *are* the recording, so the first chapter opens the first part.
+    edges = [0]
+    for position in range(1, len(chapters)):
+        cursor = edges[-1]
+        if cursor + 1 >= len(boundaries):
+            raise TimelineError(
+                f'Chapter {chapters[position]["id"]!r} has no parts left to cover it.'
+            )
+        length = chapters[position]['startSeconds'] - chapters[position - 1]['startSeconds']
+        index = min(
+            range(cursor + 1, len(boundaries)),
+            key=lambda i: abs((boundaries[i] - boundaries[cursor]) - length),
+        )
+        residual = abs((boundaries[index] - boundaries[cursor]) - length)
         if residual > tolerance:
             raise TimelineError(
-                f'Chapter {chapter["id"]!r} starts at {target:.3f}s, which is {residual:.3f}s '
-                f'from the nearest part boundary. These timings are not from the audio the '
-                f'published catalog describes.'
+                f'Chapter {chapters[position - 1]["id"]!r} runs {length:.3f}s in the published '
+                f'catalog, which is {residual:.3f}s from any run of parts. These timings are not '
+                f'from the audio the published catalog describes.'
             )
-        if index <= previous:
-            raise TimelineError(
-                f'Chapter {chapter["id"]!r} maps to the same part boundary as the chapter '
-                f'before it. Chapters must cover distinct runs of parts.'
-            )
-        previous = index
-        starts.append(index)
+        edges.append(index)
 
-    if starts[0] != 0:
-        raise TimelineError('The first chapter does not begin at the first part.')
-
-    end_residual = abs(boundaries[-1] - chapters[-1]['endSeconds'])
+    last = chapters[-1]
+    tail = boundaries[-1] - boundaries[edges[-1]]
+    end_residual = abs(tail - (last['endSeconds'] - last['startSeconds']))
     if end_residual > tolerance:
         raise TimelineError(
-            f'The parts add up to {boundaries[-1]:.3f}s but the published recording ends at '
-            f'{chapters[-1]["endSeconds"]:.3f}s, a gap of {end_residual:.3f}s.'
+            f'Chapter {last["id"]!r} ends the recording after '
+            f'{last["endSeconds"] - last["startSeconds"]:.3f}s but its parts run {tail:.3f}s, '
+            f'a gap of {end_residual:.3f}s.'
         )
 
-    edges = [*starts, len(boundaries) - 1]
+    edges = [*edges, len(boundaries) - 1]
     runs: list[ChapterRun] = []
     for position, chapter in enumerate(chapters):
         first, last = edges[position], edges[position + 1]

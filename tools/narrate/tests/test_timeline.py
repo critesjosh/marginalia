@@ -127,17 +127,35 @@ class AnchoringTests(unittest.TestCase):
         metadata = _fixture_metadata()
         metadata['chapters'][-1]['endSeconds'] = 92.0
         metadata['audiobook']['durationSeconds'] = 92.0
-        with self.assertRaisesRegex(TimelineError, 'the published recording ends at'):
+        with self.assertRaisesRegex(TimelineError, 'ends the recording after'):
             _build(metadata=metadata)
 
-    def test_two_chapters_cannot_share_one_part_boundary(self) -> None:
+    def test_a_chapter_shorter_than_any_run_of_parts_is_refused(self) -> None:
         boundaries = [0.0, 10.0, 30.0]
         chapters = [
             {'id': 'a', 'startSeconds': 0.0, 'endSeconds': 0.1},
             {'id': 'b', 'startSeconds': 0.1, 'endSeconds': 30.0},
         ]
-        with self.assertRaisesRegex(TimelineError, 'same part boundary'):
+        with self.assertRaisesRegex(TimelineError, 'not from the audio'):
             anchor_chapters(boundaries, chapters)
+
+    def test_small_per_chapter_disagreements_do_not_accumulate_into_the_match(self) -> None:
+        """Each chapter is 0.2s longer than its parts: individually anchorable,
+        but a running total reaches 0.6s by the fourth and trips the tolerance."""
+        boundaries = [0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]
+        chapters = [
+            {'id': f'c{index}', 'startSeconds': index * 20.2, 'endSeconds': (index + 1) * 20.2}
+            for index in range(4)
+        ]
+
+        runs = anchor_chapters(boundaries, chapters)
+
+        self.assertEqual([(run.first, run.last) for run in runs], [(0, 2), (2, 4), (4, 6), (6, 8)])
+        # Every chapter still lands on its published start, stretched not shifted.
+        for index, run in enumerate(runs):
+            self.assertAlmostEqual(run.start, index * 20.2, places=9)
+        for run in runs:
+            self.assertAlmostEqual(run.scale, 20.2 / 20.0, places=9)
 
     def test_unanchored_timings_are_a_plain_running_total(self) -> None:
         metadata = _fixture_metadata()
