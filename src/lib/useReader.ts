@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Book as EpubBook, Rendition, NavItem, Contents } from 'epubjs'
 import ePub from 'epubjs'
 import type { ReaderTheme } from '../db/types'
@@ -42,6 +42,21 @@ export interface ReaderApi {
 const THEME_NAME = 'marginalia'
 
 /**
+ * How long to let a burst of `resize` events finish before re-anchoring.
+ * epub.js throttles its own resize handling to 50ms, and a phone's address bar
+ * animating away produces a run of them.
+ */
+const RESIZE_SETTLE_MS = 150
+
+/**
+ * How long to keep ignoring relocations after re-anchoring, so the one caused
+ * by the re-anchor itself is not mistaken for the reader turning a page.
+ * epub.js reports a location from a `requestAnimationFrame` after the display
+ * promise has already resolved.
+ */
+const REANCHOR_RELEASE_MS = 250
+
+/**
  * Owns the epub.js Book + Rendition lifecycle for one book id.
  *
  * It deliberately takes an id rather than a Book record: the record is read
@@ -69,6 +84,20 @@ export function useReader(
   const anchorCache = useRef(new Map<string, ChapterAnchor[]>())
   const suppressTapUntil = useRef(0)
 
+  // The position the reader actually chose, held across every reflow.
+  const anchorCfi = useRef<string | undefined>(undefined)
+  // Non-zero while a reflow is being re-anchored; see `relocated` below.
+  const holds = useRef(0)
+  // Bumped by every deliberate move. A pending re-anchor checks it and gives
+  // up: a reader who turns a page while the layout is still settling means to
+  // be on the new page, not to be put back on the old one.
+  const navEpoch = useRef(0)
+
+  const supersede = useCallback(() => {
+    navEpoch.current += 1
+    holds.current = 0
+  }, [])
+
   useEffect(() => {
     // `container` is a state-held element, not a ref: the viewer div mounts a
     // render after the page first paints, and the effect must re-run when it does.
@@ -77,10 +106,13 @@ export function useReader(
     let cancelled = false
     let epubBook: EpubBook | undefined
     let rend: Rendition | undefined
+    let releaseHold = 0
     const detachTouch = new Set<() => void>()
     setReady(false)
     setError(undefined)
     anchorCache.current.clear()
+    anchorCfi.current = undefined
+    holds.current = 0
 
     const start = async () => {
       try {
@@ -90,6 +122,10 @@ export function useReader(
           setError('That book is no longer in your library.')
           return
         }
+
+        // Claim the saved position before anything can render: a resize that
+        // arrives while the book is still opening has to re-anchor to it too.
+        anchorCfi.current = stored.lastCfi || undefined
 
         const buffer = await stored.file.arrayBuffer()
         if (cancelled) return
@@ -135,11 +171,25 @@ export function useReader(
         setReady(true)
 
         // The first paint can drift as images load; re-anchor once it settles.
+        // Hold the saved position for the whole wait, or the short landing that
+        // the first paint reports would be written back over it.
         if (stored.lastCfi) {
           const target = stored.lastCfi
-          void waitForIdleLayout(rend).then(() => {
-            if (!cancelled) return rend?.display(target)
-          })
+          const epoch = navEpoch.current
+          holds.current += 1
+          void waitForIdleLayout(rend)
+            .then(() =>
+              cancelled || navEpoch.current !== epoch ? undefined : rend?.display(target),
+            )
+            .finally(() => {
+              // Released on a timer for the same reason as after a resize: the
+              // relocation this re-display triggers reports a column boundary
+              // at or before the saved position, and saving that would cost a
+              // page every time the book is opened.
+              releaseHold = window.setTimeout(() => {
+                if (!cancelled) holds.current = Math.max(0, holds.current - 1)
+              }, REANCHOR_RELEASE_MS)
+            })
         }
 
         // Locations power the progress percentage. Generating them walks the
@@ -155,6 +205,7 @@ export function useReader(
 
     return () => {
       cancelled = true
+      window.clearTimeout(releaseHold)
       setRendition(undefined)
       setEpub(undefined)
       setReady(false)
@@ -179,9 +230,23 @@ export function useReader(
     }) => {
       snapToPage(container, rendition)
 
-      const cfi = loc?.start?.cfi
+      const reported = loc?.start?.cfi
       const href = loc?.start?.href
-      if (!cfi || !href) return
+      if (!reported || !href) return
+
+      // While a reflow is being re-anchored, believe the anchor rather than the
+      // report. epub.js answers a resize by rebuilding the view and displaying
+      // into a layout that has not settled, and it resolves the CFI it is given
+      // to a column with Math.floor, so what comes back is at or before where
+      // the reader actually is. Recording it is what makes the loss permanent:
+      // it becomes the anchor for the next reflow, and a handful of address-bar
+      // collapses walk the book back to the start of the chapter. A CFI is a
+      // position in the document, not a pixel offset, so the anchor stays true
+      // across any number of reflows.
+      const anchor = holds.current > 0 ? anchorCfi.current : undefined
+      const holding = anchor !== undefined
+      const cfi = anchor ?? reported
+      if (!holding) anchorCfi.current = cfi
 
       let progress = 0
       try {
@@ -196,7 +261,7 @@ export function useReader(
       // Match on the end of the page, not the start: when a chapter heading sits
       // partway down the page, the reader sees the new chapter even though the
       // page still opens with the tail of the previous one.
-      const chapter = chapterAt(anchors, loc.end?.cfi ?? cfi)
+      const chapter = chapterAt(anchors, holding ? cfi : (loc.end?.cfi ?? cfi))
       setLocation({ cfi, href, chapter: chapter?.label, chapterHref: chapter?.href, progress })
       void db.books.update(bookId, { lastCfi: cfi, progress, lastOpenedAt: Date.now() })
     }
@@ -207,6 +272,59 @@ export function useReader(
     }
   }, [rendition, epub, bookId, container])
 
+  // Put the reader back on their page after the viewport changes size.
+  useEffect(() => {
+    if (!rendition) return
+
+    let settleTimer = 0
+    let releaseTimer = 0
+    let held = false
+
+    const release = () => {
+      if (!held) return
+      held = false
+      holds.current = Math.max(0, holds.current - 1)
+    }
+
+    const onResized = () => {
+      const target = anchorCfi.current
+      if (!target) return
+
+      // One hold for the whole burst. A phone's address bar sliding away fires
+      // `resize` repeatedly, and epub.js re-displays on every one of them.
+      if (!held) {
+        held = true
+        holds.current += 1
+      }
+      const epoch = navEpoch.current
+      window.clearTimeout(settleTimer)
+      window.clearTimeout(releaseTimer)
+      settleTimer = window.setTimeout(() => {
+        if (navEpoch.current !== epoch) {
+          release()
+          return
+        }
+        void goToSettled(rendition, target).finally(() => {
+          // Stay held a moment longer, so the relocation our own re-display
+          // triggers goes by unrecorded. epub.js resolves a CFI to a column
+          // with Math.floor, so it reports back up to a page short of the CFI
+          // it was handed; adopting that would concede a page on every resize,
+          // and phones resize constantly. The anchor is a document position,
+          // not a pixel offset, so it stays true across any number of reflows.
+          releaseTimer = window.setTimeout(release, REANCHOR_RELEASE_MS)
+        })
+      }, RESIZE_SETTLE_MS)
+    }
+
+    rendition.on('resized', onResized)
+    return () => {
+      rendition.off('resized', onResized)
+      window.clearTimeout(settleTimer)
+      window.clearTimeout(releaseTimer)
+      release()
+    }
+  }, [rendition])
+
   // Selection, taps, and keyboard navigation inside the book iframe.
   useEffect(() => {
     if (!rendition) return
@@ -216,8 +334,14 @@ export function useReader(
     }
 
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowRight') void rendition.next()
-      if (event.key === 'ArrowLeft') void rendition.prev()
+      if (event.key === 'ArrowRight') {
+        supersede()
+        void rendition.next()
+      }
+      if (event.key === 'ArrowLeft') {
+        supersede()
+        void rendition.prev()
+      }
     }
 
     const onClick = (event: MouseEvent) => {
@@ -241,9 +365,13 @@ export function useReader(
       // annotation callback claim the tap first.
       window.setTimeout(() => {
         if (Date.now() < suppressTapUntil.current) return
-        if (x < width * 0.28) void rendition.prev()
-        else if (x > width * 0.72) void rendition.next()
-        else optionsRef.current.onTapCenter?.()
+        if (x < width * 0.28) {
+          supersede()
+          void rendition.prev()
+        } else if (x > width * 0.72) {
+          supersede()
+          void rendition.next()
+        } else optionsRef.current.onTapCenter?.()
       }, 0)
     }
 
@@ -258,7 +386,7 @@ export function useReader(
       rendition.off('click', onClick)
       document.removeEventListener('keyup', onKeyUp)
     }
-  }, [rendition, container])
+  }, [rendition, container, supersede])
 
   // Theme and font size can change without rebuilding the rendition.
   useEffect(() => {
@@ -266,12 +394,17 @@ export function useReader(
     rendition.themes.register(THEME_NAME, epubThemeStyles(options.theme))
     rendition.themes.select(THEME_NAME)
     rendition.themes.fontSize(`${options.fontSize}%`)
-    // Re-selecting a theme does not always repaint the current page.
+    // Re-selecting a theme does not always repaint the current page, and a font
+    // size change repaginates the section under the reader. Both need the
+    // position put back, and the held anchor is the one to put it back to:
+    // `currentLocation` reports where the unchanged scroll offset lands in the
+    // new pagination, which is not where the reader was.
     try {
       const current = rendition.currentLocation() as unknown as {
         start?: { cfi?: string }
       }
-      if (current?.start?.cfi) void rendition.display(current.start.cfi)
+      const target = anchorCfi.current ?? current?.start?.cfi
+      if (target) void rendition.display(target)
     } catch {
       // Ignore: the rendition may not have a location yet.
     }
@@ -284,9 +417,18 @@ export function useReader(
     location,
     ready,
     error,
-    next: () => void rendition?.next(),
-    prev: () => void rendition?.prev(),
-    goTo: (target: string) => void goToSettled(rendition, target),
+    next: () => {
+      supersede()
+      void rendition?.next()
+    },
+    prev: () => {
+      supersede()
+      void rendition?.prev()
+    },
+    goTo: (target: string) => {
+      supersede()
+      void goToSettled(rendition, target)
+    },
     suppressTap: () => {
       suppressTapUntil.current = Date.now() + 400
     },

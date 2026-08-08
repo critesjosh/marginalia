@@ -109,6 +109,34 @@ reached 80px after 200 turns and kept climbing, until the viewport straddled two
 and showed half of each page. Any change near navigation should assert that remainder
 over a few hundred turns, since a handful of turns looks perfectly fine.
 
+## The other unbounded drift: resizing
+
+Changing the viewport height is the second way the reading position bleeds away, and it
+is invisible in a fixed desktop window. epub.js answers a window `resize` by clearing its
+views and re-displaying `location.start.cfi` into a layout that has not settled, and it
+resolves a CFI to a column with `Math.floor`, so what it reports back sits at or before
+where the reader was. Persist that and it becomes the anchor for the next resize. On a
+phone the address bar collapses and expands all day, which measured at one lost page per
+resize on Moby Dick chapter 35 — ten round-trips walked the book back a whole chapter, and
+reopening it then landed on the loss.
+
+`useReader` holds the reader's own CFI across a reflow and re-anchors to it, ignoring the
+relocations the reflow produces (including, on a delay, the one its own re-display
+triggers). A CFI is a document position, not a pixel offset, so it survives any number of
+reflows. Assert it the way the alignment invariant is asserted — over repetition:
+
+```js
+// after each round-trip, page and lastCfi must both be unchanged
+await page.setViewportSize({ width: w, height: h - 90 }); await wait(2500);
+await page.setViewportSize({ width: w, height: h });      await wait(2500);
+```
+
+Ten round-trips is enough to see it; one is not. Check `lastCfi` in IndexedDB as well as
+the rendered page, since the damage is what gets written, and check that the header still
+names the chapter — suppressing those relocations too eagerly leaves the chrome showing
+the author fallback after a reopen. A deliberate move must still win over a pending
+re-anchor: turn a page or take a TOC jump ~2s into a reopen and confirm it is not undone.
+
 ## Checking a reader interaction
 
 Interaction bugs here hide behind plausible-looking screenshots, so assert on numbers:
