@@ -116,8 +116,8 @@ href it lives in:
 ```
 
 `href#spanId` is a target `rendition.display` accepts, which is the same form
-the table of contents already navigates by. Roughly 3,000 sentences for a book
-this length, about 20 kB gzipped.
+the table of contents already navigates by. *Twilight of the Idols* comes to
+3,249 sentences over 421 parts: 100 kB, 27 kB gzipped.
 
 ### Resuming
 

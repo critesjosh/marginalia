@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import sys
 from dataclasses import dataclass, field
@@ -184,6 +185,22 @@ def _boundaries(parts: list[TimedPart]) -> list[float]:
     return out
 
 
+def _floor_ms(seconds: float) -> float:
+    """Truncates to milliseconds, never rounding a start later than it really is.
+
+    Rounding to the nearest millisecond can push a sentence half a millisecond
+    past its own start, and the published catalog carries finer precision than
+    that: a chapter beginning at 4308.0815s would have its first sentence at
+    4308.082s, which lands *outside* the chapter, so asking what is being spoken
+    at that boundary answers with the last sentence of the chapter before.
+    Truncating biases the other way, where the cost is landing a hair early --
+    inside the silent gap that precedes the sentence.
+    """
+    # The epsilon absorbs binary representation error, so a value that is
+    # exactly 45.015 in decimal cannot truncate to 45.014.
+    return math.floor(seconds * 1000 + 1e-6) / 1000
+
+
 @dataclass
 class ChapterRun:
     """The parts one published chapter was cut from, and where they land."""
@@ -326,7 +343,7 @@ def build_sync(
                 raise TimelineError(f'Span {span_id} appears in more than one part.')
             seen.add(span_id)
 
-            absolute = round(run.at(boundaries[index] + start), 3)
+            absolute = _floor_ms(run.at(boundaries[index] + start))
             if absolute < previous_start:
                 raise TimelineError(
                     f'Span {span_id} lands at {absolute:.3f}s, before the span before it. '

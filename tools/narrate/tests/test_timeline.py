@@ -91,6 +91,18 @@ class AnchoringTests(unittest.TestCase):
         self.assertAlmostEqual(second['starts'][2], 45.015, places=3)
         self.assertEqual(second['starts'][3], 50.02)
 
+    def test_a_sentence_never_starts_later_than_it_really_does(self) -> None:
+        """The published catalog is finer than milliseconds; truncation must not
+        push a chapter's opening sentence past the boundary it opens."""
+        metadata = _fixture_metadata()
+        metadata['chapters'][0]['endSeconds'] = 30.0004
+        metadata['chapters'][1]['startSeconds'] = 30.0004
+        payload = _build(metadata=metadata)
+
+        opening = payload['documents'][1]['starts'][0]
+        self.assertEqual(opening, 30.0)
+        self.assertLessEqual(opening, 30.0004)
+
     def test_every_span_is_ordered_and_inside_the_recording(self) -> None:
         payload = _build()
         starts = [start for document in payload['documents'] for start in document['starts']]
