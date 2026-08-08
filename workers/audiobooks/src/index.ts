@@ -1,7 +1,11 @@
 const BOOK_PREFIX = 'twilight-of-the-idols'
 const AUDIO_KEY = `${BOOK_PREFIX}/audiobook.opus`
 const METADATA_KEY = `${BOOK_PREFIX}/metadata.json`
-const PUBLIC_OBJECTS = new Set([AUDIO_KEY, METADATA_KEY])
+// Sentence timings on the combined recording, so the reader can follow the
+// audio through the text. Published from the narration checkpoints, which
+// themselves stay private: this holds span ids and times, no prose.
+const SYNC_KEY = `${BOOK_PREFIX}/sync.json`
+const PUBLIC_OBJECTS = new Set([AUDIO_KEY, METADATA_KEY, SYNC_KEY])
 const encoder = new TextEncoder()
 
 export default {
@@ -67,11 +71,15 @@ async function createSession(
     expires,
     env.SIGNING_KEY,
   )
+  // Signed without checking the object exists. A book narrated before the
+  // timeline tool existed has no sync map, and the reader treats a 404 here as
+  // "no sentence sync for this recording" rather than a failure to unlock it.
+  const syncUrl = await signedObjectUrl(requestUrl.origin, SYNC_KEY, expires, env.SIGNING_KEY)
 
   const headers = new Headers(cors ?? undefined)
   headers.set('Content-Type', 'application/json; charset=utf-8')
   headers.set('Cache-Control', 'no-store')
-  return Response.json({ audioUrl, metadataUrl, expiresAt: expires * 1000 }, { headers })
+  return Response.json({ audioUrl, metadataUrl, syncUrl, expiresAt: expires * 1000 }, { headers })
 }
 
 async function serveObject(

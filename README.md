@@ -56,11 +56,32 @@ whose time is relative to the active chapter. Playback crosses chapter boundarie
 without swapping audio sources. Resume state is saved locally against the audio
 file's SHA-256 identity, so stale positions are discarded if the recording changes.
 
+### Keeping the audio and the page together
+
+`tools/narrate` wraps every sentence of a book in a `<span id="mg-000123">` when
+it narrates it, and its timeline step publishes `sync.json`: each of those span
+ids, at the second it is spoken in the combined recording. `src/lib/audiobooks.ts`
+loads and validates that map and looks a sentence up in either direction — by
+playback time, or by the span the reader is looking at. `href#spanId` is a target
+`rendition.display` already accepts, so moving the page from the audio needs no
+new navigation machinery.
+
+Two things this depends on. The book in the library has to be the **narrated**
+EPUB the tool derived, since only that copy carries the span ids; the original
+has none, and CFIs do not carry between the two, so highlights made against one
+will not resolve against the other. And when the two positions disagree — you
+read past where you stopped listening, or the reverse — the **most recent** one
+wins, comparing the resume position's `updatedAt` against the book's
+`lastOpenedAt`, which `useReader` already stamps on every relocate.
+
+Following the audio through the text is not wired up yet; the map and the
+lookups are.
+
 The `josh-audiobooks` R2 bucket has no public development URL. The Worker in
-`workers/audiobooks/` exposes only the combined audiobook and its metadata;
-checkpoint files remain inaccessible. The personal token and signed URLs are
-the authorization boundary; CORS additionally limits browser response access to
-the live PWA, the active PR preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
+`workers/audiobooks/` exposes only the combined audiobook, its metadata, and the
+sync map; checkpoint files remain inaccessible. The personal token and signed
+URLs are the authorization boundary; CORS additionally limits browser response
+access to the live PWA, the active PR preview, and localhost. `ACCESS_TOKEN` and `SIGNING_KEY`
 are Cloudflare Worker secrets and must never be committed.
 
 After changing `wrangler.jsonc`, regenerate the binding/runtime types and verify

@@ -4,8 +4,14 @@ This Worker keeps the `josh-audiobooks` R2 bucket private while allowing the
 Marginalia PWA to stream the combined *Twilight of the Idols* audiobook.
 
 The PWA exchanges a personal bearer token for 24-hour HMAC-signed URLs. Only
-`audiobook.opus` and `metadata.json` are reachable; narration checkpoints stay
-private. Audio is streamed directly from R2 with byte-range support.
+`audiobook.opus`, `metadata.json` and `sync.json` are reachable; narration
+checkpoints stay private. Audio is streamed directly from R2 with byte-range
+support.
+
+`sync.json` is the sentence sync map built by `tools/narrate`'s timeline step.
+It holds span ids and times, no prose, and is signed without checking that it
+exists: a recording published before that step existed simply has none, and the
+reader treats the 404 as "no sentence sync" rather than a failure to unlock.
 
 The token and signed URL are the authorization boundary; CORS only limits which
 browsers can read responses. `/session` also uses a Cloudflare rate-limit binding

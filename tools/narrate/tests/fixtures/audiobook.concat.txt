@@ -1,0 +1,6 @@
+# Built by the publishing step, then fed to `ffmpeg -f concat`.
+file 'audio/p0001-foreword.opus'
+file 'audio/p0002-i-maxims.opus'
+file 'audio/p0003-ii-socrates.opus'
+file 'audio/p0004-iii-reason.opus'
+file 'audio/p0005-notes.opus'
