@@ -44,6 +44,22 @@ const MAX_OUTPUT_TOKENS = 1500
 const WINDOW_MS = 5 * 60_000
 const MAX_REQUESTS_PER_WINDOW = 40
 
+/**
+ * Total time both upstream attempts may spend waiting for response headers.
+ * The platform gives an edge function a bounded window to start responding and
+ * turns an overrun into an opaque 502, so the budget is shared across the
+ * primary and the fallback: whatever the first attempt spends, the second one
+ * does not get. Only time-to-headers is covered — once a streaming reply has
+ * begun, it runs to its own end.
+ */
+const UPSTREAM_BUDGET_MS = 30_000
+
+/** Below this much remaining budget a second attempt cannot achieve anything. */
+const MIN_ATTEMPT_MS = 5_000
+
+/** Shown when neither route answered and neither said why. */
+const UNAVAILABLE = 'The model provider is unavailable right now.'
+
 export interface RelayOptions {
   apiKey: string
   /** Sent to OpenRouter as HTTP-Referer, which it uses for app attribution. */
@@ -84,9 +100,11 @@ export async function handleRelayRequest(
   if ('error' in parsed) return errorResponse(400, parsed.error)
   const { messages, stream } = parsed
 
+  const deadline = Date.now() + UPSTREAM_BUDGET_MS
+
   let detail = ''
   if (!freeTierCoolingOff()) {
-    const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl)
+    const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl, deadline)
     if (primary.ok) return relayResponse(primary)
 
     // The free tier shares an upstream pool that is regularly exhausted. Note
@@ -94,43 +112,72 @@ export async function handleRelayRequest(
     // latency of a request that is going to be refused.
     if (primary.status === 429) coolOffFreeTier()
     detail = await primary.text().catch(() => '')
+
+    // A primary attempt that burned the whole budget leaves nothing for the
+    // paid model; retrying would only abort on arrival and replace a real
+    // upstream message with a generic one.
+    if (Date.now() > deadline - MIN_ATTEMPT_MS) {
+      return errorResponse(primary.status, upstreamMessage(detail) || UNAVAILABLE)
+    }
   }
 
   // Fall back to the paid model rather than surfacing the outage to the reader.
-  const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl)
+  const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl, deadline)
   if (fallback.ok) return relayResponse(fallback)
 
   return errorResponse(
     fallback.status,
     upstreamMessage(await fallback.text().catch(() => '')) ||
       upstreamMessage(detail) ||
-      'The model provider is unavailable right now.',
+      UNAVAILABLE,
   )
 }
 
-function callOpenRouter(
+/**
+ * Calls OpenRouter and always resolves, so a failed attempt stays a value the
+ * handler can fall back on. An unreachable provider rejects `fetch`, and an
+ * escaping rejection is what the platform turns into a bare 502 with no JSON
+ * body — the reader sees "the chat request failed (502)" instead of what went
+ * wrong, and the fallback model never gets its turn.
+ */
+async function callOpenRouter(
   route: Route,
   messages: RelayMessage[],
   stream: boolean,
   apiKey: string,
-  siteUrl?: string,
+  siteUrl: string | undefined,
+  deadline: number,
 ): Promise<Response> {
-  return fetch(OPENROUTER_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      ...(siteUrl ? { 'HTTP-Referer': siteUrl } : {}),
-      'X-Title': 'Marginalia',
-    },
-    body: JSON.stringify({
-      model: route.model,
-      messages,
-      stream,
-      max_tokens: MAX_OUTPUT_TOKENS,
-      provider: { order: route.order, allow_fallbacks: route.allowFallbacks },
-    }),
-  })
+  // Cleared as soon as the headers land, so the timeout bounds how long the
+  // provider may think, not how long its answer may be.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), Math.max(deadline - Date.now(), 0))
+
+  try {
+    return await fetch(OPENROUTER_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        ...(siteUrl ? { 'HTTP-Referer': siteUrl } : {}),
+        'X-Title': 'Marginalia',
+      },
+      body: JSON.stringify({
+        model: route.model,
+        messages,
+        stream,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        provider: { order: route.order, allow_fallbacks: route.allowFallbacks },
+      }),
+      signal: controller.signal,
+    })
+  } catch {
+    return controller.signal.aborted
+      ? errorResponse(504, 'The model provider took too long to respond. Try again.')
+      : errorResponse(502, 'Could not reach the model provider. Try again in a moment.')
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**

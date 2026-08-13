@@ -183,5 +183,11 @@ async function errorMessage(response: Response): Promise<string> {
   if (response.status === 429) {
     return detail || 'Rate limited or out of quota. Try again shortly.'
   }
+  // A 5xx without a JSON body did not come from the relay — it is the platform
+  // reporting that the relay itself fell over. A bare status code tells the
+  // reader nothing they can act on, so say what it means instead.
+  if (response.status >= 500) {
+    return detail || 'The model provider is unavailable right now. Try again in a moment.'
+  }
   return detail || `The chat request failed (${response.status}).`
 }
