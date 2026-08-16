@@ -18,9 +18,20 @@ function upstreamResponse(status: number, body: unknown): Response {
   })
 }
 
+/** The body of each recorded call, in order. */
+function requestedBodies(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.map(
+    ([, init]) =>
+      JSON.parse((init as RequestInit).body as string) as {
+        model: string
+        provider: { order: string[]; allow_fallbacks: boolean }
+      },
+  )
+}
+
 /** The model each recorded call asked for, in order. */
 function requestedModels(fetchMock: ReturnType<typeof vi.fn>): string[] {
-  return fetchMock.mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string).model)
+  return requestedBodies(fetchMock).map((body) => body.model)
 }
 
 async function errorMessage(response: Response): Promise<string> {
@@ -91,6 +102,27 @@ describe('upstream routing', () => {
       'google/gemma-4-26b-a4b-it:free',
       'google/gemma-4-26b-a4b-it',
     ])
+  })
+
+  it('lets no route hand the reader\'s book text to an unvetted provider', async () => {
+    fetchMock
+      .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'rate limited' } }))
+      .mockResolvedValueOnce(upstreamResponse(200, { choices: [] }))
+
+    await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+
+    // An open fallback set can land on a provider that scrubs the prompt before
+    // the model sees it, so the answer comes back discussing `[PERSON_NAME]`
+    // and `[ADDRESS]` instead of the author and the country in the passage.
+    const bodies = requestedBodies(fetchMock)
+    expect(bodies).toHaveLength(2)
+    for (const { provider } of bodies) {
+      expect(provider.allow_fallbacks).toBe(false)
+      expect(provider.order.length).toBeGreaterThan(0)
+      expect(provider.order.every((slug) => ['google-ai-studio', 'cloudflare'].includes(slug))).toBe(
+        true,
+      )
+    }
   })
 })
 

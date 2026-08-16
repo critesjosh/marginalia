@@ -55,6 +55,55 @@ export function stripFenceTokens(text: string): string {
     .trim()
 }
 
+/**
+ * Labels a PII scrubber leaves behind, as literal bracketed text.
+ *
+ * Drawn from the entity names the common scrubbers emit, rather than matched by
+ * shape: a pattern for "bracketed capitals" would also claim editorial marks a
+ * reader might legitimately write, and the cost of a false positive here is a
+ * digest that stops updating for that book.
+ */
+const REDACTION_LABELS = [
+  'PERSON_NAME',
+  'PERSON',
+  'ADDRESS',
+  'STREET_ADDRESS',
+  'LOCATION',
+  'ORGANIZATION',
+  'EMAIL_ADDRESS',
+  'PHONE_NUMBER',
+  'DATE_TIME',
+  'DATE_OF_BIRTH',
+  'CREDIT_CARD',
+  'CREDIT_CARD_NUMBER',
+  'IP_ADDRESS',
+  'IBAN_CODE',
+  'US_SSN',
+  'PASSPORT',
+  'DRIVER_LICENSE',
+]
+
+const REDACTION_PATTERN = new RegExp(`\\[(?:${REDACTION_LABELS.join('|')})\\]`)
+
+/**
+ * Whether a model's reply came back with its subject scrubbed out.
+ *
+ * Some inference providers run the prompt through a PII filter before the model
+ * sees it, so a passage about Nietzsche and Germany arrives as one about
+ * `[PERSON_NAME]` and `[ADDRESS]`, and the reply discusses those. The relay
+ * routes around such providers, but a reply is worth checking anyway where it
+ * would be *stored*: the digest rides in the system prompt of every later
+ * message about that book, so one scrubbed round folded in teaches every
+ * following answer to talk that way, long after the routing has moved on.
+ *
+ * Discarding the update costs one round of notes -- the same turns are folded
+ * in on the next reply instead -- against a book whose memory is poisoned until
+ * the reader notices and clears it by hand.
+ */
+export function looksRedacted(text: string): boolean {
+  return REDACTION_PATTERN.test(text)
+}
+
 /** Last paragraph break, then line, sentence, and word, in preference order. */
 const BOUNDARIES = [
   /\n\n(?![\s\S]*\n\n)/,

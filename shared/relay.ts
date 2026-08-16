@@ -10,19 +10,36 @@
 
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
+/**
+ * Every route pins its providers and refuses OpenRouter's open fallback set.
+ *
+ * One model is served by many providers, and they do not all hand the prompt to
+ * the model as written: some run it through a PII scrubber first, so names and
+ * places arrive as labels like `[PERSON_NAME]` and `[ADDRESS]`. The model never
+ * sees anything else, so it answers in those labels too — which is nonsense
+ * when the "personal data" being protected is the author of the book and the
+ * country it is about. Worse, the summariser shares this relay, so one such
+ * reply folded into a book's digest rides in the system prompt of every later
+ * message and keeps the labels coming from providers that never scrubbed
+ * anything.
+ *
+ * Availability is bought by listing more than one vetted provider, never by
+ * letting OpenRouter choose an unvetted one. A route that cannot be served by
+ * anything on its list should fail and say so: a clear error is recoverable,
+ * a silently rewritten answer is not.
+ */
+const VETTED_PROVIDERS = ['google-ai-studio', 'cloudflare'] as const
+
 interface Route {
   model: string
-  /** OpenRouter provider slugs, most preferred first. */
-  order: string[]
-  /** Whether OpenRouter may route outside `order` if those providers fail. */
-  allowFallbacks: boolean
+  /** Vetted provider slugs, most preferred first. Nothing else may serve it. */
+  order: (typeof VETTED_PROVIDERS)[number][]
 }
 
 /** Free tier, served by Google AI Studio. Costs nothing and is the usual path. */
 const PRIMARY: Route = {
   model: 'google/gemma-4-26b-a4b-it:free',
   order: ['google-ai-studio'],
-  allowFallbacks: false,
 }
 
 /**
@@ -31,8 +48,7 @@ const PRIMARY: Route = {
  */
 const FALLBACK: Route = {
   model: 'google/gemma-4-26b-a4b-it',
-  order: ['cloudflare'],
-  allowFallbacks: true,
+  order: ['cloudflare', 'google-ai-studio'],
 }
 
 /** Caps on what one request may ask for, since anyone can call this endpoint. */
@@ -167,7 +183,9 @@ async function callOpenRouter(
         messages,
         stream,
         max_tokens: MAX_OUTPUT_TOKENS,
-        provider: { order: route.order, allow_fallbacks: route.allowFallbacks },
+        // Never true: see `VETTED_PROVIDERS` for what an open fallback set does
+        // to a reader's book text.
+        provider: { order: route.order, allow_fallbacks: false },
       }),
       signal: controller.signal,
     })

@@ -1,6 +1,6 @@
 import { db, getSettings } from '../db/db'
 import type { Message } from '../db/types'
-import { normalizeSummary } from './digest'
+import { looksRedacted, normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
 
@@ -99,6 +99,11 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   // storing that would wipe a digest the reader may have written by hand.
   const summary = normalizeSummary(generated)
   if (!summary) return
+
+  // Notes about `[PERSON_NAME]` are worse than no notes: they are durable, and
+  // they steer every later answer about this book. Leaving `summarizedCount`
+  // where it is folds these same turns in on the next reply.
+  if (looksRedacted(summary)) return
 
   await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
     // The digest this was merged from can have been rewritten by the reader
