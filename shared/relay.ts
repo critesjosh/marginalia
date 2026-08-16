@@ -23,17 +23,24 @@ const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
  * message and keeps the labels coming from providers that never scrubbed
  * anything.
  *
- * Availability is bought by listing more than one vetted provider, never by
- * letting OpenRouter choose an unvetted one. A route that cannot be served by
- * anything on its list should fail and say so: a clear error is recoverable,
+ * Availability is bought by listing a second provider, never by letting
+ * OpenRouter choose one this file does not name. A route that cannot be served
+ * by anything on its list should fail and say so: a clear error is recoverable,
  * a silently rewritten answer is not.
+ *
+ * "Allowed" is the honest word for these two, not "clean". Google AI Studio is
+ * vouched for only by the free route's replies reading normally; Cloudflare was
+ * already the preferred paid provider when the labels were reported, so it is a
+ * suspect rather than a control. The route and provider recorded against each
+ * reply are what will settle it -- and once one of them is named, ignoring it
+ * by name beats this list, since that restores the open fallback set.
  */
-const VETTED_PROVIDERS = ['google-ai-studio', 'cloudflare'] as const
+const ALLOWED_PROVIDERS = ['google-ai-studio', 'cloudflare'] as const
 
 interface Route {
   model: string
-  /** Vetted provider slugs, most preferred first. Nothing else may serve it. */
-  order: (typeof VETTED_PROVIDERS)[number][]
+  /** Allowed provider slugs, most preferred first. Nothing else may serve it. */
+  order: (typeof ALLOWED_PROVIDERS)[number][]
 }
 
 /** Free tier, served by Google AI Studio. Costs nothing and is the usual path. */
@@ -183,8 +190,8 @@ async function callOpenRouter(
         messages,
         stream,
         max_tokens: MAX_OUTPUT_TOKENS,
-        // Never true: see `VETTED_PROVIDERS` for what an open fallback set does
-        // to a reader's book text.
+        // Never true: see `ALLOWED_PROVIDERS` for what an open fallback set
+        // does to a reader's book text.
         provider: { order: route.order, allow_fallbacks: false },
       }),
       signal: controller.signal,

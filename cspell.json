@@ -59,9 +59,11 @@
     "rootfile",
     "sandboxed",
     "soundfile",
+    "summarisable",
     "summarise",
     "summarised",
     "summariser",
+    "summarising",
     "synthesise",
     "synthesises",
     "tailwindcss",
@@ -71,7 +73,6 @@
     "unaddressable",
     "unpaint",
     "unstub",
-    "unvetted",
     "Workbox"
   ]
 }

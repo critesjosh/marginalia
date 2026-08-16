@@ -120,7 +120,7 @@ describe('upstream routing', () => {
     expect(paid.headers.get('X-Marginalia-Route')).toBe('paid')
   })
 
-  it('lets no route hand the reader\'s book text to an unvetted provider', async () => {
+  it('lets no route hand the reader\'s book text to a provider off the list', async () => {
     fetchMock
       .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'rate limited' } }))
       .mockResolvedValueOnce(upstreamResponse(200, { choices: [] }))
