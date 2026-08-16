@@ -70,6 +70,7 @@
     "touchend",
     "unaddressable",
     "unpaint",
+    "unstub",
     "unvetted",
     "Workbox"
   ]

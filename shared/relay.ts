@@ -121,7 +121,7 @@ export async function handleRelayRequest(
   let detail = ''
   if (!freeTierCoolingOff()) {
     const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl, deadline)
-    if (primary.ok) return relayResponse(primary)
+    if (primary.ok) return relayResponse(primary, 'free')
 
     // The free tier shares an upstream pool that is regularly exhausted. Note
     // that and stop trying for a while, so later readers do not each pay the
@@ -139,7 +139,7 @@ export async function handleRelayRequest(
 
   // Fall back to the paid model rather than surfacing the outage to the reader.
   const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl, deadline)
-  if (fallback.ok) return relayResponse(fallback)
+  if (fallback.ok) return relayResponse(fallback, 'paid')
 
   return errorResponse(
     fallback.status,
@@ -199,11 +199,22 @@ async function callOpenRouter(
 }
 
 /**
+ * Names the route that answered, so a reply can be traced back to it.
+ *
+ * Which of the two routes ran is invisible from the outside -- both return the
+ * same shape from the same URL -- and it is the first thing worth knowing about
+ * a reply that came back wrong. Pairs with the `provider` OpenRouter reports in
+ * the body, which names its pick from within the route's list. Same-origin, so
+ * the browser can read it without any CORS exposure.
+ */
+const ROUTE_HEADER = 'X-Marginalia-Route'
+
+/**
  * Hands the upstream body straight back. The body is not read here so the
  * platform can stream it through without buffering.
  */
-function relayResponse(upstream: Response): Response {
-  const headers = new Headers({ 'Cache-Control': 'no-store' })
+function relayResponse(upstream: Response, route: 'free' | 'paid'): Response {
+  const headers = new Headers({ 'Cache-Control': 'no-store', [ROUTE_HEADER]: route })
   const contentType = upstream.headers.get('content-type')
   if (contentType) headers.set('Content-Type', contentType)
   return new Response(upstream.body, { status: 200, headers })

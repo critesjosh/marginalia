@@ -65,6 +65,15 @@ export interface Message {
   conversationId: string
   role: Role
   content: string
+  /**
+   * Route and provider that produced an assistant reply, when it said.
+   *
+   * Kept per message rather than per conversation because it changes turn to
+   * turn: the free route is regularly exhausted mid-chat. Absent on replies
+   * stored before this was recorded, and on every reply from a reader's own
+   * key, which goes straight to OpenAI and has one source by definition.
+   */
+  source?: string
   createdAt: number
 }
 

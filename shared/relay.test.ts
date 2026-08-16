@@ -104,6 +104,22 @@ describe('upstream routing', () => {
     ])
   })
 
+  it('names the route that answered, so a bad reply can be traced to it', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('data: {}\n\n', { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
+    )
+
+    const free = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    expect(free.headers.get('X-Marginalia-Route')).toBe('free')
+
+    fetchMock
+      .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'rate limited' } }))
+      .mockResolvedValueOnce(upstreamResponse(200, { choices: [] }))
+
+    const paid = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    expect(paid.headers.get('X-Marginalia-Route')).toBe('paid')
+  })
+
   it('lets no route hand the reader\'s book text to an unvetted provider', async () => {
     fetchMock
       .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'rate limited' } }))
