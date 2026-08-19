@@ -122,6 +122,11 @@ export function useReader(
           setError('That book is no longer in your library.')
           return
         }
+        // Removed but kept: the notes are still here, the EPUB is not.
+        if (!stored.file) {
+          setError('That book was removed from your library. Import the EPUB again to read it.')
+          return
+        }
 
         // Claim the saved position before anything can render: a resize that
         // arrives while the book is still opening has to re-anchor to it too.

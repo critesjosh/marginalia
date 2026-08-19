@@ -45,6 +45,12 @@ class MarginaliaDB extends Dexie {
       // A digest that was nothing but delimiters holds no notes to keep.
       await memory.filter((row) => !row.summary).delete()
     })
+
+    // `archivedAt` joins the index so the library can ask for shelved books
+    // without pulling every EPUB blob out of storage to filter in memory.
+    this.version(3).stores({
+      books: 'id, title, author, addedAt, lastOpenedAt, archivedAt',
+    })
   }
 }
 
@@ -95,6 +101,47 @@ export async function deleteBook(bookId: string): Promise<void> {
       await db.books.delete(bookId)
     },
   )
+}
+
+/**
+ * Shelves a book: the EPUB goes, everything anchored to it stays.
+ *
+ * The record itself is kept so its highlights, conversations and memory still
+ * have a book to belong to, and so importing the same EPUB again lands back on
+ * this row rather than starting an empty second copy of the book.
+ */
+export async function archiveBook(bookId: string): Promise<void> {
+  await db.books.update(bookId, {
+    archivedAt: Date.now(),
+    // Dexie's update only writes the keys it is given, and `undefined` is one
+    // of them: this is what actually reclaims the space.
+    file: undefined,
+  })
+}
+
+/** Title and author, folded so the same book imported twice matches itself. */
+function shelfKey(title: string, author: string): string {
+  return `${title.trim().toLowerCase()}\u0000${author.trim().toLowerCase()}`
+}
+
+/** An archived book the given import would be a second copy of, if there is one. */
+export async function findArchivedMatch(book: Book): Promise<Book | undefined> {
+  const key = shelfKey(book.title, book.author)
+  const archived = await db.books.where('archivedAt').above(0).toArray()
+  return archived.find((row) => shelfKey(row.title, row.author) === key)
+}
+
+/**
+ * Puts an archived book back on the shelf using a freshly imported file.
+ *
+ * Reading position and metadata come back with it. Highlights are anchored by
+ * CFI, so they line up again as long as this is the same edition; a different
+ * edition under the same title and author is the case that misplaces them,
+ * which is the same exposure highlights already carry across app versions.
+ */
+export async function restoreBook(bookId: string, imported: Book): Promise<void> {
+  const { id: _id, addedAt: _addedAt, ...metadata } = imported
+  await db.books.update(bookId, { ...metadata, archivedAt: undefined })
 }
 
 /** Removes a conversation and its messages. */

@@ -1,6 +1,7 @@
 import type { ReaderTheme } from '../db/types'
 import { THEMES } from '../lib/themes'
 import { useModal } from '../lib/useModal'
+import { TrashIcon } from './Icons'
 
 const THEME_OPTIONS: { value: ReaderTheme; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -15,11 +16,14 @@ export default function DisplaySheet({
   theme,
   fontSize,
   onChange,
+  onRemoveBook,
   onClose,
 }: {
   theme: ReaderTheme
   fontSize: number
   onChange: (patch: { theme?: ReaderTheme; fontSize?: number }) => void
+  /** Opens the confirmation for taking this book out of the library. */
+  onRemoveBook: () => void
   onClose: () => void
 }) {
   const palette = THEMES[theme]
@@ -32,7 +36,7 @@ export default function DisplaySheet({
         ref={ref}
         role="dialog"
         aria-modal="true"
-        aria-label="Display settings"
+        aria-label="Reader settings"
         className={`pb-safe relative w-full rounded-t-2xl border-t px-5 pt-5 ${palette.chrome} ${palette.chromeText} ${palette.border} shadow-2xl`}
       >
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-current opacity-20" />
@@ -86,6 +90,17 @@ export default function DisplaySheet({
             A
           </button>
         </div>
+
+        <p className="mb-2 text-xs font-semibold tracking-wide uppercase opacity-50">
+          This book
+        </p>
+        <button
+          onClick={onRemoveBook}
+          className={`mb-5 flex w-full items-center gap-2 rounded-lg border py-2.5 pl-3 text-sm font-medium text-red-500 ${palette.border}`}
+        >
+          <TrashIcon className="h-4 w-4" />
+          Remove from library
+        </button>
 
         <button
           onClick={onClose}
