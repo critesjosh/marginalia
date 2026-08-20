@@ -10,19 +10,43 @@
 
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
+/**
+ * Every route pins its providers and refuses OpenRouter's open fallback set.
+ *
+ * One model is served by many providers, and they do not all hand the prompt to
+ * the model as written: some run it through a PII scrubber first, so names and
+ * places arrive as labels like `[PERSON_NAME]` and `[ADDRESS]`. The model never
+ * sees anything else, so it answers in those labels too — which is nonsense
+ * when the "personal data" being protected is the author of the book and the
+ * country it is about. Worse, the summariser shares this relay, so one such
+ * reply folded into a book's digest rides in the system prompt of every later
+ * message and keeps the labels coming from providers that never scrubbed
+ * anything.
+ *
+ * Availability is bought by listing a second provider, never by letting
+ * OpenRouter choose one this file does not name. A route that cannot be served
+ * by anything on its list should fail and say so: a clear error is recoverable,
+ * a silently rewritten answer is not.
+ *
+ * "Allowed" is the honest word for these two, not "clean". Google AI Studio is
+ * vouched for only by the free route's replies reading normally; Cloudflare was
+ * already the preferred paid provider when the labels were reported, so it is a
+ * suspect rather than a control. The route and provider recorded against each
+ * reply are what will settle it -- and once one of them is named, ignoring it
+ * by name beats this list, since that restores the open fallback set.
+ */
+const ALLOWED_PROVIDERS = ['google-ai-studio', 'cloudflare'] as const
+
 interface Route {
   model: string
-  /** OpenRouter provider slugs, most preferred first. */
-  order: string[]
-  /** Whether OpenRouter may route outside `order` if those providers fail. */
-  allowFallbacks: boolean
+  /** Allowed provider slugs, most preferred first. Nothing else may serve it. */
+  order: (typeof ALLOWED_PROVIDERS)[number][]
 }
 
 /** Free tier, served by Google AI Studio. Costs nothing and is the usual path. */
 const PRIMARY: Route = {
   model: 'google/gemma-4-26b-a4b-it:free',
   order: ['google-ai-studio'],
-  allowFallbacks: false,
 }
 
 /**
@@ -31,8 +55,7 @@ const PRIMARY: Route = {
  */
 const FALLBACK: Route = {
   model: 'google/gemma-4-26b-a4b-it',
-  order: ['cloudflare'],
-  allowFallbacks: true,
+  order: ['cloudflare', 'google-ai-studio'],
 }
 
 /** Caps on what one request may ask for, since anyone can call this endpoint. */
@@ -105,7 +128,7 @@ export async function handleRelayRequest(
   let detail = ''
   if (!freeTierCoolingOff()) {
     const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl, deadline)
-    if (primary.ok) return relayResponse(primary)
+    if (primary.ok) return relayResponse(primary, 'free')
 
     // The free tier shares an upstream pool that is regularly exhausted. Note
     // that and stop trying for a while, so later readers do not each pay the
@@ -123,7 +146,7 @@ export async function handleRelayRequest(
 
   // Fall back to the paid model rather than surfacing the outage to the reader.
   const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl, deadline)
-  if (fallback.ok) return relayResponse(fallback)
+  if (fallback.ok) return relayResponse(fallback, 'paid')
 
   return errorResponse(
     fallback.status,
@@ -167,7 +190,9 @@ async function callOpenRouter(
         messages,
         stream,
         max_tokens: MAX_OUTPUT_TOKENS,
-        provider: { order: route.order, allow_fallbacks: route.allowFallbacks },
+        // Never true: see `ALLOWED_PROVIDERS` for what an open fallback set
+        // does to a reader's book text.
+        provider: { order: route.order, allow_fallbacks: false },
       }),
       signal: controller.signal,
     })
@@ -181,11 +206,22 @@ async function callOpenRouter(
 }
 
 /**
+ * Names the route that answered, so a reply can be traced back to it.
+ *
+ * Which of the two routes ran is invisible from the outside -- both return the
+ * same shape from the same URL -- and it is the first thing worth knowing about
+ * a reply that came back wrong. Pairs with the `provider` OpenRouter reports in
+ * the body, which names its pick from within the route's list. Same-origin, so
+ * the browser can read it without any CORS exposure.
+ */
+const ROUTE_HEADER = 'X-Marginalia-Route'
+
+/**
  * Hands the upstream body straight back. The body is not read here so the
  * platform can stream it through without buffering.
  */
-function relayResponse(upstream: Response): Response {
-  const headers = new Headers({ 'Cache-Control': 'no-store' })
+function relayResponse(upstream: Response, route: 'free' | 'paid'): Response {
+  const headers = new Headers({ 'Cache-Control': 'no-store', [ROUTE_HEADER]: route })
   const contentType = upstream.headers.get('content-type')
   if (contentType) headers.set('Content-Type', contentType)
   return new Response(upstream.body, { status: 200, headers })

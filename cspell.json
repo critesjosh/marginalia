@@ -10,6 +10,7 @@
   ],
   "words": [
     "anchorless",
+    "antipolitical",
     "autoregressive",
     "behaviour",
     "behaviours",
@@ -28,6 +29,7 @@
     "Gutenberg",
     "idref",
     "itemref",
+    "IBAN",
     "iterancestors",
     "kbps",
     "keepalives",
@@ -57,9 +59,11 @@
     "rootfile",
     "sandboxed",
     "soundfile",
+    "summarisable",
     "summarise",
     "summarised",
     "summariser",
+    "summarising",
     "synthesise",
     "synthesises",
     "tailwindcss",
@@ -68,6 +72,7 @@
     "touchend",
     "unaddressable",
     "unpaint",
+    "unstub",
     "Workbox"
   ]
 }

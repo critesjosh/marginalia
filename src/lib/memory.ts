@@ -1,6 +1,6 @@
 import { db, getSettings } from '../db/db'
 import type { Message } from '../db/types'
-import { normalizeSummary } from './digest'
+import { looksRedacted, normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
 
@@ -82,9 +82,9 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   ])
   if (!book || !conversation) return
 
-  const pending = messages.slice(conversation.summarizedCount ?? 0)
-  if (pending.length < MESSAGES_PER_UPDATE) return
-  const fresh = withinBudget(pending)
+  const usable = summarisable(messages.slice(conversation.summarizedCount ?? 0))
+  if (usable.length < MESSAGES_PER_UPDATE) return
+  const fresh = withinBudget(usable)
 
   const generated = await completeChat({
     target,
@@ -100,6 +100,12 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   const summary = normalizeSummary(generated)
   if (!summary) return
 
+  // The transcript went out clean, so placeholders here were introduced by the
+  // summariser's own provider rather than carried in: a transient routing
+  // problem, worth retrying. Leaving `summarizedCount` alone folds these same
+  // turns in on the next reply, which `summarisable` keeps from looping.
+  if (looksRedacted(summary)) return
+
   await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
     // The digest this was merged from can have been rewritten by the reader
     // while the model was working, and the result would put their wording back
@@ -112,6 +118,30 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
     await db.bookMemory.put({ bookId, summary, updatedAt: Date.now() })
     await db.conversations.update(conversationId, { summarizedCount: messages.length })
   })
+}
+
+/**
+ * Drops replies that came back with their subject scrubbed out.
+ *
+ * A scrubbed reply is stored like any other -- it is on screen, and deleting
+ * what the reader has already read would be worse than leaving it -- so it
+ * stays in `pending` until something folds it in. Summarising it would put the
+ * placeholders in the digest by a second route, since a provider that never
+ * scrubbed anything will faithfully summarise `[PERSON_NAME]` as
+ * `[PERSON_NAME]`, and the output guard below would then reject the result.
+ *
+ * That is the loop this exists to prevent: the guard leaves `summarizedCount`
+ * where it is, so the same contaminated turn returns on the next attempt and is
+ * rejected again, and the digest stops updating for as long as the reply sits
+ * inside the transcript window -- thousands of characters of conversation, and
+ * an inference call burned on each try. Dropping it from the transcript instead
+ * lets the update succeed, and `summarizedCount` then advances past it for good.
+ *
+ * Only assistant turns are checked. The reader's own words are theirs, and the
+ * turns around a bad reply are usually the ones worth keeping.
+ */
+function summarisable(pending: Message[]): Message[] {
+  return pending.filter((m) => m.role !== 'assistant' || !looksRedacted(m.content))
 }
 
 /**

@@ -159,12 +159,13 @@ export default function ChatSheet({
         },
       })
 
-      if (reply.trim()) {
+      if (reply.text.trim()) {
         await db.messages.add({
           id: newId(),
           conversationId,
           role: 'assistant',
-          content: reply,
+          content: reply.text,
+          source: reply.source,
           createdAt: Date.now(),
         })
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
@@ -251,7 +252,13 @@ export default function ChatSheet({
           )}
 
           {messages?.map((message) => (
-            <Bubble key={message.id} id={message.id} role={message.role} theme={theme}>
+            <Bubble
+              key={message.id}
+              id={message.id}
+              role={message.role}
+              source={message.source}
+              theme={theme}
+            >
               {message.content}
             </Bubble>
           ))}
@@ -316,11 +323,13 @@ export default function ChatSheet({
 function Bubble({
   id,
   role,
+  source,
   theme,
   children,
 }: {
   id?: string
   role: string
+  source?: string
   theme: ReaderTheme
   children: React.ReactNode
 }) {
@@ -330,7 +339,7 @@ function Bubble({
   return (
     <div
       data-message={id}
-      className={isUser ? 'flex justify-end' : 'flex justify-start'}
+      className={isUser ? 'flex justify-end' : 'flex flex-col items-start'}
     >
       <div
         className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
@@ -340,6 +349,8 @@ function Bubble({
       >
         {children}
       </div>
+      {/* Small enough to read past, there when an answer needs explaining. */}
+      {source && <p className="mt-1 pl-1 text-[11px] opacity-40">{source}</p>}
     </div>
   )
 }

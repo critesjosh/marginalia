@@ -31,6 +31,23 @@ const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 /** Model shown in the UI; the relay pins the real value server-side. */
 export const HOSTED_MODEL_LABEL = 'Gemma 4 26B (via OpenRouter)'
 
+/** Set by the relay on a reply it passed through. See `relayResponse`. */
+const ROUTE_HEADER = 'X-Marginalia-Route'
+
+/**
+ * Who actually answered: the relay's route, then OpenRouter's pick within it.
+ *
+ * One model is served by several providers and they are not interchangeable --
+ * some rewrite the prompt before the model sees it, which surfaces as an answer
+ * about `[PERSON_NAME]` and `[ADDRESS]`. The reply is the only evidence a reader
+ * has that it happened, and on its own it does not say who produced it, so a
+ * single bad answer names its own source rather than starting a guessing game.
+ */
+function attribution(route?: string, provider?: string): string | undefined {
+  const parts = [route, provider].filter(Boolean)
+  return parts.length ? parts.join(' · ') : undefined
+}
+
 export function targetFor(settings: Settings, kind: 'chat' | 'summary' = 'chat'): Target {
   if (settings.provider !== 'openai') return { provider: 'hosted' }
 
@@ -71,16 +88,25 @@ function post({ target, messages, signal }: RequestOptions, stream: boolean): Pr
   })
 }
 
+export interface StreamedReply {
+  text: string
+  /** Route and provider that produced it, when the reply said. */
+  source?: string
+}
+
 /** Streams a chat completion, calling `onDelta` for each token chunk. */
 export async function streamChat({
   onDelta,
   ...options
-}: RequestOptions & { onDelta: (text: string) => void }): Promise<string> {
+}: RequestOptions & { onDelta: (text: string) => void }): Promise<StreamedReply> {
   const response = await post(options, true)
 
   if (!response.ok || !response.body) {
     throw new InferenceError(await errorMessage(response), response.status)
   }
+
+  const route = response.headers.get(ROUTE_HEADER) ?? undefined
+  let provider: string | undefined
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -118,6 +144,10 @@ export async function streamChat({
         )
       }
 
+      // OpenRouter repeats its pick on every chunk; the first one that carries
+      // it is enough, and a provider that sends none leaves the route alone.
+      if (!provider && typeof parsed?.provider === 'string') provider = parsed.provider
+
       const delta: string = parsed?.choices?.[0]?.delta?.content ?? ''
       if (delta) {
         full += delta
@@ -150,7 +180,7 @@ export async function streamChat({
     )
   }
 
-  return full
+  return { text: full, source: attribution(route, provider) }
 }
 
 /** Non-streaming call, used for background summaries. */
