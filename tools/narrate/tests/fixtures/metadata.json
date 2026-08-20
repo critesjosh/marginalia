@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "title": "A Small Book",
+  "author": "Nobody",
+  "audiobook": {
+    "object": "a-small-book/audiobook.opus",
+    "contentType": "audio/ogg",
+    "codec": "Opus",
+    "channels": 1,
+    "durationSeconds": 80.0,
+    "sizeBytes": 247500,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+    "audioId": "sha256:0000000000000000000000000000000000000000000000000000000000000001"
+  },
+  "chapters": [
+    { "id": "foreword", "title": "Foreword", "startSeconds": 0.0, "endSeconds": 30.0 },
+    { "id": "socrates", "title": "II. Socrates", "startSeconds": 30.0, "endSeconds": 50.02 },
+    { "id": "notes", "title": "Notes", "startSeconds": 50.02, "endSeconds": 80.0 }
+  ]
+}

@@ -78,6 +78,54 @@ out/
   parts.jsonl                 # resume log, appended as each part finishes
 ```
 
+### Publishing to one combined file
+
+Marginalia streams a single Opus file with byte-range requests rather than one
+file per chapter, so the timings in `sync.json` — each measured inside its own
+part — have to be restated against the combined recording before a browser can
+use them:
+
+```bash
+python -m narrate.timeline \
+    --parts out/parts.jsonl \
+    --concat out/audiobook.concat.txt \
+    --metadata ../../workers/audiobooks/catalog/twilight-of-the-idols.json \
+    -o out/sync.json
+```
+
+Upload the result next to `audiobook.opus` and `metadata.json` as
+`<book>/sync.json`; the Worker serves it under the same signed URLs.
+
+Two things make this more than a running total. Parts are appended to
+`parts.jsonl` as they finish and appended again by a `--resume` run, so line
+order is not reading order — part ids are, and the concat manifest is the record
+of what actually went into the file. And a running total over four hundred parts
+only accumulates error, so each chapter's run of parts is anchored to the
+boundaries the published `metadata.json` already measured on the combined file.
+Any disagreement then stays inside the chapter it came from.
+
+Chapters are matched to those runs by *length* — each measured from the boundary
+already anchored, never from an absolute running total, or a fifth of a second
+of disagreement per chapter would reach six tenths by the fourth and fail a
+tolerance no single chapter exceeds. A chapter whose length matches no run of
+parts aborts the run: the two artifacts are not describing the same assembly,
+and stretching one onto the other would misplace every sentence in the chapter
+rather than fail.
+
+The published map is flat, and grouped by spine document so a span carries the
+href it lives in:
+
+```json
+{"version":1,"audioId":"sha256:…","durationSeconds":28258.668,"spanIdPrefix":"mg-",
+ "documents":[{"href":"text/part0006.xhtml","spans":["mg-000001"],"starts":[0.0]}]}
+```
+
+`href#spanId` is a target `rendition.display` accepts, which is the same form
+the table of contents already navigates by. *Twilight of the Idols* comes to
+3,249 sentences over 421 parts: 100 kB, 27 kB gzipped.
+
+### Resuming
+
 `--resume` reuses a part only when its audio file is complete and its source text,
 segment ids, backend, voice, speed, gap and encoding settings still match. A full book
 is hours of GPU time; losing it to a crash in the last chapter would be this tool's
@@ -123,7 +171,9 @@ realtime and in need of per-utterance retry logic) touches nothing else.
 - **Timestamps assume the encoder preserves duration.** Opus adds a few milliseconds
   of pre-skip, which players handle; segment boundaries are accurate to well under
   the `--gap`.
-- **Nothing consumes `sync.json` yet.** The reader-side player is a separate change.
+- **Nothing fetches `sync.json` at runtime yet.** `src/lib/audiobooks.ts` can load,
+  validate and query the map, and the Worker serves it, but `AudiobookPlayer` still
+  ignores the session's `syncUrl`. Turning pages from the audio is a separate change.
 - **Sentence splitting is heuristic.** Abbreviations and initials are handled from a
   list, and a boundary falling inside an inline element is pushed to that element's
   end rather than splitting the markup — a slightly coarser anchor, never a broken

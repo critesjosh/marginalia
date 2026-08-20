@@ -26,6 +26,7 @@
     "espeak",
     "figcaption",
     "Gutenberg",
+    "HMAC",
     "idref",
     "itemref",
     "iterancestors",
@@ -67,6 +68,7 @@
     "tobytes",
     "touchend",
     "unaddressable",
+    "unnarrated",
     "unpaint",
     "Workbox"
   ]
