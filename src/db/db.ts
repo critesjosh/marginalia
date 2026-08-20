@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
+import { fingerprint } from '../lib/fingerprint'
 import {
   DEFAULT_SETTINGS,
   type Book,
@@ -44,6 +45,12 @@ class MarginaliaDB extends Dexie {
 
       // A digest that was nothing but delimiters holds no notes to keep.
       await memory.filter((row) => !row.summary).delete()
+    })
+
+    // `archivedAt` joins the index so the library can ask for shelved books
+    // without pulling every EPUB blob out of storage to filter in memory.
+    this.version(3).stores({
+      books: 'id, title, author, addedAt, lastOpenedAt, archivedAt',
     })
   }
 }
@@ -95,6 +102,60 @@ export async function deleteBook(bookId: string): Promise<void> {
       await db.books.delete(bookId)
     },
   )
+}
+
+/**
+ * Shelves a book: the EPUB goes, everything anchored to it stays.
+ *
+ * The record itself is kept so its highlights, conversations and memory still
+ * have a book to belong to, and so importing the same EPUB again lands back on
+ * this row rather than starting an empty second copy of the book.
+ */
+export async function archiveBook(bookId: string): Promise<void> {
+  const stored = await db.books.get(bookId)
+  if (!stored) return
+
+  // Last chance to take the fingerprint: books imported before it was recorded
+  // still have their file here, and will not once this returns.
+  const fileHash =
+    stored.fileHash ??
+    (stored.file ? await fingerprint(await stored.file.arrayBuffer()) : undefined)
+
+  await db.books.update(bookId, {
+    archivedAt: Date.now(),
+    fileHash,
+    // Dexie's update only writes the keys it is given, and `undefined` is one
+    // of them: this is what actually reclaims the space.
+    file: undefined,
+  })
+}
+
+/**
+ * The archived book an import is the same file as, if there is one.
+ *
+ * Matched on content, never on title and author: two editions share those
+ * while numbering their sections differently, so metadata alone would hand a
+ * book's highlights and saved position to a different edition that cannot
+ * carry them. An archived book with no fingerprint — its file was already gone
+ * before one was taken — stays archived, and the import comes in as new.
+ */
+export async function findArchivedMatch(book: Book): Promise<Book | undefined> {
+  if (!book.fileHash) return undefined
+  const archived = await db.books.where('archivedAt').above(0).toArray()
+  return archived.find((row) => row.fileHash === book.fileHash)
+}
+
+/**
+ * Puts an archived book back on the shelf using a freshly imported file.
+ *
+ * Reading position and metadata come back with it. Only ever called for a file
+ * whose fingerprint matches the one that was archived, so the CFIs the
+ * highlights and the saved position are written in still address the same
+ * document they were taken from.
+ */
+export async function restoreBook(bookId: string, imported: Book): Promise<void> {
+  const { id: _id, addedAt: _addedAt, ...metadata } = imported
+  await db.books.update(bookId, { ...metadata, archivedAt: undefined })
 }
 
 /** Removes a conversation and its messages. */

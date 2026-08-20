@@ -7,8 +7,23 @@ export interface Book {
   description?: string
   language?: string
   cover?: Blob
-  file: Blob
+  /**
+   * The EPUB itself. Absent once the book has been archived: the file is the
+   * only large part of the record, and dropping it is the point of removing a
+   * book while keeping its highlights, conversations and memory.
+   */
+  file?: Blob
+  /**
+   * SHA-256 of the EPUB bytes, kept after the file itself is dropped.
+   *
+   * This is what an archived book is recognised by when its EPUB is imported
+   * again, so its highlights and reading position are only ever handed back to
+   * the edition they were recorded against.
+   */
+  fileHash?: string
   addedAt: number
+  /** Set when the reader removed the book but kept the notes anchored to it. */
+  archivedAt?: number
   lastOpenedAt?: number
   lastCfi?: string
   /** 0..1, epub.js locations-based progress at lastCfi. */

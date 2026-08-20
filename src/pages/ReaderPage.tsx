@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { Contents } from 'epubjs'
-import { db, getSettings, saveSettings } from '../db/db'
+import { archiveBook, db, deleteBook, getSettings, saveSettings } from '../db/db'
 import {
   DEFAULT_SETTINGS,
   type Conversation,
@@ -27,6 +27,7 @@ import DisplaySheet from '../components/DisplaySheet'
 import SelectionBar from '../components/SelectionBar'
 import ChatSheet from '../components/ChatSheet'
 import AudiobookPlayer from '../components/AudiobookPlayer'
+import RemoveBookDialog from '../components/RemoveBookDialog'
 import { BackIcon, ChatIcon, HeadphonesIcon, ListIcon, TypeIcon } from '../components/Icons'
 import { isTwilightOfTheIdols } from '../lib/audiobooks'
 
@@ -41,11 +42,13 @@ interface ActiveSelection {
 
 export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>()
+  const navigate = useNavigate()
   const [viewer, setViewer] = useState<HTMLDivElement | null>(null)
   const [chromeVisible, setChromeVisible] = useState(true)
   const [panel, setPanel] = useState<'toc' | 'display' | null>(null)
   const [active, setActive] = useState<ActiveSelection>()
   const [chatId, setChatId] = useState<string>()
+  const [removing, setRemoving] = useState(false)
   const [audiobookOpen, setAudiobookOpen] = useState(false)
   const [audiobookStarted, setAudiobookStarted] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -253,6 +256,18 @@ export default function ReaderPage() {
       </CenteredNote>
     )
   }
+  if (book.archivedAt) {
+    return (
+      <CenteredNote>
+        “{book.title}” was removed from your library. Import the EPUB again to keep
+        reading, or open its{' '}
+        <Link to={`/book/${book.id}/chats`} className="text-amber-500 underline">
+          conversations and memory
+        </Link>
+        .
+      </CenteredNote>
+    )
+  }
 
   return (
     <div
@@ -301,7 +316,7 @@ export default function ReaderPage() {
           </button>
           <button
             onClick={() => setPanel('display')}
-            aria-label="Display settings"
+            aria-label="Reader settings"
             className="rounded-lg p-2.5 opacity-80"
           >
             <TypeIcon />
@@ -407,7 +422,26 @@ export default function ReaderPage() {
           theme={settings.theme}
           fontSize={settings.fontSize}
           onChange={(patch) => void saveSettings(patch as { theme?: ReaderTheme; fontSize?: number })}
+          onRemoveBook={() => {
+            setPanel(null)
+            setRemoving(true)
+          }}
           onClose={() => setPanel(null)}
+        />
+      )}
+
+      {removing && (
+        <RemoveBookDialog
+          book={book}
+          theme={settings.theme}
+          onCancel={() => setRemoving(false)}
+          onRemove={async (choice) => {
+            if (choice === 'keep') await archiveBook(book.id)
+            else await deleteBook(book.id)
+            // The book being read is gone either way, so there is nothing left
+            // on this route to return to.
+            navigate('/', { replace: true })
+          }}
         />
       )}
     </div>

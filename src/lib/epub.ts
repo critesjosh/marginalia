@@ -1,5 +1,6 @@
 import type { Book as EpubBook } from 'epubjs'
 import type { Book } from '../db/types'
+import { fingerprint } from './fingerprint'
 import { newId } from './id'
 
 export class EpubImportError extends Error {}
@@ -45,6 +46,7 @@ export async function parseEpubFile(file: File | Blob, filename?: string): Promi
       throw new EpubImportError('This EPUB is DRM-protected and cannot be opened.')
     }
     const cover = await extractCover(book)
+    const fileHash = await fingerprint(buffer)
     const fallbackTitle = (filename ?? 'Untitled').replace(/\.epub$/i, '')
 
     return {
@@ -56,6 +58,7 @@ export async function parseEpubFile(file: File | Blob, filename?: string): Promi
       description: stripHtml(meta.description)?.slice(0, 2000) || undefined,
       language: meta.language || undefined,
       cover,
+      fileHash,
       file: file instanceof File ? file.slice(0, file.size, 'application/epub+zip') : file,
       addedAt: Date.now(),
     }

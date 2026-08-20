@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, deleteBook } from '../db/db'
+import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
 import { seedSampleBook } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
-import { useModal } from '../lib/useModal'
+import RemoveBookDialog from '../components/RemoveBookDialog'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 
 export default function LibraryPage() {
@@ -14,9 +14,26 @@ export default function LibraryPage() {
   const [importing, setImporting] = useState(false)
   const [seeding, setSeeding] = useState(true)
   const [error, setError] = useState<string>()
-  const [confirmDelete, setConfirmDelete] = useState<Book>()
+  const [confirmRemove, setConfirmRemove] = useState<Book>()
 
-  const books = useLiveQuery(() => db.books.orderBy('addedAt').reverse().toArray(), [])
+  // Most recently read first, so the book in progress is the one under the
+  // thumb. A book that has never been opened falls back to when it arrived,
+  // which puts a fresh import at the top where its reader is looking for it.
+  //
+  // Sorted here rather than by index: `lastOpenedAt` is only written once a book
+  // has been opened, and IndexedDB leaves records with no value for a key out of
+  // that key's index entirely, so ordering by it would hide every unread book.
+  const shelved = useLiveQuery(
+    () =>
+      db.books
+        .toArray()
+        .then((rows) =>
+          rows.sort((a, b) => (b.lastOpenedAt ?? b.addedAt) - (a.lastOpenedAt ?? a.addedAt)),
+        ),
+    [],
+  )
+  const books = shelved?.filter((book) => !book.archivedAt)
+  const archived = shelved?.filter((book) => book.archivedAt)
   const chatCounts = useLiveQuery(async () => {
     const rows = await db.conversations.toArray()
     return rows.reduce<Record<string, number>>((acc, c) => {
@@ -45,7 +62,12 @@ export default function LibraryPage() {
     for (const file of Array.from(files)) {
       try {
         const book = await parseEpubFile(file, file.name)
-        await db.books.add(book)
+        // Importing the same file as a book that was removed but kept picks its
+        // shelf back up, rather than standing a second, empty copy next to the
+        // notes it belongs to.
+        const archivedMatch = await findArchivedMatch(book)
+        if (archivedMatch) await restoreBook(archivedMatch.id, book)
+        else await db.books.add(book)
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
@@ -118,20 +140,30 @@ export default function LibraryPage() {
                 key={book.id}
                 book={book}
                 chatCount={chatCounts?.[book.id] ?? 0}
-                onDelete={() => setConfirmDelete(book)}
+                onDelete={() => setConfirmRemove(book)}
               />
             ))}
           </ul>
         )}
+
+        {archived && archived.length > 0 && (
+          <ArchivedShelf
+            books={archived}
+            chatCounts={chatCounts}
+            onDelete={setConfirmRemove}
+          />
+        )}
       </main>
 
-      {confirmDelete && (
-        <ConfirmDeleteDialog
-          book={confirmDelete}
-          onCancel={() => setConfirmDelete(undefined)}
-          onConfirm={async () => {
-            await deleteBook(confirmDelete.id)
-            setConfirmDelete(undefined)
+      {confirmRemove && (
+        <RemoveBookDialog
+          book={confirmRemove}
+          theme="dark"
+          onCancel={() => setConfirmRemove(undefined)}
+          onRemove={async (choice) => {
+            if (choice === 'keep') await archiveBook(confirmRemove.id)
+            else await deleteBook(confirmRemove.id)
+            setConfirmRemove(undefined)
           }}
         />
       )}
@@ -216,7 +248,7 @@ function BookCard({
 
       <button
         onClick={onDelete}
-        aria-label={`Delete ${book.title}`}
+        aria-label={`Remove ${book.title}`}
         className="absolute top-0.5 left-0.5 flex h-11 w-11 items-center justify-center rounded-full text-stone-300 opacity-0 transition group-hover:opacity-100 focus:opacity-100"
       >
         <TrashIcon className="h-4 w-4" />
@@ -225,49 +257,79 @@ function BookCard({
   )
 }
 
-function ConfirmDeleteDialog({
+/**
+ * Books the reader removed but chose to keep the notes for.
+ *
+ * Kept visible rather than silently held in storage: the conversations and
+ * memory are still there, still reachable, and importing the EPUB again puts
+ * the book back where it was.
+ */
+function ArchivedShelf({
+  books,
+  chatCounts,
+  onDelete,
+}: {
+  books: Book[]
+  chatCounts?: Record<string, number>
+  onDelete: (book: Book) => void
+}) {
+  return (
+    <section className="mt-10 border-t border-stone-800 pt-5">
+      <h2 className="text-sm font-medium text-stone-300">Removed books</h2>
+      <p className="mt-0.5 text-xs text-stone-500">
+        Their conversations, highlights and memory are kept. Import the same EPUB file
+        again to pick up where you left off.
+      </p>
+
+      <ul className="mt-3 space-y-2">
+        {books.map((book) => (
+          <ArchivedRow
+            key={book.id}
+            book={book}
+            chatCount={chatCounts?.[book.id] ?? 0}
+            onDelete={() => onDelete(book)}
+          />
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+function ArchivedRow({
   book,
-  onCancel,
-  onConfirm,
+  chatCount,
+  onDelete,
 }: {
   book: Book
-  onCancel: () => void
-  onConfirm: () => void
+  chatCount: number
+  onDelete: () => void
 }) {
-  // Cancel is the safe default, so focus lands there rather than on Delete.
-  const ref = useModal<HTMLDivElement>(onCancel, '[data-cancel]')
+  const coverUrl = useBlobUrl(book.cover)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-delete-title"
-        className="w-full max-w-sm rounded-xl border border-stone-800 bg-stone-900 p-5"
-      >
-        <h2 id="confirm-delete-title" className="text-base font-medium">
-          Delete “{book.title}”?
-        </h2>
-        <p className="mt-1.5 text-sm text-stone-400">
-          This also removes its highlights and conversations. It cannot be undone.
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            data-cancel
-            onClick={onCancel}
-            className="rounded-lg px-3.5 py-2 text-sm font-medium text-stone-300"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded-lg bg-red-600 px-3.5 py-2 text-sm font-medium text-white"
-          >
-            Delete
-          </button>
-        </div>
+    <li className="flex items-center gap-3 rounded-xl border border-stone-800 bg-stone-900/60 p-2.5">
+      <div className="h-14 w-10 shrink-0 overflow-hidden rounded bg-stone-800">
+        {coverUrl && <img src={coverUrl} alt="" className="h-full w-full object-cover" />}
       </div>
-    </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-stone-200">{book.title}</p>
+        <p className="truncate text-xs text-stone-500">{book.author}</p>
+        <Link
+          to={`/book/${book.id}/chats`}
+          className="mt-0.5 inline-block text-xs text-amber-500 underline"
+        >
+          {chatCount === 1 ? '1 conversation' : `${chatCount} conversations`} and memory
+        </Link>
+      </div>
+
+      <button
+        onClick={onDelete}
+        aria-label={`Delete ${book.title} and its notes`}
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-stone-400 hover:text-stone-100"
+      >
+        <TrashIcon className="h-4 w-4" />
+      </button>
+    </li>
   )
 }
