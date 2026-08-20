@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
+import { fingerprint } from '../lib/fingerprint'
 import {
   DEFAULT_SETTINGS,
   type Book,
@@ -111,33 +112,46 @@ export async function deleteBook(bookId: string): Promise<void> {
  * this row rather than starting an empty second copy of the book.
  */
 export async function archiveBook(bookId: string): Promise<void> {
+  const stored = await db.books.get(bookId)
+  if (!stored) return
+
+  // Last chance to take the fingerprint: books imported before it was recorded
+  // still have their file here, and will not once this returns.
+  const fileHash =
+    stored.fileHash ??
+    (stored.file ? await fingerprint(await stored.file.arrayBuffer()) : undefined)
+
   await db.books.update(bookId, {
     archivedAt: Date.now(),
+    fileHash,
     // Dexie's update only writes the keys it is given, and `undefined` is one
     // of them: this is what actually reclaims the space.
     file: undefined,
   })
 }
 
-/** Title and author, folded so the same book imported twice matches itself. */
-function shelfKey(title: string, author: string): string {
-  return `${title.trim().toLowerCase()}\u0000${author.trim().toLowerCase()}`
-}
-
-/** An archived book the given import would be a second copy of, if there is one. */
+/**
+ * The archived book an import is the same file as, if there is one.
+ *
+ * Matched on content, never on title and author: two editions share those
+ * while numbering their sections differently, so metadata alone would hand a
+ * book's highlights and saved position to a different edition that cannot
+ * carry them. An archived book with no fingerprint — its file was already gone
+ * before one was taken — stays archived, and the import comes in as new.
+ */
 export async function findArchivedMatch(book: Book): Promise<Book | undefined> {
-  const key = shelfKey(book.title, book.author)
+  if (!book.fileHash) return undefined
   const archived = await db.books.where('archivedAt').above(0).toArray()
-  return archived.find((row) => shelfKey(row.title, row.author) === key)
+  return archived.find((row) => row.fileHash === book.fileHash)
 }
 
 /**
  * Puts an archived book back on the shelf using a freshly imported file.
  *
- * Reading position and metadata come back with it. Highlights are anchored by
- * CFI, so they line up again as long as this is the same edition; a different
- * edition under the same title and author is the case that misplaces them,
- * which is the same exposure highlights already carry across app versions.
+ * Reading position and metadata come back with it. Only ever called for a file
+ * whose fingerprint matches the one that was archived, so the CFIs the
+ * highlights and the saved position are written in still address the same
+ * document they were taken from.
  */
 export async function restoreBook(bookId: string, imported: Book): Promise<void> {
   const { id: _id, addedAt: _addedAt, ...metadata } = imported

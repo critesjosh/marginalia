@@ -13,6 +13,14 @@ export interface Book {
    * book while keeping its highlights, conversations and memory.
    */
   file?: Blob
+  /**
+   * SHA-256 of the EPUB bytes, kept after the file itself is dropped.
+   *
+   * This is what an archived book is recognised by when its EPUB is imported
+   * again, so its highlights and reading position are only ever handed back to
+   * the edition they were recorded against.
+   */
+  fileHash?: string
   addedAt: number
   /** Set when the reader removed the book but kept the notes anchored to it. */
   archivedAt?: number

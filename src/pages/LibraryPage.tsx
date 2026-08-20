@@ -62,8 +62,9 @@ export default function LibraryPage() {
     for (const file of Array.from(files)) {
       try {
         const book = await parseEpubFile(file, file.name)
-        // Importing a book that was removed but kept picks its shelf back up,
-        // rather than standing a second, empty copy next to the notes.
+        // Importing the same file as a book that was removed but kept picks its
+        // shelf back up, rather than standing a second, empty copy next to the
+        // notes it belongs to.
         const archivedMatch = await findArchivedMatch(book)
         if (archivedMatch) await restoreBook(archivedMatch.id, book)
         else await db.books.add(book)
@@ -276,8 +277,8 @@ function ArchivedShelf({
     <section className="mt-10 border-t border-stone-800 pt-5">
       <h2 className="text-sm font-medium text-stone-300">Removed books</h2>
       <p className="mt-0.5 text-xs text-stone-500">
-        Their conversations, highlights and memory are kept. Import the EPUB again to pick
-        up where you left off.
+        Their conversations, highlights and memory are kept. Import the same EPUB file
+        again to pick up where you left off.
       </p>
 
       <ul className="mt-3 space-y-2">
