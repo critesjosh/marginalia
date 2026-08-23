@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
-import { seedSampleBook } from '../lib/sampleBook'
+import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
@@ -42,11 +42,11 @@ export default function LibraryPage() {
     }, {})
   }, [])
 
-  // A first-time visitor gets the bundled Moby Dick, so there is something to
-  // open before they have found an EPUB of their own.
+  // A first-time visitor gets the bundled public-domain shelf, so there is
+  // something to open before they have found an EPUB of their own.
   useEffect(() => {
     let active = true
-    void seedSampleBook().then(() => {
+    void seedSampleBooks().then(() => {
       if (active) setSeeding(false)
     })
     return () => {
