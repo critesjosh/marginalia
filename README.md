@@ -91,6 +91,23 @@ The free tier draws on a shared upstream pool that is regularly exhausted, so th
 
 Set `OPENROUTER_API_KEY` in the Netlify site's environment variables. Nothing else is required — `netlify.toml` declares the edge function, which runs before the SPA redirect so `/api/chat` never falls through to `index.html`.
 
+The same application also deploys to Cloudflare Workers at
+`marginalia.adjacentpossible.dev`. The root `wrangler.jsonc` serves the Vite
+output as Worker static assets, routes `/api/chat` through
+`workers/app/src/index.ts`, and applies the same security headers as Netlify.
+The two deployment targets are independent; keep the OpenRouter key as a
+Cloudflare Worker secret rather than a Wrangler variable:
+
+```bash
+npm run cloudflare:types
+npx wrangler secret put OPENROUTER_API_KEY
+npm run deploy:cloudflare
+```
+
+Cloudflare Workers Builds watches `main`, runs `npm run build:cloudflare`, and
+deploys with `npx wrangler deploy`. The Worker name in Cloudflare must remain
+`marginalia` so it matches the checked-in Wrangler configuration.
+
 Because the relay is open to anyone who loads the site, `shared/relay.ts` pins the model and provider server-side and caps message count, payload size and output tokens. It also rejects cross-origin requests and throttles per IP, but both are best-effort — an Origin header can be forged, and edge isolates don't share the throttle state. **Set a credit limit on the OpenRouter key**; that is the only hard ceiling on spend.
 
 ### Untrusted book content
