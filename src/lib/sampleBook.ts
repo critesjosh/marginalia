@@ -81,17 +81,36 @@ async function run(): Promise<boolean> {
       return false
     }
 
+    // A book offered by an earlier, partly failed run is not offered again: it
+    // would be fetched, parsed and hashed only for `add` to reject the id it
+    // already has, and if the reader has deleted it since, the retry would put
+    // it back. Row presence cannot answer this — a book that was deleted and a
+    // book that never arrived both leave no row.
+    const offered = new Set(settings.seededSampleIds ?? [])
+
     // `addedAt` is otherwise whenever each parallel fetch happened to finish,
-    // and the shelf sorts on it. Space them so the shelf order is the order
-    // above rather than a race.
+    // and the shelf sorts on it. Space them by position in the list, not by
+    // position among the pending ones, so a retry lands them in the same order
+    // a clean run would have.
     const addedAt = Date.now()
     const added = await Promise.all(
-      SAMPLE_BOOKS.map((sample, index) => seed(sample, addedAt - index)),
+      SAMPLE_BOOKS.map((sample, index) =>
+        offered.has(sample.id) ? false : seed(sample, addedAt - index),
+      ),
     )
+    if (!added.some(Boolean)) return false
 
-    // Only once every book is on the shelf, so a partial first run retries.
-    if (added.every(Boolean)) await saveSettings({ sampleBookSeeded: true })
-    return added.some(Boolean)
+    const seeded = SAMPLE_BOOKS.filter(
+      (sample, index) => offered.has(sample.id) || added[index],
+    ).map((sample) => sample.id)
+
+    // The one-shot flag goes on only once every book has been offered, so a
+    // partial first run retries the ones that are missing and only those.
+    await saveSettings({
+      seededSampleIds: seeded,
+      sampleBookSeeded: seeded.length === SAMPLE_BOOKS.length,
+    })
+    return true
   } catch {
     // Retried on the next visit, since the flag is only set on success.
     return false
