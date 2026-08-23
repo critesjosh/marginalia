@@ -266,7 +266,15 @@ export function useReader(
       // Match on the end of the page, not the start: when a chapter heading sits
       // partway down the page, the reader sees the new chapter even though the
       // page still opens with the tail of the previous one.
-      const chapter = chapterAt(anchors, holding ? cfi : (loc.end?.cfi ?? cfi))
+      //
+      // From the report even while held, unlike the position above. The two
+      // answer different questions: the position is where the reader is and has
+      // to survive a reflow that has not settled, while the label names what is
+      // on the screen, and the report is the only thing that describes that. The
+      // anchor is a page *start*, so labelling from it breaks the rule above and
+      // names the previous chapter — and it sticks, because once the hold
+      // releases nothing relocates again until the reader turns a page.
+      const chapter = chapterAt(anchors, loc.end?.cfi ?? cfi)
       setLocation({ cfi, href, chapter: chapter?.label, chapterHref: chapter?.href, progress })
       void db.books.update(bookId, { lastCfi: cfi, progress, lastOpenedAt: Date.now() })
     }
