@@ -4,7 +4,7 @@ A mobile-friendly EPUB reader that lets you highlight a passage and start an AI 
 
 Built as a PWA: installable on Android, works offline, stores everything locally in IndexedDB.
 
-Chat works for every visitor with no signup and no API key: requests go through a Netlify edge function that holds an OpenRouter key server-side. A public-domain copy of Moby Dick ships with the app, so a first-time visitor has something to read immediately.
+Chat works for every visitor with no signup and no API key: requests go through a Netlify edge function that holds an OpenRouter key server-side. Three public-domain books ship with the app (Melville's Moby Dick, Marcus Aurelius' Meditations and Nietzsche's The Genealogy of Morals), so a first-time visitor has something to read immediately.
 
 ## Status
 

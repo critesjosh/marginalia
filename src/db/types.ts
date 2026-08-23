@@ -107,8 +107,19 @@ export interface Settings {
   fontSize: number
   /** Ask the model to avoid spoiling content past the reader's position. */
   spoilerGuard: boolean
-  /** Set once the bundled sample book has been offered, so deleting it sticks. */
+  /** Set once every bundled book has been offered, so deleting them sticks. */
   sampleBookSeeded?: boolean
+  /**
+   * Which bundled books have been offered, while some still have not been.
+   * A first run that seeds two of three and fails on the last leaves the books
+   * it did add on the shelf, and the reader may delete one before the retry
+   * succeeds; without this the retry cannot tell that row from one that never
+   * arrived, and puts the deleted book back.
+   *
+   * Only meaningful while `sampleBookSeeded` is unset, which is the whole
+   * reason it is separate from it.
+   */
+  seededSampleIds?: string[]
   /** Personal R2 streaming token. Stored only in this browser's IndexedDB. */
   audiobookAccessToken?: string
   /** Playback position for the personal Twilight of the Idols audiobook. */

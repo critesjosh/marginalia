@@ -38,14 +38,17 @@ died, so read `/tmp/vite.log`.
 
 ## Get a test book
 
-`public/books/moby-dick.epub` ships with the app and is imported automatically on a
-first run, so an empty profile already has a book. It is Gutenberg's `.images` variant
-deliberately, not `.noimages`: late-loading images are what reflow the paginated strip
-and break navigation, so this is the build that exercises `goToSettled` in
-`src/lib/useReader.ts`. Testing on `.noimages` hides that whole class of bug.
+`public/books/` ships three EPUBs that are imported automatically on a first run, so an
+empty profile already has a shelf: Moby Dick, Meditations and The Genealogy of Morals.
+They are Gutenberg's `.images` variants deliberately, not `.noimages`: late-loading
+images are what reflow the paginated strip and break navigation, so these are the builds
+that exercise `goToSettled` in `src/lib/useReader.ts`. Testing on `.noimages` hides that
+whole class of bug. Moby Dick is still the one to reach for when a check needs a long
+book: 146 TOC entries against Meditations' 23 and The Genealogy of Morals' 13.
 
 The auto-import is one-shot — `sampleBookSeeded` in settings stops it coming back after
-a delete. To re-test seeding, clear the `marginalia` IndexedDB database.
+a delete, and it is only set once all three land, so a partial first run retries. To
+re-test seeding, clear the `marginalia` IndexedDB database.
 
 To test the import path itself, use a different EPUB through the UI (Add EPUB) rather
 than seeding IndexedDB, since import parses the OPF and extracts the cover.
