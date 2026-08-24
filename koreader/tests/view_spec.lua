@@ -34,10 +34,13 @@ do
     H.equal(View.transcript(thread({ messages = {} })), "", "no turns, nothing to show")
     H.equal(View.transcript(nil), "", "no thread at all is not an error")
 
+    -- Content is verbatim: a model that indented a block of code meant to, and
+    -- a note written from this is the reader's record of what was actually said.
+    -- Only a turn that is nothing but whitespace is dropped.
     H.equal(View.transcript(thread({ messages = {
         { role = "user", content = "  padded  " },
         { role = "assistant", content = "   " },
-    } })), "Q: padded", "blank turns are dropped and the rest is trimmed")
+    } })), "Q:   padded  ", "a wholly blank turn goes; spacing inside one stays")
 
     H.equal(View.turn_count(thread()), 2)
     H.equal(View.turn_count(thread({ messages = {
@@ -65,6 +68,28 @@ do
 
     H.equal(View.thread_document(thread({ messages = {} })), View.heading(thread()),
         "a thread with nothing said is just its heading")
+end
+
+-- Last activity, not creation time: a thread picked up again this morning is
+-- what the reader is looking for, even if it was started weeks ago.
+do
+    local old_thread = thread({ id = "old", created_at = "2026-08-01 09:00:00",
+        messages = {
+            { role = "user", content = "asked long ago", created_at = "2026-08-01 09:00:00" },
+            { role = "user", content = "picked up today", created_at = "2026-08-23 20:00:00" },
+        } })
+    local newer = thread({ id = "newer", created_at = "2026-08-10 09:00:00",
+        messages = { { role = "user", content = "begun later, finished then",
+                       created_at = "2026-08-10 09:00:00" } } })
+
+    H.equal(View.last_activity(old_thread), "2026-08-23 20:00:00", "the latest turn wins")
+    H.equal(View.last_activity(newer), "2026-08-10 09:00:00")
+    H.equal(View.last_activity(thread({ messages = {} })), "2026-08-23 19:39:50",
+        "a thread with no turns falls back to when it started")
+
+    local document = View.book_document({ old_thread, newer })
+    H.ok(document:find("picked up today", 1, true) < document:find("begun later", 1, true),
+        "the thread added to most recently comes first")
 end
 
 -- The book-wide scroll: newest first, because the reason to open it is usually

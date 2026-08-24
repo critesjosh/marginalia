@@ -37,9 +37,11 @@ One thread as a transcript.
 function View.transcript(thread)
     local lines = {}
     for _, message in ipairs(thread and thread.messages or {}) do
-        local content = trimmed(message.content)
-        if content then
-            table.insert(lines, (PREFIX[message.role] or "") .. content)
+        -- Content goes in verbatim. A turn that is nothing but whitespace is
+        -- dropped, but one that merely starts with some keeps it: a model that
+        -- indented a block of code meant to.
+        if type(message.content) == "string" and message.content:match("%S") then
+            table.insert(lines, (PREFIX[message.role] or "") .. message.content)
         end
     end
     return table.concat(lines, "\n\n")
@@ -49,9 +51,27 @@ end
 function View.turn_count(thread)
     local count = 0
     for _, message in ipairs(thread and thread.messages or {}) do
-        if trimmed(message.content) then count = count + 1 end
+        if type(message.content) == "string" and message.content:match("%S") then
+            count = count + 1
+        end
     end
     return count
+end
+
+--[[--
+When a thread was last added to.
+
+Ordering on this rather than on when it started: a conversation picked up again
+this morning is the one the reader is most likely to be looking for, and burying
+it under threads begun later but finished long ago is the opposite of useful.
+--]]
+function View.last_activity(thread)
+    local latest = (thread and thread.created_at) or ""
+    for _, message in ipairs(thread and thread.messages or {}) do
+        local at = message.created_at
+        if type(at) == "string" and at > latest then latest = at end
+    end
+    return latest
 end
 
 --[[--
@@ -90,9 +110,10 @@ local RULE = "\n\n" .. ("─"):rep(24) .. "\n\n"
 --[[--
 Every conversation in the book, newest first.
 
-Newest first because the reason to open this is usually the thing just asked,
-and scrolling back through an e-ink document to reach it is the slowest possible
-way to find it.
+Ordered by last activity, newest first: the reason to open this is usually the
+thing just asked, and scrolling back through an e-ink document to reach it is
+the slowest possible way to find it. A thread begun weeks ago and picked up
+again this morning therefore comes first, which is the point.
 
 @param threads array of stored threads
 @param empty_text what to say when there are none
@@ -109,8 +130,8 @@ function View.book_document(threads, empty_text)
         ordered[index] = { thread = thread, index = index }
     end
     table.sort(ordered, function(a, b)
-        local left = a.thread.created_at or ""
-        local right = b.thread.created_at or ""
+        local left = View.last_activity(a.thread)
+        local right = View.last_activity(b.thread)
         -- Sidecar timestamps sort correctly as strings, being fixed-width and
         -- most-significant-first. Ties fall back to the order they were stored
         -- in, so the sort stays stable rather than depending on the algorithm.

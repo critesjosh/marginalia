@@ -116,11 +116,37 @@ function Ask:context(text)
 end
 
 --[[--
-The annotation this passage already has, if the reader highlighted it before.
+Whether two highlight positions are the same place.
+
+A reflowable document's position is an xpointer string, which compares directly.
+A paging document's is a table of page and coordinates, and `==` on those asks
+whether they are the same object rather than the same place — which they are not,
+since KOReader hands the highlight menu a deep copy of the annotation.
 --]]
-function Ask:existing_annotation(snapshot)
-    for _, annotation in ipairs(self.ui.annotation.annotations or {}) do
-        if annotation.text == snapshot.text and annotation.pos0 == snapshot.pos0 then
+local function same_position(a, b)
+    if a == b then return true end
+    if type(a) ~= "table" or type(b) ~= "table" then return false end
+    return a.page == b.page and a.x == b.x and a.y == b.y
+end
+
+--[[--
+The annotation this passage already has, if the reader highlighted it before.
+
+`index` is what KOReader passes the highlight-menu button for a saved highlight,
+and it is authoritative: it names the row in `annotations` this popup was opened
+for. The search is the fallback for a fresh selection, where there is no index
+because there is not yet an annotation.
+--]]
+function Ask:existing_annotation(snapshot, index)
+    local annotations = self.ui.annotation.annotations or {}
+
+    if type(index) == "number" then
+        local annotation = annotations[index]
+        if annotation and annotation.text == snapshot.text then return annotation end
+    end
+
+    for _, annotation in ipairs(annotations) do
+        if annotation.text == snapshot.text and same_position(annotation.pos0, snapshot.pos0) then
             return annotation
         end
     end
@@ -133,8 +159,8 @@ Creates the annotation for a passage that does not have one yet.
 Mirrors the item `ReaderHighlight:saveHighlight` builds, rather than reaching
 back into `ReaderHighlight.selected_text`, which by now has been cleared.
 --]]
-function Ask:ensure_annotation(snapshot)
-    local existing = self:existing_annotation(snapshot)
+function Ask:ensure_annotation(snapshot, index)
+    local existing = self:existing_annotation(snapshot, index)
     if existing then return existing end
 
     local item = {
@@ -160,8 +186,8 @@ The thread already hanging off this passage, if there is one.
 Only for a passage that is already a highlight: asking is what creates the
 annotation, so a fresh selection has nothing for a thread to be attached to yet.
 --]]
-function Ask:existing_thread(snapshot)
-    local annotation = self:existing_annotation(snapshot)
+function Ask:existing_thread(snapshot, index)
+    local annotation = self:existing_annotation(snapshot, index)
     if not annotation then return nil end
 
     local data = Store.read(self.ui.doc_settings)
@@ -180,7 +206,7 @@ the question box. Reading what was already said is the more likely reason to
 come back to a passage, and until now there was no way to do it at all: the
 thread was in the sidecar with nothing to read it.
 --]]
-function Ask:from_selection(highlight)
+function Ask:from_selection(highlight, index)
     local snapshot = self:snapshot(highlight)
     if not snapshot then
         UIManager:show(InfoMessage:new{ text = _("Select some text first.") })
@@ -189,19 +215,19 @@ function Ask:from_selection(highlight)
 
     highlight:onClose()
 
-    local thread, annotation = self:existing_thread(snapshot)
+    local thread, annotation = self:existing_thread(snapshot, index)
     if thread then
-        self:show_thread(snapshot, thread, annotation)
+        self:show_thread(snapshot, thread, annotation, index)
         return
     end
 
-    self:prompt_for_question(snapshot)
+    self:prompt_for_question(snapshot, nil, index)
 end
 
 --[[--
 Asks for the question, then runs the exchange.
 --]]
-function Ask:prompt_for_question(snapshot, thread)
+function Ask:prompt_for_question(snapshot, thread, index)
     local dialog
     dialog = InputDialog:new{
         title = thread and _("Ask a follow-up") or _("Ask Marginalia"),
@@ -223,7 +249,7 @@ function Ask:prompt_for_question(snapshot, thread)
                     local question = (dialog:getInputText() or ""):gsub("^%s+", ""):gsub("%s+$", "")
                     if question == "" then return end
                     UIManager:close(dialog)
-                    self:run(snapshot, thread, question)
+                    self:run(snapshot, thread, question, index)
                 end,
             },
         }},
@@ -238,10 +264,10 @@ Sends one question and shows the answer.
 The request blocks, so it runs inside a Trapper subprocess: the UI keeps
 painting and the reader can tap to give up on a model that is taking too long.
 --]]
-function Ask:run(snapshot, thread, question)
+function Ask:run(snapshot, thread, question, index)
     NetworkMgr:runWhenOnline(function()
         Trapper:wrap(function()
-            local annotation = self:ensure_annotation(snapshot)
+            local annotation = self:ensure_annotation(snapshot, index)
             local highlight_ref = Payload.external_id(annotation, Util.sha256_hex)
 
             local data = Store.read(self.ui.doc_settings)
@@ -304,7 +330,7 @@ function Ask:run(snapshot, thread, question)
             Store.upsert_thread(data, thread)
             Store.write(self.ui.doc_settings, data)
 
-            self:show_thread(snapshot, thread, annotation)
+            self:show_thread(snapshot, thread, annotation, index)
         end)
     end)
 end
@@ -326,7 +352,7 @@ The whole thread, not only the newest reply. A follow-up is asked *because* of
 what was said before, and an answer shown on its own leaves the reader holding
 half of it.
 --]]
-function Ask:show_thread(snapshot, thread, annotation)
+function Ask:show_thread(snapshot, thread, annotation, index)
     local viewer
     viewer = TextViewer:new{
         title = thread.title,
@@ -337,7 +363,7 @@ function Ask:show_thread(snapshot, thread, annotation)
                 text = _("Ask a follow-up"),
                 callback = function()
                     UIManager:close(viewer)
-                    self:prompt_for_question(snapshot, thread)
+                    self:prompt_for_question(snapshot, thread, index)
                 end,
             },
             {

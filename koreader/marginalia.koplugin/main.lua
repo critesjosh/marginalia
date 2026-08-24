@@ -21,7 +21,6 @@ local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
-local T = require("ffi/util").template
 
 local Ask = require("marginalia_ask")
 local Handoff = require("marginalia_handoff")
@@ -100,9 +99,11 @@ function Marginalia:showConversations()
         return
     end
 
-    local count = #threads
+    -- No count in the title: pluralising one needs `ngettext`, and this device
+    -- is not currently to hand to check that KOReader's gettext exposes it.
+    -- The document below says how many there are by simply being them.
     UIManager:show(TextViewer:new{
-        title = count == 1 and _("1 conversation") or T(_("%1 conversations"), count),
+        title = _("Conversations"),
         text = View.book_document(threads),
         text_type = "lookup",
     })
@@ -119,13 +120,16 @@ function Marginalia:onMarginaliaExport()
 end
 
 function Marginalia:addToHighlightDialog()
-    -- The registered function is called as fn(ReaderHighlight, index); the
-    -- index is of no use here, so only the first argument is taken.
-    self.ui.highlight:addToHighlightDialog("12_ask_marginalia", function(highlight)
+    -- Called as fn(ReaderHighlight, index). For a popup opened on a saved
+    -- highlight the index names its row in `annotations`, and it is the only
+    -- reliable way back to that row: KOReader hands the menu a deep copy, so
+    -- comparing positions finds nothing for a paging document, whose positions
+    -- are tables. A fresh selection has no index because it has no annotation.
+    self.ui.highlight:addToHighlightDialog("12_ask_marginalia", function(highlight, index)
         return {
             text = _("Ask Marginalia"),
             callback = function()
-                self.ask:from_selection(highlight)
+                self.ask:from_selection(highlight, index)
             end,
         }
     end)
