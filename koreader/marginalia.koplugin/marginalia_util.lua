@@ -21,8 +21,12 @@ devices it is not.
 --]]
 function Util.random_hex(characters)
     local bytes = math.ceil(characters / 2)
-    local file = io.open("/dev/urandom", "rb")
-    if file then
+    -- Through pcall: a sandbox can hand back an `io` table with no `open` on
+    -- it, and the fallback below exists exactly for the case where the kernel's
+    -- entropy is out of reach — it should not be skipped by an error on the way
+    -- to finding that out.
+    local opened, file = pcall(io.open, "/dev/urandom", "rb")
+    if opened and file then
         local raw = file:read(bytes)
         file:close()
         if raw and #raw == bytes then

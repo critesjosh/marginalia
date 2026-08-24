@@ -23,6 +23,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local N_ = _.ngettext
 local T = require("ffi/util").template
 
 local ConfirmBox = require("ui/widget/confirmbox")
@@ -120,11 +121,12 @@ function Marginalia:showConversations()
         return
     end
 
-    -- No count in the title: pluralising one needs `ngettext`, and this device
-    -- is not currently to hand to check that KOReader's gettext exposes it.
-    -- The document below says how many there are by simply being them.
+    local count = #threads
     UIManager:show(TextViewer:new{
-        title = _("Conversations"),
+        -- The number goes through `ngettext` and then the template, and is
+        -- passed twice on purpose: `ngettext` picks the plural form for the
+        -- language and does nothing about the placeholder.
+        title = T(N_("1 conversation", "%1 conversations", count), count),
         text = View.book_document(threads),
         text_type = "lookup",
     })
