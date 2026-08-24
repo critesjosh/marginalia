@@ -75,12 +75,15 @@ wait where you had already accepted one, and dismissing it simply asks with the
 notes as they were.
 
 A conversation you never go back to is therefore not folded in automatically.
-**Update notes now** sweeps every conversation with something new in it.
 
 **Notes on this book** shows them, with **Edit** (later updates merge into
 whatever you write, so an edit carries forward), **Clear**, and **Undo last
-update** — a bad summary feeds itself into every later one, and one previous
-version is kept so that is recoverable.
+change** — a bad summary feeds itself into every later one, so one previous
+version is always kept. Clearing can be put back the same way.
+
+**Update notes now** folds in every conversation with anything unfolded, down to
+a single exchange — the threshold of four turns exists to avoid spending time you
+are giving to a question, and this is the path where you asked for the work.
 
 These notes are the device's own. They are not exported and not synchronised with
 the browser's, which keeps its own summary of the same book. Both are built the

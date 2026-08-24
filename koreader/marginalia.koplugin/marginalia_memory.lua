@@ -138,10 +138,14 @@ afterwards rather than holding a copy across this call: everything lives under
 one `marginalia` key, and a stale whole-table write puts the old digest back.
 
 @param thread_id which thread to fold
+@param minimum how many pending turns are needed, default `MESSAGES_PER_UPDATE`.
+  The manual sweep passes 1: a conversation asked once and left has two turns,
+  and waiting for a fourth that is never coming would keep it out of the notes
+  for good.
 @treturn boolean whether the digest was updated
 @treturn string a reason, when it was not
 --]]
-function Memory:fold(thread_id)
+function Memory:fold(thread_id, minimum)
     local data = Store.read(self.ui.doc_settings)
 
     local thread
@@ -149,7 +153,9 @@ function Memory:fold(thread_id)
         if candidate.id == thread_id then thread = candidate break end
     end
     if not thread then return false, "no such conversation" end
-    if not Memory.is_due(thread) then return false, "nothing new to fold in" end
+    if Memory.pending_count(thread) < (minimum or Memory.MESSAGES_PER_UPDATE) then
+        return false, "nothing new to fold in"
+    end
 
     local window = Memory.window(thread)
     local transcript = Memory.transcript(window)
@@ -218,34 +224,48 @@ function Memory:fold(thread_id)
 end
 
 --[[--
-Folds every thread that is due. For the manual action.
+Folds every conversation with anything unfolded in it. For the manual action.
 
-@treturn number how many threads were folded
-@treturn string a reason, when none were
+The threshold here is one turn, not four. The automatic path waits for four
+because it is spending the reader's time on a question they are already waiting
+for; this path was asked for, and its whole purpose is to catch up the
+conversations the automatic path cannot reach — which are exactly the short ones
+that were asked about once and left alone.
+
+@treturn number how many conversations were folded
+@treturn number how many were attempted and failed
+@treturn string the last failure, if there was one
 --]]
 function Memory:fold_all()
     local data = Store.read(self.ui.doc_settings)
 
-    local due = {}
+    local pending = {}
     for _, thread in ipairs(data.threads or {}) do
-        if Memory.is_due(thread) then due[#due + 1] = thread.id end
+        if Memory.pending_count(thread) > 0 then pending[#pending + 1] = thread.id end
     end
-    if #due == 0 then return 0, "nothing new to fold in" end
+    if #pending == 0 then return 0, 0, "nothing new to fold in" end
 
-    local folded = 0
+    local folded, failed = 0, 0
     local last_reason
-    for _, id in ipairs(due) do
-        local ok, reason = self:fold(id)
+    for _, id in ipairs(pending) do
+        local ok, reason = self:fold(id, 1)
         if ok then
             folded = folded + 1
         else
+            failed = failed + 1
             last_reason = reason
             -- A cancelled fold means the reader wants out of this altogether,
-            -- not just out of this one thread.
+            -- not just out of this one conversation.
             if reason == "cancelled" then break end
         end
     end
-    return folded, last_reason
+    return folded, failed, last_reason
+end
+
+--- Whether there is a previous digest to put back.
+function Memory:has_undo()
+    local data = Store.read(self.ui.doc_settings)
+    return (data.memory and data.memory.previous) ~= nil
 end
 
 --- The book's digest as it stands, or nil.

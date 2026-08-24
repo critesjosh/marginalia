@@ -81,7 +81,9 @@ function Digest.strip_fence_tokens(text)
 
     local out = table.concat(kept, "\n")
     -- Trailing blanks a stripped token left behind, then runs of empty lines.
-    out = out:gsub("[ \t]+\n", "\n")
+    -- `\r` is in the class because a reply with CRLF endings would otherwise
+    -- keep a carriage return on every line a token was taken off.
+    out = out:gsub("[ \t\r]+\n", "\n")
     out = out:gsub("\n\n\n+", "\n\n")
     return (out:gsub("^%s+", ""):gsub("%s+$", ""))
 end
@@ -94,6 +96,8 @@ clipped digest reads as notes rather than stopping mid-word. That matters beyond
 tidiness: the result is fed back to the summariser as prior context, and a
 severed clause invites it to invent the rest of the thought.
 
+@param head the text being cut down
+@param minimum byte offset the boundary must be past
 @treturn number byte offset to cut after, or nil
 --]]
 local function last_boundary(head, minimum)
@@ -127,9 +131,11 @@ function Digest.normalize_summary(text)
     if characters <= Digest.MAX_SUMMARY_CHARS then return clean end
 
     local head = clean:sub(1, offsets[Digest.MAX_SUMMARY_CHARS + 1] - 1)
-    -- Half the allowance, measured in bytes against a byte offset, taken from
-    -- the head actually produced rather than from the character count.
-    local at = last_boundary(head, #head / 2)
+    -- Half the allowance, in characters. Taking half the *byte* length instead
+    -- would put the threshold somewhere else entirely in prose that mixes ASCII
+    -- with multibyte text, which is exactly the prose this ceiling fires on.
+    local half = offsets[math.floor(Digest.MAX_SUMMARY_CHARS / 2) + 1] - 1
+    local at = last_boundary(head, half)
     if at then
         return (head:sub(1, at):gsub("%s+$", "")) .. "…"
     end

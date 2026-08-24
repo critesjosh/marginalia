@@ -75,6 +75,20 @@ do
     H.equal(window[1].content, thread.messages[5].content)
 end
 
+-- The automatic path waits for four turns because it is spending time the
+-- reader is already giving to a question. The manual sweep has no such excuse
+-- and must not inherit the threshold: a conversation asked about once and left
+-- alone has two turns, and waiting for a fourth that is never coming would keep
+-- it out of the notes for good.
+do
+    local one_exchange = { messages = turns(2) }
+    H.ok(not Memory.is_due(one_exchange), "not due automatically")
+    H.equal(Memory.pending_count(one_exchange), 2, "but it does have something to fold")
+
+    local window = Memory.window(one_exchange)
+    H.equal(#window, 2, "and the window offers both turns")
+end
+
 -- What the summariser reads.
 do
     local transcript = Memory.transcript({

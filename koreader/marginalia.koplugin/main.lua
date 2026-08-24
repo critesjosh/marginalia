@@ -23,6 +23,7 @@ local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
 local ConfirmBox = require("ui/widget/confirmbox")
 
@@ -140,18 +141,25 @@ The book's running notes, and the ways to correct them.
 function Marginalia:showNotes()
     local memory = self.memory:current()
     local summary = memory and memory.summary
+    local recoverable = memory and memory.previous
 
-    if not summary or summary == "" then
+    if (not summary or summary == "") and not recoverable then
         UIManager:show(InfoMessage:new{
             text = _("No notes on this book yet. They build up as you ask about it."),
         })
         return
     end
 
+    -- Cleared notes still open this screen when there is something to put back.
+    -- Undo lives here and nowhere else, so returning early on an empty digest
+    -- would leave the previous one stored and unreachable.
     local viewer
+    local has_summary = summary ~= nil and summary ~= ""
+
     local buttons = {{
         {
             text = _("Edit"),
+            enabled = has_summary,
             callback = function()
                 UIManager:close(viewer)
                 self:editNotes(summary)
@@ -159,6 +167,7 @@ function Marginalia:showNotes()
         },
         {
             text = _("Clear"),
+            enabled = has_summary,
             callback = function()
                 UIManager:show(ConfirmBox:new{
                     text = _("Clear this book's notes? The conversations themselves are kept."),
@@ -172,8 +181,8 @@ function Marginalia:showNotes()
         },
     }, {
         {
-            text = _("Undo last update"),
-            enabled = memory.previous ~= nil,
+            text = _("Undo last change"),
+            enabled = recoverable ~= nil,
             callback = function()
                 if self.memory:undo() then
                     UIManager:close(viewer)
@@ -187,9 +196,13 @@ function Marginalia:showNotes()
         },
     }}
 
+    local body = has_summary
+        and (summary .. "\n\n— updated " .. (memory.updated_at or "?"))
+        or _("These notes are cleared. The version before that is still here — Undo puts it back.")
+
     viewer = TextViewer:new{
         title = _("Notes on this book"),
-        text = summary .. "\n\n— updated " .. (memory.updated_at or "?"),
+        text = body,
         text_type = "lookup",
         buttons_table = buttons,
     }
@@ -212,8 +225,9 @@ function Marginalia:editNotes(summary)
                 callback = function() UIManager:close(dialog) end,
             },
             {
+                -- No `is_enter_default`: `allow_newline` deliberately turns the
+                -- enter callback off, so claiming it here would be inert.
                 text = _("Save"),
-                is_enter_default = true,
                 callback = function()
                     self.memory:save(dialog:getInputText() or "")
                     UIManager:close(dialog)
@@ -236,18 +250,25 @@ would read as a failure.
 function Marginalia:updateNotes()
     NetworkMgr:runWhenOnline(function()
         Trapper:wrap(function()
-            local folded, reason = self.memory:fold_all()
-            if folded > 0 then
+            local folded, failed, reason = self.memory:fold_all()
+
+            if failed > 0 and reason ~= "cancelled" then
+                -- Reported even when some folds succeeded: the conversations
+                -- that failed are still pending, and "Notes updated" would say
+                -- the opposite of that.
                 UIManager:show(InfoMessage:new{
-                    text = _("Notes updated."),
-                    timeout = 2,
+                    text = folded > 0
+                        and T(_("Notes updated from %1 of %2 conversations. The rest failed: %3"),
+                            folded, folded + failed, tostring(reason))
+                        or T(_("Could not update the notes: %1"), tostring(reason)),
+                    timeout = 8,
                 })
-            elseif reason ~= "cancelled" then
+            elseif folded > 0 then
+                UIManager:show(InfoMessage:new{ text = _("Notes updated."), timeout = 2 })
+            elseif reason == "nothing new to fold in" then
                 UIManager:show(InfoMessage:new{
-                    text = reason == "nothing new to fold in"
-                        and _("Nothing new to add to the notes.")
-                        or tostring(reason),
-                    timeout = 5,
+                    text = _("Nothing new to add to the notes."),
+                    timeout = 3,
                 })
             end
         end)
