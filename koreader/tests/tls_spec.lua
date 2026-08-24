@@ -114,9 +114,27 @@ do
     }
     H.ok(not TLS.verify_hostname(broken, "lexici.netlify.app"), "a certificate we cannot read is not trusted")
 
+    -- A certificate that has subjectAltName at all is judged on it alone. If
+    -- the common name were consulted whenever the SAN held nothing of the kind
+    -- this host needs, a certificate listing only an address would be accepted
+    -- for a name — the exact crossing-over the type split above exists to stop.
     local empty_sans = certificate({ sans = { dNSName = {} }, common_name = "lexici.netlify.app" })
-    H.ok(TLS.verify_hostname(empty_sans, "lexici.netlify.app"),
-        "an empty SAN list is no SAN list, so the common name is still consulted")
+    H.ok(not TLS.verify_hostname(empty_sans, "lexici.netlify.app"),
+        "an empty SAN list is still a SAN, so the common name is not a second chance")
+
+    local address_san_name_cn = certificate({
+        sans = { iPAddress = { "192.168.1.10" } },
+        common_name = "lexici.netlify.app",
+    })
+    H.ok(not TLS.verify_hostname(address_san_name_cn, "lexici.netlify.app"),
+        "a SAN holding only an address does not let the common name vouch for a name")
+
+    local name_san_address_cn = certificate({
+        sans = { dNSName = { "lexici.netlify.app" } },
+        common_name = "192.168.1.10",
+    })
+    H.ok(not TLS.verify_hostname(name_san_address_cn, "192.168.1.10"),
+        "nor the other way round")
 end
 
 -- None of the above matters if the request can be made in the clear.

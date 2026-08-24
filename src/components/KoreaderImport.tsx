@@ -59,18 +59,34 @@ export default function KoreaderImport() {
       return
     }
 
-    const match = await db.books.filter((row) => row.fileHash === handoff.sha256).first()
-    if (!match) {
+    const matches = await db.books.filter((row) => row.fileHash === handoff.sha256).toArray()
+    if (matches.length === 0) {
       setPhase({
         name: 'error',
         message: `No book in your library is the same file as “${handoff.title}”. Add that exact EPUB here first — the same file you read on the e-reader, not another copy of the same book.`,
       })
       return
     }
-    if (!match.file) {
+
+    // Adding the same EPUB twice while it is already on the shelf makes a
+    // second row: `findArchivedMatch` only reclaims books that were removed.
+    // Picking one of them arbitrarily would put the highlights on whichever
+    // happened to sort first, which is the failure the hash rule exists to
+    // prevent — so say so instead.
+    const usable = matches.filter((row) => row.file)
+    if (usable.length > 1) {
       setPhase({
         name: 'error',
-        message: `“${match.title}” is on the shelf but its EPUB was removed. Add the file again, then import.`,
+        message: `Your library holds ${usable.length} copies of this same file (“${usable[0].title}”), so there is no telling which one these highlights belong to. Remove the copies you don't want and import again.`,
+      })
+      return
+    }
+
+    const match = usable[0]
+    if (!match) {
+      setPhase({
+        name: 'error',
+        message: `“${matches[0].title}” is on the shelf but its EPUB was removed. Add the file again, then import.`,
       })
       return
     }
@@ -160,7 +176,8 @@ function Summary({ result, handoff }: { result: ImportResult; handoff: Handoff }
   // Rejections do not make an import eventful: a re-import that places nothing
   // new still re-reports the passages it could not place, and "Imported 0
   // highlights" reads like a failure rather than like nothing to do.
-  const nothingNew = added === 0 && result.threadsAdded === 0
+  const nothingNew =
+    added === 0 && result.threadsAdded === 0 && result.messagesAdded === 0
 
   return (
     <div className="mt-3 space-y-2 text-sm" aria-live="polite">
@@ -175,6 +192,13 @@ function Summary({ result, handoff }: { result: ImportResult; handoff: Handoff }
                 : ''
             } from “${handoff.title}”.`}
       </p>
+
+      {result.messagesAdded > 0 && (
+        <p className="text-stone-400">
+          {result.messagesAdded} new {result.messagesAdded === 1 ? 'turn' : 'turns'} added
+          to conversations you already had.
+        </p>
+      )}
 
       {(result.highlightsSkipped > 0 || result.threadsSkipped > 0) && (
         <p className="text-stone-400">

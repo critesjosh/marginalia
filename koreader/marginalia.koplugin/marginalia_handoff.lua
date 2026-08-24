@@ -12,7 +12,14 @@ which book a highlight belongs to. It refuses to match on title and author —
 two editions share those while numbering their sections differently, so a
 highlight handed to the wrong edition lands on arbitrary text. Hashing a few
 megabytes in pure Lua takes long enough to notice, so it runs in a Trapper
-subprocess and the result is cached against the file's size and mtime.
+subprocess where the reader can give up on it.
+
+It is deliberately not cached. Caching it against size and mtime would be the
+obvious saving, but an e-reader's storage is usually FAT, whose mtime has
+two-second granularity, and a book replaced by a same-size edition is exactly
+the case where a stale hash does the most damage: it would hand the new book's
+highlights to the old one. A few seconds on an action the reader asked for is
+the cheaper mistake.
 
 @module marginalia.handoff
 --]]
@@ -54,20 +61,12 @@ function Handoff.directory()
 end
 
 --[[--
-The book's SHA-256, hashed if we do not already have it for these exact bytes.
+The book's SHA-256.
 
-Cached against size and mtime rather than recomputed: a reader who exports after
-every session should pay for this once.
+@treturn string lowercase hex, or nil plus a reason ("cancelled" if dismissed)
 --]]
-function Handoff:file_hash(path, data)
-    local attributes = lfs.attributes(path)
-    if not attributes then return nil, "could not read the book file" end
-
-    local cached = data.file_hash
-    if cached and cached.sha256 and cached.size == attributes.size
-        and cached.mtime == attributes.modification then
-        return cached.sha256
-    end
+function Handoff:file_hash(path)
+    if not lfs.attributes(path) then return nil, "could not read the book file" end
 
     local completed, result = Trapper:dismissableRunInSubprocess(function()
         local hash, err = Util.sha256_file(path)
@@ -79,11 +78,6 @@ function Handoff:file_hash(path, data)
         return nil, (type(result) == "table" and result.error) or "could not hash the book file"
     end
 
-    data.file_hash = {
-        sha256 = result.sha256,
-        size = attributes.size,
-        mtime = attributes.modification,
-    }
     return result.sha256
 end
 
@@ -160,7 +154,7 @@ function Handoff:export()
             return
         end
 
-        local hash, hash_error = self:file_hash(path, data)
+        local hash, hash_error = self:file_hash(path)
         if not hash then
             if hash_error ~= "cancelled" then
                 UIManager:show(InfoMessage:new{
@@ -169,8 +163,6 @@ function Handoff:export()
             end
             return
         end
-        -- The hash was possibly just computed; keep it for next time.
-        Store.write(self.ui.doc_settings, data)
 
         local attributes = lfs.attributes(path)
         local props = self.ui.doc_props or {}

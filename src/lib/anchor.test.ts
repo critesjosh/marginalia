@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest'
-import { findInDocument, normalizeQuery } from './anchor'
+import { BookAnchors, findInDocument, normalizeQuery } from './anchor'
 
 /**
  * The map from normalised text back to DOM positions is the part of the import
@@ -121,5 +121,68 @@ describe('findInDocument', () => {
     // İ lowercases to two code units, so the map is not one-to-one here.
     const body = '<p>İstanbul and the whale</p>'
     expect(find(body, 'and the whale')).toBe('and the whale')
+  })
+})
+
+describe('BookAnchors', () => {
+  /** A spine of documents, some of which refuse to load. */
+  function bookOf(sections: { href: string; body?: string }[]) {
+    const spineItems = sections.map(({ href, body }) => ({
+      href,
+      document: undefined as Document | undefined,
+      async load() {
+        if (body === undefined) throw new Error('could not load')
+        this.document = documentOf(body)
+        return this.document
+      },
+      unload() {
+        this.document = undefined
+      },
+      cfiFromRange: () => `epubcfi(/6/2!/4/2,/1:0,/1:1)`,
+    }))
+    return { spine: { spineItems }, load: () => Promise.resolve() }
+  }
+
+  it('gets a unique passage as far as verification', async () => {
+    // These stand-in sections hand back a fixed CFI that cannot resolve to the
+    // passage, so the round-trip check refuses it — which is the point: even a
+    // passage that is unique across the spine is not accepted on the strength
+    // of the search alone. Anchoring against a real EPUB is covered end to end
+    // in the browser rather than here.
+    const anchors = await BookAnchors.build(
+      bookOf([
+        { href: 'a.xhtml', body: '<p>the white whale</p>' },
+        { href: 'b.xhtml', body: '<p>a calm sea</p>' },
+      ]) as never,
+    )
+    expect(anchors.unreadableCount).toBe(0)
+    expect(await anchors.locate('the white whale')).toEqual({ failure: 'unverified' })
+    expect(await anchors.locate('a passage nowhere in this book')).toEqual({
+      failure: 'not-found',
+    })
+  })
+
+  it('declines a passage that appears in two different sections', async () => {
+    const anchors = await BookAnchors.build(
+      bookOf([
+        { href: 'a.xhtml', body: '<p>the white whale</p>' },
+        { href: 'b.xhtml', body: '<p>the white whale again</p>' },
+      ]) as never,
+    )
+    expect(await anchors.locate('the white whale')).toEqual({ failure: 'ambiguous' })
+  })
+
+  it('places nothing at all when part of the spine could not be read', async () => {
+    // Uniqueness is a claim about the whole book. A passage found once among
+    // the sections that loaded might appear again in the one that did not, so
+    // accepting it would be a guess dressed up as a match.
+    const anchors = await BookAnchors.build(
+      bookOf([
+        { href: 'a.xhtml', body: '<p>the white whale</p>' },
+        { href: 'b.xhtml' },
+      ]) as never,
+    )
+    expect(anchors.unreadableCount).toBe(1)
+    expect(await anchors.locate('the white whale')).toEqual({ failure: 'incomplete-book' })
   })
 })

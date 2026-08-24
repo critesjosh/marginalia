@@ -116,8 +116,15 @@ function TLS.verify_hostname(cert, host)
         return false, "the certificate is not valid for " .. host
     end
 
-    -- No usable SAN. Fall back to the common name, which modern certificates
-    -- do not rely on but older ones still carry.
+    -- A certificate that carries subjectAltName at all is judged on it alone,
+    -- even when it holds no entry of the kind this host needs. Falling through
+    -- to the common name here would accept a certificate whose SAN lists only
+    -- an address for a request to a name — the CN is a fallback for
+    -- certificates that predate SAN, not a second chance for ones that have it.
+    if alt then
+        return false, "the certificate is not valid for " .. host
+    end
+
     local subject_ok, subject = pcall(cert.subject, cert)
     if subject_ok and type(subject) == "table" then
         for _, entry in ipairs(subject) do

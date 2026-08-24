@@ -24,10 +24,12 @@ import { newId } from './id'
  *   edition, whose sections are numbered differently, and hand it highlights
  *   that land on arbitrary text.
  * - **Import is additive.** Every record carries the id it had on the device,
- *   and anything already present is skipped, never rewritten. So importing the
- *   same file twice is a no-op, and a passage edited on the e-reader after an
- *   import stays as it was imported — an ordering this cannot resolve without
- *   inventing a merge policy the reader never asked for.
+ *   and anything already here is left exactly as it is. Importing the same file
+ *   twice is a genuine no-op; a conversation that gained turns on the e-reader
+ *   since the last import gains them here too, because a thread is appended to
+ *   and never edited. What this does *not* do is reconcile an edit — a passage
+ *   or note changed on the device after an import stays as it was imported,
+ *   rather than being merged under a policy nobody asked for.
  */
 
 export const HANDOFF_FORMAT = 'marginalia-koreader'
@@ -237,6 +239,8 @@ export interface ImportResult {
   highlightsSkipped: number
   threadsAdded: number
   threadsSkipped: number
+  /** Turns appended to conversations that were already here. */
+  messagesAdded: number
   rejected: Rejection[]
 }
 
@@ -277,6 +281,7 @@ export async function importHandoff(
     highlightsSkipped: handoff.highlights.length - pending.length,
     threadsAdded: 0,
     threadsSkipped: 0,
+    messagesAdded: 0,
     rejected: [],
   }
 
@@ -321,10 +326,46 @@ export async function importHandoff(
 
   const conversations: Conversation[] = []
   const messages: Message[] = []
+  const touched: { id: string; updatedAt: number }[] = []
 
   for (const thread of handoff.threads) {
-    if (knownThread.has(thread.externalId)) {
-      result.threadsSkipped += 1
+    const existing = knownThread.get(thread.externalId)
+
+    if (existing) {
+      // A thread is not finished when it is first exported: asking a follow-up
+      // on the e-reader appends to the same thread under the same id. So a
+      // conversation already here is not skipped wholesale — only the turns it
+      // already holds are.
+      const held = await db.messages
+        .where('conversationId')
+        .equals(existing.id)
+        .toArray()
+      const seen = new Set(held.map((m) => m.externalId).filter(Boolean))
+
+      const fresh = thread.messages.filter((m) => !seen.has(m.externalId))
+      if (fresh.length === 0) {
+        result.threadsSkipped += 1
+        continue
+      }
+
+      for (const message of fresh) {
+        messages.push({
+          id: newId(),
+          conversationId: existing.id,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          externalId: message.externalId,
+        })
+      }
+      result.messagesAdded += fresh.length
+      touched.push({
+        id: existing.id,
+        updatedAt: Math.max(
+          existing.updatedAt,
+          fresh[fresh.length - 1]?.createdAt ?? existing.updatedAt,
+        ),
+      })
       continue
     }
 
@@ -366,6 +407,11 @@ export async function importHandoff(
     if (rows.length) await db.highlights.bulkAdd(rows)
     if (conversations.length) await db.conversations.bulkAdd(conversations)
     if (messages.length) await db.messages.bulkAdd(messages)
+    // A conversation that grew needs its sort position to grow with it, or the
+    // chats list keeps showing it where it sat before the follow-up.
+    for (const { id, updatedAt } of touched) {
+      await db.conversations.update(id, { updatedAt })
+    }
   })
 
   result.highlightsAdded = rows.length
@@ -379,4 +425,6 @@ export const REJECTION_REASONS: Record<AnchorFailure, string> = {
   ambiguous: 'appears more than once, so its place is not certain',
   unverified: 'found, but the position did not check out',
   'section-failed': 'the chapter it lives in could not be read',
+  'incomplete-book':
+    'part of this EPUB could not be read, so no passage can be placed with certainty',
 }

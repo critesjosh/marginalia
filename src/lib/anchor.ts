@@ -33,6 +33,7 @@ export type AnchorFailure =
   | 'ambiguous'
   | 'unverified'
   | 'section-failed'
+  | 'incomplete-book'
 
 export interface AnchorMatch {
   cfiRange: string
@@ -331,10 +332,12 @@ interface IndexedSection {
 export class BookAnchors {
   private readonly book: EpubBook
   private readonly sections: IndexedSection[]
+  private readonly unreadable: number
 
-  private constructor(book: EpubBook, sections: IndexedSection[]) {
+  private constructor(book: EpubBook, sections: IndexedSection[], unreadable: number) {
     this.book = book
     this.sections = sections
+    this.unreadable = unreadable
   }
 
   static async build(
@@ -344,6 +347,7 @@ export class BookAnchors {
     const spine = book.spine as unknown as { spineItems: SpineSection[] }
     const items = spine.spineItems ?? []
     const sections: IndexedSection[] = []
+    let unreadable = 0
 
     for (let i = 0; i < items.length; i += 1) {
       const section = items[i]
@@ -355,9 +359,11 @@ export class BookAnchors {
             href: section.href,
             text: normalizeDocument(section.document, false).text,
           })
+        } else {
+          unreadable += 1
         }
       } catch {
-        // A section that will not load holds no passages we can anchor to.
+        unreadable += 1
       } finally {
         try {
           section.unload()
@@ -368,7 +374,7 @@ export class BookAnchors {
       onProgress?.(i + 1, items.length)
     }
 
-    return new BookAnchors(book, sections)
+    return new BookAnchors(book, sections, unreadable)
   }
 
   /** How many spine sections were readable. Zero means nothing can be located. */
@@ -377,9 +383,25 @@ export class BookAnchors {
   }
 
   /**
+   * How many spine sections could not be read.
+   *
+   * Any at all and nothing can be anchored, because uniqueness is a claim about
+   * the whole book: a passage found once among the sections that did load might
+   * appear again in one that did not, and there is no way to know.
+   */
+  get unreadableCount(): number {
+    return this.unreadable
+  }
+
+  /**
    * Anchors one passage, or explains why it could not be.
    */
   async locate(query: string): Promise<AnchorResult> {
+    // Uniqueness is a claim about the whole book. If part of the spine never
+    // indexed, that claim cannot be made about anything, so nothing is placed
+    // rather than everything being placed on incomplete evidence.
+    if (this.unreadable > 0) return { failure: 'incomplete-book' }
+
     const needle = normalizeQuery(query)
     if (!needle) return { failure: 'not-found' }
 
