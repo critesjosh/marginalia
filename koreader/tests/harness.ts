@@ -19,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 const pluginDir = join(here, '..', 'marginalia.koplugin')
 
 /** Loaded in dependency order; each is put into `package.loaded` under its name. */
-const MODULES = ['marginalia_prompt', 'marginalia_payload', 'marginalia_tls']
+const MODULES = ['marginalia_prompt', 'marginalia_payload', 'marginalia_tls', 'marginalia_view']
 
 /**
  * Stands in for the KOReader modules the pure files touch.

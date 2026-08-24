@@ -30,6 +30,7 @@ local Payload = require("marginalia_payload")
 local Prompt = require("marginalia_prompt")
 local Relay = require("marginalia_relay")
 local Store = require("marginalia_store")
+local View = require("marginalia_view")
 local Util = require("marginalia_util")
 
 --- How many words either side of the passage to send as context. The web app
@@ -153,7 +154,32 @@ function Ask:ensure_annotation(snapshot)
     return item
 end
 
---- Entry point from the highlight dialog.
+--[[--
+The thread already hanging off this passage, if there is one.
+
+Only for a passage that is already a highlight: asking is what creates the
+annotation, so a fresh selection has nothing for a thread to be attached to yet.
+--]]
+function Ask:existing_thread(snapshot)
+    local annotation = self:existing_annotation(snapshot)
+    if not annotation then return nil end
+
+    local data = Store.read(self.ui.doc_settings)
+    local thread = Store.find_thread(data, Payload.external_id(annotation, Util.sha256_hex))
+    if thread and #(thread.messages or {}) > 0 then
+        return thread, annotation
+    end
+    return nil
+end
+
+--[[--
+Entry point from the highlight dialog.
+
+A passage that has been asked about before opens its conversation, rather than
+the question box. Reading what was already said is the more likely reason to
+come back to a passage, and until now there was no way to do it at all: the
+thread was in the sidecar with nothing to read it.
+--]]
 function Ask:from_selection(highlight)
     local snapshot = self:snapshot(highlight)
     if not snapshot then
@@ -162,6 +188,13 @@ function Ask:from_selection(highlight)
     end
 
     highlight:onClose()
+
+    local thread, annotation = self:existing_thread(snapshot)
+    if thread then
+        self:show_thread(snapshot, thread, annotation)
+        return
+    end
+
     self:prompt_for_question(snapshot)
 end
 
@@ -271,7 +304,7 @@ function Ask:run(snapshot, thread, question)
             Store.upsert_thread(data, thread)
             Store.write(self.ui.doc_settings, data)
 
-            self:show_answer(snapshot, thread, annotation, result.text)
+            self:show_thread(snapshot, thread, annotation)
         end)
     end)
 end
@@ -287,13 +320,17 @@ function Ask:book_metadata()
 end
 
 --[[--
-Shows the answer, with the ways out of it.
+Shows a conversation, with the ways out of it.
+
+The whole thread, not only the newest reply. A follow-up is asked *because* of
+what was said before, and an answer shown on its own leaves the reader holding
+half of it.
 --]]
-function Ask:show_answer(snapshot, thread, annotation, text)
+function Ask:show_thread(snapshot, thread, annotation)
     local viewer
     viewer = TextViewer:new{
         title = thread.title,
-        text = text,
+        text = View.thread_document(thread),
         text_type = "lookup",
         buttons_table = {{
             {
@@ -328,14 +365,7 @@ bookmark list and in every other exporter, so this is how the conversation
 becomes visible to the rest of KOReader.
 --]]
 function Ask:save_to_note(annotation, thread)
-    local lines = {}
-    for _, message in ipairs(thread.messages) do
-        local prefix = message.role == "user" and "Q: " or "A: "
-        table.insert(lines, prefix .. message.content)
-    end
-    local rendered = table.concat(lines, "\n\n")
-
-    annotation.note = rendered
+    annotation.note = View.transcript(thread)
     annotation.note_format = nil
     annotation.datetime_updated = Util.now_local()
 

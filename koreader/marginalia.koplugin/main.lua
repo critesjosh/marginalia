@@ -17,13 +17,17 @@ local DataStorage = require("datastorage")
 local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
+local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
+local T = require("ffi/util").template
 
 local Ask = require("marginalia_ask")
 local Handoff = require("marginalia_handoff")
+local Store = require("marginalia_store")
 local TLS = require("marginalia_tls")
+local View = require("marginalia_view")
 
 local VERSION = "1.0.0"
 
@@ -70,6 +74,43 @@ function Marginalia:onDispatcherRegisterActions()
         title = _("Export highlights for Marginalia"),
         reader = true,
     })
+    Dispatcher:registerAction("marginalia_conversations", {
+        category = "none",
+        event = "MarginaliaConversations",
+        title = _("Marginalia conversations"),
+        reader = true,
+    })
+end
+
+--[[--
+Every conversation in this book, in one scroll.
+
+A single document rather than a list to pick from: on e-ink, paging through a
+menu to find the one you meant costs more full refreshes than simply reading
+past the ones you did not. They are newest first for the same reason.
+--]]
+function Marginalia:showConversations()
+    local data = Store.read(self.ui.doc_settings)
+    local threads = data.threads or {}
+
+    if #threads == 0 then
+        UIManager:show(InfoMessage:new{
+            text = _("No conversations in this book yet. Select a passage and choose Ask Marginalia."),
+        })
+        return
+    end
+
+    local count = #threads
+    UIManager:show(TextViewer:new{
+        title = count == 1 and _("1 conversation") or T(_("%1 conversations"), count),
+        text = View.book_document(threads),
+        text_type = "lookup",
+    })
+end
+
+function Marginalia:onMarginaliaConversations()
+    self:showConversations()
+    return true
 end
 
 function Marginalia:onMarginaliaExport()
@@ -95,6 +136,12 @@ function Marginalia:addToMainMenu(menu_items)
         text = _("Marginalia"),
         sorting_hint = "more_tools",
         sub_item_table = {
+            {
+                text = _("Conversations in this book"),
+                keep_menu_open = false,
+                callback = function() self:showConversations() end,
+                help_text = _("Everything you have asked about this book, newest first. Also reachable from a passage you have already asked about."),
+            },
             {
                 text = _("Export highlights for Marginalia"),
                 keep_menu_open = false,

@@ -8,6 +8,8 @@ Marginalia to an e-reader:
   where you are, and the prose around the passage, exactly as it is in the
   browser. Follow-ups continue the same thread, and threads are kept in the
   book's sidecar so they survive a restart.
+- **Conversations in this book** — everything you have asked, in one scroll,
+  newest first.
 - **Export highlights for Marginalia** — writes a JSON file that the web reader
   imports, turning KOReader's highlights and threads into real Marginalia
   highlights and conversations.
@@ -35,10 +37,26 @@ highlighted when — and only when — you actually ask something, so opening th
 dialog and changing your mind leaves no mark.
 
 The request runs in a subprocess, so the screen stays responsive and tapping
-dismisses it if a model is taking too long. From the answer you can ask a
-follow-up, or **Save to note**, which writes the whole exchange into that
-highlight's KOReader note where the bookmark list and every other exporter can
-see it.
+dismisses it if a model is taking too long. The whole conversation is shown, not
+just the newest reply — a follow-up is asked because of what was said before.
+From there you can ask another, or **Save to note**, which writes the exchange
+into that highlight's KOReader note where the bookmark list and every other
+exporter can see it.
+
+## Reading conversations back
+
+Long-pressing a passage you have already asked about opens its conversation
+instead of the question box; **Ask a follow-up** is a button on it.
+
+**More tools → Marginalia → Conversations in this book** shows every
+conversation in the book as one scrolling document, newest first. A single
+document rather than a list to pick from: on e-ink, paging through a menu to
+find the one you meant costs more full refreshes than reading past the ones you
+did not.
+
+Conversations live in the book's sidecar, so they travel with the book, and the
+export carries them to the web reader. Nothing comes the other way yet — chats
+and the rolling digest made in the browser are not visible here.
 
 ## Exporting to the web reader
 
@@ -113,8 +131,10 @@ a Lua VM from the repository root:
 npm test          # includes koreader/tests via fengari
 ```
 
-`marginalia_prompt.lua` mirrors `src/lib/prompt.ts` section for section. If one
-changes, the other has to, and `koreader/tests/prompt_spec.lua` is what notices.
+`marginalia_prompt.lua`, `marginalia_payload.lua` and `marginalia_view.lua` are
+the pure ones. `marginalia_prompt.lua` mirrors `src/lib/prompt.ts` section for
+section: if one changes the other has to, and `koreader/tests/prompt_spec.lua`
+is what notices.
 The delimiter that fences book text out of the instructions is the reason that
 file has tests at all: it only works because the token cannot be guessed from
 the book, so it is drawn from `/dev/urandom` and checked against the text it is
