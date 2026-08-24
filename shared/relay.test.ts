@@ -125,14 +125,19 @@ describe('unreachable provider', () => {
   })
 
   it('reports a provider that never sends headers as a timeout', async () => {
-    fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
-      vi.advanceTimersByTime(30_000)
-      return Promise.reject(
-        Object.assign(new Error('aborted'), { name: 'AbortError', signal: init.signal }),
-      )
-    })
+    // Rejects only when the signal it was handed fires, so the test fails if
+    // the relay ever stops passing `signal` to fetch — a provider would then
+    // hang past the budget instead of being cut off.
+    fetchMock.mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
+    )
 
-    const response = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    const pending = handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    await vi.advanceTimersByTimeAsync(30_000)
+    const response = await pending
 
     expect(response.status).toBe(504)
     expect(await errorMessage(response)).toMatch(/took too long/i)

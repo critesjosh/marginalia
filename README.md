@@ -82,7 +82,7 @@ Two providers, chosen in **Settings**:
 | --- | --- |
 | `google/gemma-4-26b-a4b-it` | Cloudflare first (fastest endpoint for this model), others allowed |
 
-One route, so every request is billed. A free-tier route (`:free`, served by Google AI Studio) used to run ahead of it, but it drew on a shared upstream pool that was regularly exhausted: most requests paid a refused round-trip before falling through to the paid model anyway, and the ones the free tier did answer came from the slower endpoint. Dropping it cut a wasted round-trip off the common path and moved every answer to the faster provider, at the cost of a free-tier buffer that was mostly not there. **Watch the credit limit on the OpenRouter key** — it is now the only thing between the site and its own bill.
+One route, so every request is billed. A free-tier route (`:free`, served by Google AI Studio) used to run ahead of it, but it drew on a shared upstream pool that was regularly exhausted: most requests paid a refused round-trip before falling through to the paid model anyway, and the ones the free tier did answer came from the slower endpoint. Dropping it cut a wasted round-trip off the common path and made the faster provider the default for every answer, at the cost of a free-tier buffer that was mostly not there. **Watch the credit limit on the OpenRouter key** — it is now the only thing between the site and its own bill.
 
 **Own OpenAI key.** Stored in IndexedDB, sent only to `api.openai.com`, billed to the reader. Defaults to `gpt-4o-mini` for chat and the digest. Anyone with access to the browser profile can read it, so don't use that option on a shared device.
 
