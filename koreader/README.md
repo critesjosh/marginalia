@@ -8,8 +8,8 @@ Marginalia to an e-reader:
   where you are, and the prose around the passage, exactly as it is in the
   browser. Follow-ups continue the same thread, and threads are kept in the
   book's sidecar so they survive a restart.
-- **Conversations in this book** — everything you have asked, in one scroll,
-  newest first.
+- **Conversations in this book** — a list of everything you have asked, most
+  recently active first; pick one to read it and carry it on.
 - **Notes on this book** — a running summary of what you and Marginalia have
   worked out, sent with every question so a later one can build on an earlier one.
 - **Export highlights for Marginalia** — writes a JSON file that the web reader
@@ -45,16 +45,24 @@ From there you can ask another, or **Save to note**, which writes the exchange
 into that highlight's KOReader note where the bookmark list and every other
 exporter can see it.
 
-## Reading conversations back
+## Going back to a conversation
 
-Long-pressing a passage you have already asked about opens its conversation
-instead of the question box; **Ask a follow-up** is a button on it.
+Three ways, depending on what you have in front of you.
 
-**More tools → Marginalia → Conversations in this book** shows every
-conversation in the book as one scrolling document, newest first. A single
-document rather than a list to pick from: on e-ink, paging through a menu to
-find the one you meant costs more full refreshes than reading past the ones you
-did not.
+**Tap a highlight you have asked about.** You get **Continue conversation**,
+with **Highlight options** next to it for everything KOReader normally offers
+there. A highlight with no conversation behaves exactly as it always did.
+
+**Long-press the passage again.** The button in the selection menu reads
+*Continue conversation* rather than *Ask Marginalia* when there is one, and
+opens it instead of a question box.
+
+**More tools → Marginalia → Conversations in this book.** A list of every
+conversation, most recently active first, each row showing the chapter, how far
+through, and how many turns. Choosing one opens it with **Ask a follow-up** on
+it. This is the only one of the three that does not need you to find the passage
+first, and it is the way back to a conversation whose highlight you have since
+deleted — a conversation outlives its mark.
 
 Conversations live in the book's sidecar, so they travel with the book, and the
 export carries them to the web reader. Nothing comes the other way yet — chats

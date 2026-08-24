@@ -181,6 +181,90 @@ function Ask:ensure_annotation(snapshot, index)
 end
 
 --[[--
+The annotation a thread is anchored to, if it is still there.
+
+A thread stores the id its highlight had, not a reference to it, so this is how
+one is found again — including from the conversation list, where there is no
+selection to work from. The highlight may have been deleted since; a
+conversation outlives its mark, and continuing one is still worth doing.
+--]]
+function Ask:find_annotation(highlight_ref)
+    if not highlight_ref then return nil end
+    for _, annotation in ipairs(self.ui.annotation.annotations or {}) do
+        if annotation.text and annotation.text ~= ""
+            and Payload.external_id(annotation, Util.sha256_hex) == highlight_ref then
+            return annotation
+        end
+    end
+    return nil
+end
+
+--[[--
+Rebuilds a snapshot from a stored thread.
+
+Everything a follow-up needs was captured when the conversation started: the
+passage, where it sits, and the prose around it. The positions come from the
+annotation when it is still there, so that asking again can save to its note.
+--]]
+function Ask:snapshot_for_thread(thread, annotation)
+    return {
+        text = thread.seed_text or (annotation and annotation.text) or "",
+        pos0 = annotation and annotation.pos0,
+        pos1 = annotation and annotation.pos1,
+        page_anchor = annotation and annotation.page,
+        chapter = thread.chapter or (annotation and annotation.chapter),
+        progress = thread.progress,
+        context = thread.context,
+    }
+end
+
+--[[--
+Opens a stored conversation, from wherever it was chosen.
+--]]
+function Ask:continue_thread(thread)
+    local annotation = self:find_annotation(thread.highlight_ref)
+    self:show_thread(self:snapshot_for_thread(thread, annotation), thread, annotation)
+end
+
+--[[--
+The conversation hanging off one annotation, if it has one with anything in it.
+--]]
+function Ask:thread_for_annotation(annotation)
+    if not annotation or not annotation.text or annotation.text == "" then return nil end
+    local data = Store.read(self.ui.doc_settings)
+    local thread = Store.find_thread(data, Payload.external_id(annotation, Util.sha256_hex))
+    if thread and #(thread.messages or {}) > 0 then return thread end
+    return nil
+end
+
+--[[--
+Whether this selection already has a conversation.
+
+Used only to name the button, so it deliberately does not take a full snapshot:
+that reads prose out of crengine and clears the drawn selection, which is far
+too much work — and too much of a side effect — for deciding a label.
+--]]
+function Ask:has_thread(highlight, index)
+    local annotations = self.ui.annotation.annotations or {}
+    local annotation = type(index) == "number" and annotations[index] or nil
+
+    if not annotation then
+        local selection = highlight and highlight.selected_text
+        if selection and selection.text then
+            local text = util.cleanupSelectedText(selection.text)
+            for _, candidate in ipairs(annotations) do
+                if candidate.text == text and same_position(candidate.pos0, selection.pos0) then
+                    annotation = candidate
+                    break
+                end
+            end
+        end
+    end
+
+    return self:thread_for_annotation(annotation) ~= nil
+end
+
+--[[--
 The thread already hanging off this passage, if there is one.
 
 Only for a passage that is already a highlight: asking is what creates the
@@ -188,13 +272,8 @@ annotation, so a fresh selection has nothing for a thread to be attached to yet.
 --]]
 function Ask:existing_thread(snapshot, index)
     local annotation = self:existing_annotation(snapshot, index)
-    if not annotation then return nil end
-
-    local data = Store.read(self.ui.doc_settings)
-    local thread = Store.find_thread(data, Payload.external_id(annotation, Util.sha256_hex))
-    if thread and #(thread.messages or {}) > 0 then
-        return thread, annotation
-    end
+    local thread = self:thread_for_annotation(annotation)
+    if thread then return thread, annotation end
     return nil
 end
 
@@ -267,8 +346,17 @@ painting and the reader can tap to give up on a model that is taking too long.
 function Ask:run(snapshot, thread, question, index)
     NetworkMgr:runWhenOnline(function()
         Trapper:wrap(function()
-            local annotation = self:ensure_annotation(snapshot, index)
-            local highlight_ref = Payload.external_id(annotation, Util.sha256_hex)
+            -- Continuing a conversation must not mint a second highlight for a
+            -- passage that already has one — and when it is reached from the
+            -- conversation list there is no selection to make one from anyway.
+            local annotation, highlight_ref
+            if thread then
+                highlight_ref = thread.highlight_ref
+                annotation = self:find_annotation(highlight_ref)
+            else
+                annotation = self:ensure_annotation(snapshot, index)
+                highlight_ref = Payload.external_id(annotation, Util.sha256_hex)
+            end
 
             -- Folding happens before anything is read out of the store, and its
             -- result is picked up by the read below. Everything this plugin
@@ -389,6 +477,9 @@ function Ask:show_thread(snapshot, thread, annotation, index)
             },
             {
                 text = _("Save to note"),
+                -- A conversation outlives its highlight; there may be no note
+                -- left to write into.
+                enabled = annotation ~= nil,
                 callback = function()
                     self:save_to_note(annotation, thread)
                     UIManager:close(viewer)

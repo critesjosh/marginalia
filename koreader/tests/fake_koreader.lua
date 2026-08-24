@@ -23,7 +23,10 @@ RELAY_REQUESTS = {}     -- every system prompt sent
 RELAY_FAIL = nil        -- when set, every call fails with this reason
 INPUT_DIALOGS = {}      -- dialogs shown
 SHOWN = {}              -- text of every TextViewer shown
+VIEWERS = {}            -- the TextViewer widgets themselves
 MESSAGES = {}           -- text of every InfoMessage shown
+MENUS = {}              -- every Menu shown
+BUTTON_DIALOGS = {}     -- every ButtonDialog shown
 
 package.loaded["logger"] = setmetatable({}, { __index = function() return function() end end })
 package.loaded["gettext"] = setmetatable({
@@ -68,6 +71,7 @@ package.loaded["ui/uimanager"] = {
     show = function(_, widget)
         if widget and widget.__kind == "textviewer" then
             SHOWN[#SHOWN + 1] = widget.text or ""
+            VIEWERS[#VIEWERS + 1] = widget
         elseif widget and widget.__kind == "infomessage" then
             MESSAGES[#MESSAGES + 1] = widget.text or ""
         end
@@ -86,6 +90,43 @@ package.loaded["ui/widget/textviewer"] = { new = function(_, spec)
 end }
 
 package.loaded["ui/widget/confirmbox"] = { new = function(_, spec) return spec end }
+package.loaded["ui/widget/buttondialog"] = { new = function(_, spec)
+    spec.__kind = "buttondialog"
+    BUTTON_DIALOGS[#BUTTON_DIALOGS + 1] = spec
+    return spec
+end }
+
+package.loaded["ui/widget/menu"] = { new = function(_, spec)
+    spec.__kind = "menu"
+    MENUS[#MENUS + 1] = spec
+    return spec
+end }
+
+--- Chooses a row of the most recent menu by its visible text.
+function CHOOSE_ROW(fragment)
+    local menu = MENUS[#MENUS]
+    for _, row in ipairs(menu.item_table) do
+        if row.text:find(fragment, 1, true) then
+            menu.onMenuSelect(menu, row)
+            return
+        end
+    end
+    error("no menu row matching " .. fragment)
+end
+
+--- Taps a button on the most recent dialog or viewer by its label.
+function TAP_BUTTON(widget, label)
+    for _, row in ipairs(widget.buttons or widget.buttons_table or {}) do
+        for _, button in ipairs(row) do
+            if button.text == label then
+                if button.enabled == false then error(label .. " is disabled") end
+                button.callback()
+                return
+            end
+        end
+    end
+    error("no button " .. label)
+end
 
 package.loaded["ui/widget/inputdialog"] = { new = function(_, spec)
     spec.getInputText = function() return spec.__answer end
@@ -121,7 +162,10 @@ package.loaded["datastorage"] = {
     getDataDir = function() return "/data" end,
     getFullDataDir = function() return "/data" end,
 }
-package.loaded["device"] = { screen = { getHeight = function() return 800 end } }
+package.loaded["device"] = { screen = {
+    getHeight = function() return 800 end,
+    getWidth = function() return 600 end,
+} }
 package.loaded["version"] = { getShortVersion = function() return "v-test" end }
 package.loaded["dispatcher"] = { registerAction = function() end }
 package.loaded["libs/libkoreader-lfs"] = {

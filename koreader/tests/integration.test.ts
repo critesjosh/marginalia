@@ -37,6 +37,7 @@ function runLua(script: string): string {
     'marginalia_prompt', 'marginalia_digest', 'marginalia_payload',
     'marginalia_util', 'marginalia_store', 'marginalia_view',
     'marginalia_tls', 'marginalia_relay', 'marginalia_memory', 'marginalia_ask',
+    'marginalia_conversations',
   ]) {
     const source = readFileSync(join(pluginDir, `${name}.lua`))
     check(lauxlib.luaL_loadbuffer(L, source, null, to_luastring(`@${name}.lua`)), `load ${name}`)
@@ -314,6 +315,158 @@ describe('the plugin driven end to end', () => {
     // Untouched, so the same turns are folded on the next attempt.
     expect(report).toContain('summary=Existing notes.')
     expect(report).toContain('counter=nil')
+  })
+
+  it('lists conversations and carries one on from the list', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Conversations = require("marginalia_conversations")
+
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+      local list = Conversations:new{ ui = ui }
+
+      -- Two conversations on two passages.
+      RELAY_REPLIES = { "Answer about Mapple.", "Answer about the whale.", "Follow-up answer." }
+      ui.highlight.selected_text = FakeSelection("Father Mapple rose", "/xp/1.0", "/xp/1.20")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("About Mapple?")
+
+      ui.highlight.selected_text = FakeSelection("The white whale", "/xp/9.0", "/xp/9.15")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("About the whale?")
+
+      local annotations_before = #ui.annotation.annotations
+
+      -- Open the list and carry on the older conversation.
+      list:show(function(thread) ask:continue_thread(thread) end)
+      local menu = MENUS[#MENUS]
+      local rows = {}
+      for _, row in ipairs(menu.item_table) do rows[#rows + 1] = row.text end
+
+      CHOOSE_ROW("Father Mapple")
+      local viewer = VIEWERS[#VIEWERS]
+      TAP_BUTTON(viewer, "Ask a follow-up")
+      ANSWER_QUESTION("And what follows?")
+
+      local Store = require("marginalia_store")
+      local data = Store.read(ui.doc_settings)
+      local mapple
+      for _, t in ipairs(data.threads) do
+        if (t.seed_text or ""):find("Mapple", 1, true) then mapple = t end
+      end
+
+      return table.concat({
+        "rows=" .. #menu.item_table,
+        "first_row=" .. rows[1]:gsub(string.char(10), " / "),
+        "turn_counts=" .. menu.item_table[1].mandatory .. "," .. menu.item_table[2].mandatory,
+        "viewer_had_transcript=" .. tostring(SHOWN[#SHOWN]:find("Answer about Mapple.", 1, true) ~= nil),
+        "mapple_turns=" .. #mapple.messages,
+        "threads=" .. #data.threads,
+        "annotations_before=" .. annotations_before,
+        "annotations_after=" .. #ui.annotation.annotations,
+      }, "; ")
+    `)
+
+    expect(report).toContain('rows=2')
+    // Most recently active first, and each row says where it was.
+    expect(report).toContain('first_row=The white whale / CHAPTER 9. The Sermon.')
+    expect(report).toContain('turn_counts=2,2')
+    expect(report).toContain('viewer_had_transcript=true')
+    // The follow-up landed on the conversation that was chosen...
+    expect(report).toContain('mapple_turns=4')
+    // ...without starting a second one, or a second highlight for a passage
+    // that already had one.
+    expect(report).toContain('threads=2')
+    expect(report).toContain('annotations_before=2')
+    expect(report).toContain('annotations_after=2')
+  })
+
+  it('knows whether a passage already has a conversation', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      local fresh = FakeSelection("Father Mapple rose", "/xp/1.0", "/xp/1.20")
+      ui.highlight.selected_text = fresh
+      local before = ask:has_thread(ui.highlight)
+
+      RELAY_REPLIES = { "An answer." }
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      ui.highlight.selected_text = fresh
+      local after = ask:has_thread(ui.highlight)
+      local by_index = ask:has_thread(ui.highlight, 1)
+      local other = ask:has_thread({ selected_text = FakeSelection("Something else", "/xp/5.0", "/xp/5.9") })
+      local by_annotation = ask:thread_for_annotation(ui.annotation.annotations[1]) ~= nil
+
+      return table.concat({
+        "before=" .. tostring(before),
+        "after=" .. tostring(after),
+        "by_index=" .. tostring(by_index),
+        "other=" .. tostring(other),
+        "by_annotation=" .. tostring(by_annotation),
+      }, "; ")
+    `)
+
+    // This is what names the button, so it has to be right in both directions.
+    expect(report).toContain('before=false')
+    expect(report).toContain('after=true')
+    expect(report).toContain('by_index=true')
+    expect(report).toContain('other=false')
+    expect(report).toContain('by_annotation=true')
+  })
+
+  it('carries a conversation on after its highlight is deleted', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer.", "Another answer." }
+      ui.highlight.selected_text = FakeSelection("A passage", "/xp/1.0", "/xp/1.9")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      -- The reader deletes the highlight but keeps the book open.
+      ui.annotation.annotations = {}
+
+      local thread = Store.read(ui.doc_settings).threads[1]
+      ask:continue_thread(thread)
+      local viewer = VIEWERS[#VIEWERS]
+
+      local save_disabled = false
+      for _, row in ipairs(viewer.buttons_table) do
+        for _, button in ipairs(row) do
+          if button.text == "Save to note" then save_disabled = button.enabled == false end
+        end
+      end
+
+      TAP_BUTTON(viewer, "Ask a follow-up")
+      ANSWER_QUESTION("Still there?")
+
+      local after = Store.read(ui.doc_settings)
+      return table.concat({
+        "save_disabled=" .. tostring(save_disabled),
+        "turns=" .. #after.threads[1].messages,
+        "threads=" .. #after.threads,
+        "annotations=" .. #ui.annotation.annotations,
+      }, "; ")
+    `)
+
+    // A conversation outlives its mark: it still opens and still continues,
+    // and does not resurrect a highlight that was deleted on purpose.
+    expect(report).toContain('save_disabled=true')
+    expect(report).toContain('turns=4')
+    expect(report).toContain('threads=1')
+    expect(report).toContain('annotations=0')
   })
 
   it('keeps one previous digest and can put it back', () => {

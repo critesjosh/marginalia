@@ -22,13 +22,16 @@ local TextViewer = require("ui/widget/textviewer")
 local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
+local logger = require("logger")
 local _ = require("gettext")
 local N_ = _.ngettext
 local T = require("ffi/util").template
 
+local ButtonDialog = require("ui/widget/buttondialog")
 local ConfirmBox = require("ui/widget/confirmbox")
 
 local Ask = require("marginalia_ask")
+local Conversations = require("marginalia_conversations")
 local Handoff = require("marginalia_handoff")
 local Memory = require("marginalia_memory")
 local Store = require("marginalia_store")
@@ -76,10 +79,12 @@ function Marginalia:init()
         ui = self.ui,
         plugin_version = VERSION,
     }
+    self.conversations = Conversations:new{ ui = self.ui }
 
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
     self:addToHighlightDialog()
+    self:interceptHighlightTap()
 end
 
 function Marginalia:onDispatcherRegisterActions()
@@ -104,32 +109,17 @@ function Marginalia:onDispatcherRegisterActions()
 end
 
 --[[--
-Every conversation in this book, in one scroll.
+The book's conversations, as a list you can pick one out of.
 
-A single document rather than a list to pick from: on e-ink, paging through a
-menu to find the one you meant costs more full refreshes than simply reading
-past the ones you did not. They are newest first for the same reason.
+It was a single scrolling document at first, on the argument that paging a menu
+costs more e-ink refreshes than reading past what you did not want. In use that
+was plainly wrong: the reason to open this is to carry on with something, and a
+document cannot be carried on with.
 --]]
 function Marginalia:showConversations()
-    local data = Store.read(self.ui.doc_settings)
-    local threads = data.threads or {}
-
-    if #threads == 0 then
-        UIManager:show(InfoMessage:new{
-            text = _("No conversations in this book yet. Select a passage and choose Ask Marginalia."),
-        })
-        return
-    end
-
-    local count = #threads
-    UIManager:show(TextViewer:new{
-        -- The number goes through `ngettext` and then the template, and is
-        -- passed twice on purpose: `ngettext` picks the plural form for the
-        -- language and does nothing about the placeholder.
-        title = T(N_("1 conversation", "%1 conversations", count), count),
-        text = View.book_document(threads),
-        text_type = "lookup",
-    })
+    self.conversations:show(function(thread)
+        self.ask:continue_thread(thread)
+    end)
 end
 
 function Marginalia:onMarginaliaConversations()
@@ -295,12 +285,73 @@ function Marginalia:addToHighlightDialog()
     -- are tables. A fresh selection has no index because it has no annotation.
     self.ui.highlight:addToHighlightDialog("12_ask_marginalia", function(highlight, index)
         return {
-            text = _("Ask Marginalia"),
+            -- Named for what it will actually do: a passage already asked about
+            -- opens its conversation rather than a fresh question box.
+            text = self.ask:has_thread(highlight, index)
+                and _("Continue conversation") or _("Ask Marginalia"),
             callback = function()
                 self.ask:from_selection(highlight, index)
             end,
         }
     end)
+end
+
+--[[--
+Puts "Continue conversation" one tap from a highlight that has one.
+
+Tapping a saved highlight goes to `showHighlightNoteOrDialog`, which shows
+either the highlight's note or KOReader's edit dialog. Neither offers anything
+of this plugin's: the button registered through `addToHighlightDialog` lives in
+the menu behind the edit dialog's "…", which is two taps further on and not
+where anyone would look for a conversation they know they had.
+
+There is no extension point on that dialog, so this wraps the one function both
+routes go through. The wrap only acts when the tapped highlight actually has a
+conversation, and hands straight back to the original otherwise, so every
+highlight without one behaves exactly as KOReader intends. If a future version
+renames the function, the wrap is simply never installed and the "…" route still
+works.
+--]]
+function Marginalia:interceptHighlightTap()
+    local highlight = self.ui.highlight
+    local original = highlight and highlight.showHighlightNoteOrDialog
+    if type(original) ~= "function" then
+        logger.warn("marginalia: no showHighlightNoteOrDialog to wrap; "
+            .. "Ask Marginalia stays under the highlight menu's '…'")
+        return
+    end
+
+    highlight.showHighlightNoteOrDialog = function(this, index)
+        local annotation = this.ui.annotation.annotations[index]
+        local thread = annotation and self.ask:thread_for_annotation(annotation)
+        if not thread then
+            return original(this, index)
+        end
+
+        local dialog
+        dialog = ButtonDialog:new{
+            title = View.heading(thread),
+            title_align = "center",
+            buttons = {{
+                {
+                    text = _("Continue conversation"),
+                    callback = function()
+                        UIManager:close(dialog)
+                        self.ask:continue_thread(thread)
+                    end,
+                },
+            }, {
+                {
+                    text = _("Highlight options"),
+                    callback = function()
+                        UIManager:close(dialog)
+                        original(this, index)
+                    end,
+                },
+            }},
+        }
+        UIManager:show(dialog)
+    end
 end
 
 function Marginalia:addToMainMenu(menu_items)
