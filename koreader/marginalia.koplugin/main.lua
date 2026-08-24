@@ -17,13 +17,18 @@ local DataStorage = require("datastorage")
 local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local InputDialog = require("ui/widget/inputdialog")
+local NetworkMgr = require("ui/network/manager")
 local TextViewer = require("ui/widget/textviewer")
+local Trapper = require("ui/trapper")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 
+local ConfirmBox = require("ui/widget/confirmbox")
+
 local Ask = require("marginalia_ask")
 local Handoff = require("marginalia_handoff")
+local Memory = require("marginalia_memory")
 local Store = require("marginalia_store")
 local TLS = require("marginalia_tls")
 local View = require("marginalia_view")
@@ -50,11 +55,20 @@ function Marginalia:init()
     if self.settings.endpoint == nil then self.settings.endpoint = DEFAULT_ENDPOINT end
     if self.settings.spoiler_guard == nil then self.settings.spoiler_guard = true end
 
-    self.ask = Ask:new{
+    local cafile = DataStorage:getDataDir() .. "/data/ca-bundle.crt"
+
+    self.memory = Memory:new{
         ui = self.ui,
         settings = self.settings,
         plugin_version = VERSION,
-        cafile = DataStorage:getDataDir() .. "/data/ca-bundle.crt",
+        cafile = cafile,
+    }
+    self.ask = Ask:new{
+        ui = self.ui,
+        settings = self.settings,
+        memory = self.memory,
+        plugin_version = VERSION,
+        cafile = cafile,
     }
     self.handoff = Handoff:new{
         ui = self.ui,
@@ -77,6 +91,12 @@ function Marginalia:onDispatcherRegisterActions()
         category = "none",
         event = "MarginaliaConversations",
         title = _("Marginalia conversations"),
+        reader = true,
+    })
+    Dispatcher:registerAction("marginalia_notes", {
+        category = "none",
+        event = "MarginaliaNotes",
+        title = _("Marginalia notes on this book"),
         reader = true,
     })
 end
@@ -114,6 +134,131 @@ function Marginalia:onMarginaliaConversations()
     return true
 end
 
+--[[--
+The book's running notes, and the ways to correct them.
+--]]
+function Marginalia:showNotes()
+    local memory = self.memory:current()
+    local summary = memory and memory.summary
+
+    if not summary or summary == "" then
+        UIManager:show(InfoMessage:new{
+            text = _("No notes on this book yet. They build up as you ask about it."),
+        })
+        return
+    end
+
+    local viewer
+    local buttons = {{
+        {
+            text = _("Edit"),
+            callback = function()
+                UIManager:close(viewer)
+                self:editNotes(summary)
+            end,
+        },
+        {
+            text = _("Clear"),
+            callback = function()
+                UIManager:show(ConfirmBox:new{
+                    text = _("Clear this book's notes? The conversations themselves are kept."),
+                    ok_text = _("Clear"),
+                    ok_callback = function()
+                        self.memory:save("")
+                        UIManager:close(viewer)
+                    end,
+                })
+            end,
+        },
+    }, {
+        {
+            text = _("Undo last update"),
+            enabled = memory.previous ~= nil,
+            callback = function()
+                if self.memory:undo() then
+                    UIManager:close(viewer)
+                    self:showNotes()
+                end
+            end,
+        },
+        {
+            text = _("Close"),
+            callback = function() UIManager:close(viewer) end,
+        },
+    }}
+
+    viewer = TextViewer:new{
+        title = _("Notes on this book"),
+        text = summary .. "\n\n— updated " .. (memory.updated_at or "?"),
+        text_type = "lookup",
+        buttons_table = buttons,
+    }
+    UIManager:show(viewer)
+end
+
+function Marginalia:editNotes(summary)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Notes on this book"),
+        input = summary,
+        allow_newline = true,
+        -- Tall, because this is a paragraph of notes rather than a question.
+        text_height = math.floor(require("device").screen:getHeight() * 0.4),
+        description = _("Later updates merge into whatever is here, so an edit carries forward rather than being summarised away."),
+        buttons = {{
+            {
+                text = _("Cancel"),
+                id = "close",
+                callback = function() UIManager:close(dialog) end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    self.memory:save(dialog:getInputText() or "")
+                    UIManager:close(dialog)
+                end,
+            },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+--[[--
+Folds every conversation with a backlog into the notes.
+
+The automatic path only ever folds the conversation being continued, so a thread
+asked about once and left alone is only ever caught up here. Unlike the
+automatic path this reports what happened: the reader asked for it, and silence
+would read as a failure.
+--]]
+function Marginalia:updateNotes()
+    NetworkMgr:runWhenOnline(function()
+        Trapper:wrap(function()
+            local folded, reason = self.memory:fold_all()
+            if folded > 0 then
+                UIManager:show(InfoMessage:new{
+                    text = _("Notes updated."),
+                    timeout = 2,
+                })
+            elseif reason ~= "cancelled" then
+                UIManager:show(InfoMessage:new{
+                    text = reason == "nothing new to fold in"
+                        and _("Nothing new to add to the notes.")
+                        or tostring(reason),
+                    timeout = 5,
+                })
+            end
+        end)
+    end)
+end
+
+function Marginalia:onMarginaliaNotes()
+    self:showNotes()
+    return true
+end
+
 function Marginalia:onMarginaliaExport()
     self.handoff:export()
     return true
@@ -145,6 +290,19 @@ function Marginalia:addToMainMenu(menu_items)
                 keep_menu_open = false,
                 callback = function() self:showConversations() end,
                 help_text = _("Everything you have asked about this book, newest first. Also reachable from a passage you have already asked about."),
+            },
+            {
+                text = _("Notes on this book"),
+                keep_menu_open = false,
+                callback = function() self:showNotes() end,
+                help_text = _("The running summary of what you and Marginalia have worked out about this book. It is sent with every question, so a later one can build on an earlier one."),
+            },
+            {
+                text = _("Update notes now"),
+                keep_menu_open = false,
+                callback = function() self:updateNotes() end,
+                help_text = _("Folds every conversation with something new in it into the notes. Asking a follow-up does this for that conversation on its own."),
+                separator = true,
             },
             {
                 text = _("Export highlights for Marginalia"),

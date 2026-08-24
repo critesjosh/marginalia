@@ -53,6 +53,15 @@ function Store.find_thread(data, highlight_ref)
     return nil
 end
 
+--- A thread by its own id, for reacquiring one across a store re-read.
+function Store.find_thread_by_id(data, id)
+    if not id then return nil end
+    for _, thread in ipairs(data.threads or {}) do
+        if thread.id == id then return thread end
+    end
+    return nil
+end
+
 --[[--
 Starts a thread against a highlight.
 

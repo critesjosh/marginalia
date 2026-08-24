@@ -19,7 +19,14 @@ const here = dirname(fileURLToPath(import.meta.url))
 const pluginDir = join(here, '..', 'marginalia.koplugin')
 
 /** Loaded in dependency order; each is put into `package.loaded` under its name. */
-const MODULES = ['marginalia_prompt', 'marginalia_payload', 'marginalia_tls', 'marginalia_view']
+const MODULES = [
+  'marginalia_prompt',
+  'marginalia_payload',
+  'marginalia_tls',
+  'marginalia_view',
+  'marginalia_digest',
+  'marginalia_memory',
+]
 
 /**
  * Stands in for the KOReader modules the pure files touch.
@@ -33,6 +40,15 @@ package.loaded["logger"] = setmetatable({}, { __index = function() return functi
 package.loaded["socket"] = {
   try = function(ok, err) if not ok then error(err, 0) end end,
 }
+package.loaded["gettext"] = function(text) return text end
+package.loaded["ui/trapper"] = {}
+
+-- marginalia_memory pulls these in for the half of it that talks to a device.
+-- The half under test here is arithmetic over a threads table and touches none
+-- of them, so they only have to exist.
+package.loaded["marginalia_relay"] = {}
+package.loaded["marginalia_store"] = {}
+package.loaded["marginalia_util"] = {}
 `
 
 function check(L: unknown, status: number, what: string): void {

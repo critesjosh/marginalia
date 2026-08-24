@@ -270,22 +270,42 @@ function Ask:run(snapshot, thread, question, index)
             local annotation = self:ensure_annotation(snapshot, index)
             local highlight_ref = Payload.external_id(annotation, Util.sha256_hex)
 
+            -- Folding happens before anything is read out of the store, and its
+            -- result is picked up by the read below. Everything this plugin
+            -- keeps lives under one sidecar key, so a table read before the fold
+            -- and written after it would put the old digest straight back — and
+            -- would restore the thread's old `summarized_count` with it, so the
+            -- same turns would be folded again on the next question.
+            local pending_id = thread and thread.id
+            if pending_id then self.memory:fold(pending_id) end
+
             local data = Store.read(self.ui.doc_settings)
-            thread = thread or Store.find_thread(data, highlight_ref) or Store.new_thread{
-                highlight_ref = highlight_ref,
-                title = Prompt.title_from_seed(snapshot.text),
-                seed_text = snapshot.text,
-                context = snapshot.context,
-                chapter = snapshot.chapter,
-                progress = snapshot.progress,
-            }
+
+            -- Reacquired by id rather than carried in: the thread handed to a
+            -- follow-up came from the viewer and predates the fold.
+            thread = (pending_id and Store.find_thread_by_id(data, pending_id))
+                or Store.find_thread(data, highlight_ref)
+                or Store.new_thread{
+                    highlight_ref = highlight_ref,
+                    title = Prompt.title_from_seed(snapshot.text),
+                    seed_text = snapshot.text,
+                    context = snapshot.context,
+                    chapter = snapshot.chapter,
+                    progress = snapshot.progress,
+                }
 
             local history = Store.history(thread)
             table.insert(history, { role = "user", content = question })
 
             local book = self:book_metadata()
+            local memory = data.memory and data.memory.summary
+
+            -- The digest joins the collision check. It is the most dangerous of
+            -- the fenced bodies: unlike a passage, it persists into every later
+            -- prompt, so a delimiter that got into it would keep getting a turn.
             local fence, fence_error = Prompt.fence_for({
-                snapshot.text, snapshot.context, book.title, book.authors, book.description,
+                snapshot.text, snapshot.context, memory,
+                book.title, book.authors, book.description,
             }, Util.random_hex)
             if not fence then
                 UIManager:show(InfoMessage:new{ text = fence_error })
@@ -298,6 +318,7 @@ function Ask:run(snapshot, thread, question, index)
                 progress = snapshot.progress,
                 passage = snapshot.text,
                 context = snapshot.context,
+                memory = memory,
                 spoiler_guard = self.settings.spoiler_guard,
                 fence = fence,
             }, history)

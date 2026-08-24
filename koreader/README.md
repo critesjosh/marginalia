@@ -10,6 +10,8 @@ Marginalia to an e-reader:
   book's sidecar so they survive a restart.
 - **Conversations in this book** — everything you have asked, in one scroll,
   newest first.
+- **Notes on this book** — a running summary of what you and Marginalia have
+  worked out, sent with every question so a later one can build on an earlier one.
 - **Export highlights for Marginalia** — writes a JSON file that the web reader
   imports, turning KOReader's highlights and threads into real Marginalia
   highlights and conversations.
@@ -58,6 +60,32 @@ Conversations live in the book's sidecar, so they travel with the book, and the
 export carries them to the web reader. Nothing comes the other way yet — chats
 and the rolling digest made in the browser are not visible here.
 
+## Notes on this book
+
+The point of the notes is that a question asked in chapter thirty can build on
+one asked in chapter three: the summary is fenced into the system prompt of every
+question, so the companion is not meeting the book fresh each time.
+
+They are folded in as you go — after a conversation has four turns in it, the
+next question you ask in that conversation updates the notes first, then goes out
+with them. That is a deliberate choice about *when*: KOReader is single-threaded,
+so summarising after an answer either makes you wait twice for one question or is
+cancelled by your next tap. Doing it just before the notes are needed puts the
+wait where you had already accepted one, and dismissing it simply asks with the
+notes as they were.
+
+A conversation you never go back to is therefore not folded in automatically.
+**Update notes now** sweeps every conversation with something new in it.
+
+**Notes on this book** shows them, with **Edit** (later updates merge into
+whatever you write, so an edit carries forward), **Clear**, and **Undo last
+update** — a bad summary feeds itself into every later one, and one previous
+version is kept so that is recoverable.
+
+These notes are the device's own. They are not exported and not synchronised with
+the browser's, which keeps its own summary of the same book. Both are built the
+same way from the same kind of material; they are two notebooks, not one.
+
 ## Exporting to the web reader
 
 **More tools → Marginalia → Export highlights for Marginalia** writes a file to
@@ -89,7 +117,8 @@ note, chapter, colour, time and the prose around it, and every thread you asked
 on the device. The crengine xpointers ride along as provenance; nothing in the
 web app reads them.
 
-Not exported: the book file itself.
+Not exported: the book file itself, and the notes — the web app builds its own
+from the conversations it receives.
 
 Nothing goes to the web reader over the network — the file is the whole
 transport. Marginalia has no accounts and keeps everything in the browser's own
@@ -131,7 +160,8 @@ a Lua VM from the repository root:
 npm test          # includes koreader/tests via fengari
 ```
 
-`marginalia_prompt.lua`, `marginalia_payload.lua` and `marginalia_view.lua` are
+`marginalia_prompt.lua`, `marginalia_payload.lua`, `marginalia_view.lua`,
+`marginalia_digest.lua` and the arithmetic half of `marginalia_memory.lua` are
 the pure ones. `marginalia_prompt.lua` mirrors `src/lib/prompt.ts` section for
 section: if one changes the other has to, and `koreader/tests/prompt_spec.lua`
 is what notices.

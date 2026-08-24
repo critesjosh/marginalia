@@ -23,4 +23,12 @@ describe('koreader plugin', () => {
   it('renders saved conversations back', () => {
     expect(runSpec('view_spec')).toContain('view_spec ok')
   })
+
+  it('keeps the rolling digest bounded and unfenced', () => {
+    expect(runSpec('digest_spec')).toContain('digest_spec ok')
+  })
+
+  it('decides what to fold into the digest', () => {
+    expect(runSpec('memory_spec')).toContain('memory_spec ok')
+  })
 })
