@@ -18,18 +18,17 @@ interface Route {
   allowFallbacks: boolean
 }
 
-/** Free tier, served by Google AI Studio. Costs nothing and is the usual path. */
-const PRIMARY: Route = {
-  model: 'google/gemma-4-26b-a4b-it:free',
-  order: ['google-ai-studio'],
-  allowFallbacks: false,
-}
-
 /**
- * Paid tier, used only when the free tier is exhausted or unavailable.
- * Cloudflare is first because it is the fastest endpoint for this model.
+ * The only route. Cloudflare is first because it is the fastest endpoint for
+ * this model, and other providers are allowed so that one provider's outage
+ * does not become the site's outage.
+ *
+ * A free-tier route ran ahead of this one, served by Google AI Studio. It drew
+ * on a shared upstream pool that was regularly exhausted, so most requests paid
+ * a refused round-trip before arriving here anyway, and the ones it did answer
+ * came from the slower endpoint.
  */
-const FALLBACK: Route = {
+const ROUTE: Route = {
   model: 'google/gemma-4-26b-a4b-it',
   order: ['cloudflare'],
   allowFallbacks: true,
@@ -45,19 +44,14 @@ const WINDOW_MS = 5 * 60_000
 const MAX_REQUESTS_PER_WINDOW = 40
 
 /**
- * Total time both upstream attempts may spend waiting for response headers.
- * The platform gives an edge function a bounded window to start responding and
- * turns an overrun into an opaque 502, so the budget is shared across the
- * primary and the fallback: whatever the first attempt spends, the second one
- * does not get. Only time-to-headers is covered — once a streaming reply has
- * begun, it runs to its own end.
+ * How long the upstream attempt may spend waiting for response headers. The
+ * platform gives an edge function a bounded window to start responding and
+ * turns an overrun into an opaque 502. Only time-to-headers is covered — once a
+ * streaming reply has begun, it runs to its own end.
  */
 const UPSTREAM_BUDGET_MS = 30_000
 
-/** Below this much remaining budget a second attempt cannot achieve anything. */
-const MIN_ATTEMPT_MS = 5_000
-
-/** Shown when neither route answered and neither said why. */
+/** Shown when the route did not answer and did not say why. */
 const UNAVAILABLE = 'The model provider is unavailable right now.'
 
 export interface RelayOptions {
@@ -100,45 +94,21 @@ export async function handleRelayRequest(
   if ('error' in parsed) return errorResponse(400, parsed.error)
   const { messages, stream } = parsed
 
-  const deadline = Date.now() + UPSTREAM_BUDGET_MS
-
-  let detail = ''
-  if (!freeTierCoolingOff()) {
-    const primary = await callOpenRouter(PRIMARY, messages, stream, apiKey, siteUrl, deadline)
-    if (primary.ok) return relayResponse(primary)
-
-    // The free tier shares an upstream pool that is regularly exhausted. Note
-    // that and stop trying for a while, so later readers do not each pay the
-    // latency of a request that is going to be refused.
-    if (primary.status === 429) coolOffFreeTier()
-    detail = await primary.text().catch(() => '')
-
-    // A primary attempt that burned the whole budget leaves nothing for the
-    // paid model; retrying would only abort on arrival and replace a real
-    // upstream message with a generic one.
-    if (Date.now() > deadline - MIN_ATTEMPT_MS) {
-      return errorResponse(primary.status, upstreamMessage(detail) || UNAVAILABLE)
-    }
-  }
-
-  // Fall back to the paid model rather than surfacing the outage to the reader.
-  const fallback = await callOpenRouter(FALLBACK, messages, stream, apiKey, siteUrl, deadline)
-  if (fallback.ok) return relayResponse(fallback)
+  const upstream = await callOpenRouter(ROUTE, messages, stream, apiKey, siteUrl)
+  if (upstream.ok) return relayResponse(upstream)
 
   return errorResponse(
-    fallback.status,
-    upstreamMessage(await fallback.text().catch(() => '')) ||
-      upstreamMessage(detail) ||
-      UNAVAILABLE,
+    upstream.status,
+    upstreamMessage(await upstream.text().catch(() => '')) || UNAVAILABLE,
   )
 }
 
 /**
- * Calls OpenRouter and always resolves, so a failed attempt stays a value the
- * handler can fall back on. An unreachable provider rejects `fetch`, and an
+ * Calls OpenRouter and always resolves, so a refusal stays a value the handler
+ * can turn into a JSON error. An unreachable provider rejects `fetch`, and an
  * escaping rejection is what the platform turns into a bare 502 with no JSON
  * body — the reader sees "the chat request failed (502)" instead of what went
- * wrong, and the fallback model never gets its turn.
+ * wrong.
  */
 async function callOpenRouter(
   route: Route,
@@ -146,12 +116,11 @@ async function callOpenRouter(
   stream: boolean,
   apiKey: string,
   siteUrl: string | undefined,
-  deadline: number,
 ): Promise<Response> {
   // Cleared as soon as the headers land, so the timeout bounds how long the
   // provider may think, not how long its answer may be.
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), Math.max(deadline - Date.now(), 0))
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_BUDGET_MS)
 
   try {
     return await fetch(OPENROUTER_ENDPOINT, {
@@ -242,18 +211,6 @@ function isCrossOrigin(request: Request): boolean {
   } catch {
     return true
   }
-}
-
-/** How long to skip the free model after it reports being rate limited. */
-const FREE_TIER_COOLDOWN_MS = 60_000
-let freeTierBlockedUntil = 0
-
-function freeTierCoolingOff(): boolean {
-  return Date.now() < freeTierBlockedUntil
-}
-
-function coolOffFreeTier(): void {
-  freeTierBlockedUntil = Date.now() + FREE_TIER_COOLDOWN_MS
 }
 
 const hits = new Map<string, number[]>()

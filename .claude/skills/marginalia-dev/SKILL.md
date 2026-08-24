@@ -245,10 +245,11 @@ curl -s -X POST http://localhost:5173/api/chat \
   -d '{"messages":[{"role":"user","content":"Say ok"}]}' | head -c 300
 ```
 
-The `model` and `provider` fields in that response tell you which route answered. Seeing
-`google/gemma-4-26b-a4b-it` (no `:free`) means the free tier was rate limited upstream
-and the paid fallback took over — normal, not a bug. The Origin header matters: the relay
-rejects cross-origin requests, and curl without one is treated as same-origin.
+The `model` and `provider` fields in that response tell you which route answered. The
+model is always `google/gemma-4-26b-a4b-it` — the relay pins one paid route, and every
+call is billed. The provider is normally `cloudflare`; seeing another one means OpenRouter
+routed around it, which the route allows, not a bug. The Origin header matters: the relay rejects cross-origin requests, and
+curl without one is treated as same-origin.
 
 The other provider is the reader's own OpenAI key, entered in Settings. Keep both models
 on `gpt-4o-mini` when testing it, since every exchange also triggers a background digest

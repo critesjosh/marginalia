@@ -30,9 +30,9 @@ async function errorMessage(response: Response): Promise<string> {
 
 let fetchMock: ReturnType<typeof vi.fn>
 
-// The relay keeps the free-tier cooldown and the per-IP window in module scope,
-// where no test can reset them. Each test instead runs an hour after the last
-// one ended, which is long enough for both to have expired.
+// The relay keeps the per-IP window in module scope, where no test can reset
+// it. Each test instead runs an hour after the last one ended, which is long
+// enough for the window to have expired.
 let clock = Date.now()
 
 beforeEach(() => {
@@ -66,7 +66,7 @@ describe('request policy', () => {
 })
 
 describe('upstream routing', () => {
-  it('streams the free tier back untouched when it answers', async () => {
+  it('streams the answer back untouched, from the one pinned route', async () => {
     fetchMock.mockResolvedValue(
       new Response('data: {}\n\n', { status: 200, headers: { 'Content-Type': 'text/event-stream' } }),
     )
@@ -76,21 +76,26 @@ describe('upstream routing', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('text/event-stream')
     expect(await response.text()).toBe('data: {}\n\n')
-    expect(requestedModels(fetchMock)).toEqual(['google/gemma-4-26b-a4b-it:free'])
+    expect(requestedModels(fetchMock)).toEqual(['google/gemma-4-26b-a4b-it'])
   })
 
-  it('pays for the answer when the free tier is exhausted', async () => {
-    fetchMock
-      .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'rate limited' } }))
-      .mockResolvedValueOnce(upstreamResponse(200, { choices: [] }))
+  it('ignores a model and provider the caller tries to choose', async () => {
+    fetchMock.mockResolvedValue(upstreamResponse(200, { choices: [] }))
 
-    const response = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    await handleRelayRequest(
+      chatRequest({
+        messages: [{ role: 'user', content: 'hello' }],
+        model: 'openai/gpt-4o',
+        provider: { order: ['openai'] },
+      }),
+      OPTIONS,
+      { ip: '' },
+    )
 
-    expect(response.status).toBe(200)
-    expect(requestedModels(fetchMock)).toEqual([
-      'google/gemma-4-26b-a4b-it:free',
-      'google/gemma-4-26b-a4b-it',
-    ])
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const sent = JSON.parse(init.body as string)
+    expect(sent.model).toBe('google/gemma-4-26b-a4b-it')
+    expect(sent.provider).toEqual({ order: ['cloudflare'], allow_fallbacks: true })
   })
 })
 
@@ -105,13 +110,13 @@ describe('unreachable provider', () => {
     expect(response.status).toBe(502)
     expect(response.headers.get('Content-Type')).toBe('application/json')
     expect(await errorMessage(response)).toMatch(/could not reach the model provider/i)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the upstream explanation when both routes refuse', async () => {
-    fetchMock
-      .mockResolvedValueOnce(upstreamResponse(429, { error: { message: 'free pool exhausted' } }))
-      .mockResolvedValueOnce(upstreamResponse(503, { error: { message: 'no provider available' } }))
+  it('keeps the upstream explanation when the route refuses', async () => {
+    fetchMock.mockResolvedValueOnce(
+      upstreamResponse(503, { error: { message: 'no provider available' } }),
+    )
 
     const response = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
 
@@ -119,19 +124,23 @@ describe('unreachable provider', () => {
     expect(await errorMessage(response)).toBe('no provider available')
   })
 
-  it('gives up rather than starting a fallback it has no time to finish', async () => {
-    // A provider that hangs until the budget is spent: the fallback would only
-    // abort on arrival, trading a real upstream message for a generic one.
-    fetchMock.mockImplementationOnce(() => {
-      vi.advanceTimersByTime(30_000)
-      return Promise.resolve(upstreamResponse(504, { error: { message: 'upstream timed out' } }))
-    })
+  it('reports a provider that never sends headers as a timeout', async () => {
+    // Rejects only when the signal it was handed fires, so the test fails if
+    // the relay ever stops passing `signal` to fetch — a provider would then
+    // hang past the budget instead of being cut off.
+    fetchMock.mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+        }),
+    )
 
-    const response = await handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    const pending = handleRelayRequest(chatRequest(), OPTIONS, { ip: '' })
+    await vi.advanceTimersByTimeAsync(30_000)
+    const response = await pending
 
     expect(response.status).toBe(504)
-    expect(await errorMessage(response)).toBe('upstream timed out')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(await errorMessage(response)).toMatch(/took too long/i)
   })
 
   it('bounds how long a provider may think, not how long its answer may be', async () => {

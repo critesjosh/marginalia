@@ -78,12 +78,11 @@ Two providers, chosen in **Settings**:
 
 **Built-in (default).** The browser POSTs to `/api/chat`, a Netlify edge function that adds the OpenRouter key and forwards to OpenRouter. Visitors need no account, and the key never reaches the client.
 
-| | Model | Provider routing |
-| --- | --- | --- |
-| Primary | `google/gemma-4-26b-a4b-it:free` | Google AI Studio, no OpenRouter fallback |
-| Fallback | `google/gemma-4-26b-a4b-it` | Cloudflare first (fastest endpoint for this model), others allowed |
+| Model | Provider routing |
+| --- | --- |
+| `google/gemma-4-26b-a4b-it` | Cloudflare first (fastest endpoint for this model), others allowed |
 
-The free tier draws on a shared upstream pool that is regularly exhausted, so the paid model is used more often than the word "fallback" suggests. When the free tier returns 429 the relay stops trying it for a minute, so readers don't each pay the latency of a request that will be refused.
+One route, so every request is billed. A free-tier route (`:free`, served by Google AI Studio) used to run ahead of it, but it drew on a shared upstream pool that was regularly exhausted: most requests paid a refused round-trip before falling through to the paid model anyway, and the ones the free tier did answer came from the slower endpoint. Dropping it cut a wasted round-trip off the common path and made the faster provider the default for every answer, at the cost of a free-tier buffer that was mostly not there. **Watch the credit limit on the OpenRouter key** — it is now the only thing between the site and its own bill.
 
 **Own OpenAI key.** Stored in IndexedDB, sent only to `api.openai.com`, billed to the reader. Defaults to `gpt-4o-mini` for chat and the digest. Anyone with access to the browser profile can read it, so don't use that option on a shared device.
 
