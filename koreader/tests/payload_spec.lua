@@ -94,6 +94,34 @@ do
     H.equal(Payload.color("chartreuse"), "yellow", "an unknown colour does not escape the palette")
 end
 
+-- A paging document stores a position as a table of page and coordinates, not
+-- as an xpointer string. Reaching this with one used to be an error rather than
+-- an id, which took out every tap on a PDF highlight.
+do
+    H.equal(Payload.position_key("/body/DocFragment[3]"), "/body/DocFragment[3]",
+        "an xpointer is its own key, so ids already minted do not move")
+    H.equal(Payload.position_key({ page = 12, x = 40, y = 300 }), "12,40,300")
+    H.equal(Payload.position_key({ page = 12 }), "12,,", "a partial position still keys")
+    H.equal(Payload.position_key(7), "7", "a bare page number too")
+    H.equal(Payload.position_key(nil), "")
+
+    local paging = {
+        datetime = "2026-08-23 19:39:35",
+        text = "A passage in a PDF",
+        page = 12,
+        pos0 = { page = 12, x = 40, y = 300 },
+        pos1 = { page = 12, x = 380, y = 316 },
+    }
+    local id = Payload.external_id(paging, fake_sha256)
+    H.contains(id, "koreader:", "a paging highlight gets an id like any other")
+    H.equal(id, Payload.external_id(paging, fake_sha256), "and the same one every time")
+
+    local moved = {}
+    for k, v in pairs(paging) do moved[k] = v end
+    moved.pos0 = { page = 12, x = 41, y = 300 }
+    H.ok(Payload.external_id(moved, fake_sha256) ~= id, "a different spot is a different highlight")
+end
+
 -- Identity is content-derived, so exporting twice is not two different books'
 -- worth of highlights.
 do

@@ -83,6 +83,27 @@ local function trimmed(value)
 end
 
 --[[--
+A position as a string, whichever kind of document it came from.
+
+A reflowable document's position is an xpointer string. A paging document's is a
+table of page and coordinates, which `table.concat` cannot take — so reaching
+this with a PDF highlight used to be an error rather than an id. Strings pass
+through untouched, so ids already minted for EPUBs do not move.
+--]]
+function Payload.position_key(position)
+    if type(position) == "string" then return position end
+    if type(position) == "number" then return tostring(position) end
+    if type(position) == "table" then
+        return table.concat({
+            tostring(position.page or ""),
+            tostring(position.x or ""),
+            tostring(position.y or ""),
+        }, ",")
+    end
+    return ""
+end
+
+--[[--
 The stable external id for one annotation.
 
 Start position, creation time and text together: position alone collides when a
@@ -92,7 +113,7 @@ the few hundred highlights one book collects.
 --]]
 function Payload.external_id(annotation, sha256_hex)
     local parts = table.concat({
-        annotation.pos0 or annotation.page or "",
+        Payload.position_key(annotation.pos0 or annotation.page),
         annotation.datetime or "",
         annotation.text or "",
     }, "\0")

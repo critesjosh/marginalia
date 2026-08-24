@@ -181,19 +181,110 @@ function Ask:ensure_annotation(snapshot, index)
 end
 
 --[[--
+Whether an annotation looks like the passage a thread was started on.
+
+A thread remembers its highlight by a content-derived id, which is what makes
+export idempotent — but it also means the id moves whenever the highlight does.
+KOReader's own boundary controls change `pos0` and the text, so nudging a
+highlight by one word used to sever it from its conversation for good.
+
+Containment either way is the test, because that is what an adjustment does: a
+highlight extended by a word contains the passage the conversation started on,
+and one trimmed by a word is contained by it.
+
+Containment alone is too generous, though. A conversation about a short phrase
+would be adopted by any later highlight of a paragraph that happens to include
+it, which is worse than failing to repair the link — the conversation is still
+reachable from the list either way, but a wrong one attached to a highlight is
+a lie. So the two have to be comparable in length as well.
+
+The bound admits a highlight that grew by up to about half again, which covers
+adjusting a boundary by a few words, and refuses one that grew several times
+over, which is a different selection rather than the same one moved. It is the
+looser of the two guards; the one that does the real work is that a conversation
+is only ever adopted when its own highlight has gone.
+--]]
+local SIMILAR_ENOUGH = 0.4
+
+local function looks_like(annotation_text, seed_text)
+    if type(annotation_text) ~= "string" or type(seed_text) ~= "string" then return false end
+    if annotation_text == "" or seed_text == "" then return false end
+    if annotation_text == seed_text then return true end
+
+    local contained = annotation_text:find(seed_text, 1, true) ~= nil
+        or seed_text:find(annotation_text, 1, true) ~= nil
+    if not contained then return false end
+
+    local shorter = math.min(#annotation_text, #seed_text)
+    local longer = math.max(#annotation_text, #seed_text)
+    return shorter >= longer * SIMILAR_ENOUGH
+end
+
+--[[--
+The one annotation that looks like this passage, if exactly one does.
+
+`claimed` holds the ids other threads are already anchored to; an annotation in
+that set belongs to a different conversation and is not available to this one.
+--]]
+function Ask:annotation_like(seed_text, claimed)
+    local found
+    for _, annotation in ipairs(self.ui.annotation.annotations or {}) do
+        local id = annotation.text and annotation.text ~= ""
+            and Payload.external_id(annotation, Util.sha256_hex) or nil
+        if id and not (claimed and claimed[id]) and looks_like(annotation.text, seed_text) then
+            -- Two candidates is no answer: adopting either would be a guess at
+            -- which highlight the conversation belongs to.
+            if found then return nil end
+            found = annotation
+        end
+    end
+    return found
+end
+
+--- Points a thread at the annotation it has been rediscovered on, and stores it.
+function Ask:relink(thread, annotation)
+    thread.highlight_ref = Payload.external_id(annotation, Util.sha256_hex)
+    local data = Store.read(self.ui.doc_settings)
+    local stored = Store.find_thread_by_id(data, thread.id)
+    if stored then
+        stored.highlight_ref = thread.highlight_ref
+        Store.write(self.ui.doc_settings, data)
+    end
+end
+
+--[[--
 The annotation a thread is anchored to, if it is still there.
 
 A thread stores the id its highlight had, not a reference to it, so this is how
 one is found again — including from the conversation list, where there is no
 selection to work from. The highlight may have been deleted since; a
 conversation outlives its mark, and continuing one is still worth doing.
+
+When the id no longer matches anything, one attempt is made to recognise the
+highlight by its text and re-point the thread at it, so a highlight adjusted
+after the fact keeps its conversation.
 --]]
-function Ask:find_annotation(highlight_ref)
-    if not highlight_ref then return nil end
+function Ask:find_annotation(highlight_ref, thread)
     for _, annotation in ipairs(self.ui.annotation.annotations or {}) do
-        if annotation.text and annotation.text ~= ""
+        if annotation.text and annotation.text ~= "" and highlight_ref
             and Payload.external_id(annotation, Util.sha256_hex) == highlight_ref then
             return annotation
+        end
+    end
+
+    if thread then
+        local data = Store.read(self.ui.doc_settings)
+        local claimed = {}
+        for _, other in ipairs(data.threads or {}) do
+            if other.id ~= thread.id and other.highlight_ref then
+                claimed[other.highlight_ref] = true
+            end
+        end
+
+        local candidate = self:annotation_like(thread.seed_text, claimed)
+        if candidate then
+            self:relink(thread, candidate)
+            return candidate
         end
     end
     return nil
@@ -222,7 +313,7 @@ end
 Opens a stored conversation, from wherever it was chosen.
 --]]
 function Ask:continue_thread(thread)
-    local annotation = self:find_annotation(thread.highlight_ref)
+    local annotation = self:find_annotation(thread.highlight_ref, thread)
     self:show_thread(self:snapshot_for_thread(thread, annotation), thread, annotation)
 end
 
@@ -232,8 +323,41 @@ The conversation hanging off one annotation, if it has one with anything in it.
 function Ask:thread_for_annotation(annotation)
     if not annotation or not annotation.text or annotation.text == "" then return nil end
     local data = Store.read(self.ui.doc_settings)
-    local thread = Store.find_thread(data, Payload.external_id(annotation, Util.sha256_hex))
-    if thread and #(thread.messages or {}) > 0 then return thread end
+
+    local id = Payload.external_id(annotation, Util.sha256_hex)
+    local thread = Store.find_thread(data, id)
+
+    if not thread then
+        -- The same repair from the other direction: a highlight whose bounds
+        -- were adjusted has an id no thread knows, but a thread may still
+        -- remember its text. Only conversations whose own highlight has gone
+        -- are candidates — one that still has its mark is not looking for a
+        -- new home, and letting a fresh overlapping highlight adopt it would
+        -- attach a conversation to a passage nobody had it about.
+        local present = {}
+        for _, existing in ipairs(self.ui.annotation.annotations or {}) do
+            if existing.text and existing.text ~= "" then
+                present[Payload.external_id(existing, Util.sha256_hex)] = true
+            end
+        end
+
+        local found
+        for _, candidate in ipairs(data.threads or {}) do
+            if #(candidate.messages or {}) > 0
+                and not present[candidate.highlight_ref]
+                and looks_like(annotation.text, candidate.seed_text) then
+                if found then return nil end
+                found = candidate
+            end
+        end
+        if found then
+            self:relink(found, annotation)
+            return found
+        end
+        return nil
+    end
+
+    if #(thread.messages or {}) > 0 then return thread end
     return nil
 end
 
@@ -351,8 +475,8 @@ function Ask:run(snapshot, thread, question, index)
             -- conversation list there is no selection to make one from anyway.
             local annotation, highlight_ref
             if thread then
+                annotation = self:find_annotation(thread.highlight_ref, thread)
                 highlight_ref = thread.highlight_ref
-                annotation = self:find_annotation(highlight_ref)
             else
                 annotation = self:ensure_annotation(snapshot, index)
                 highlight_ref = Payload.external_id(annotation, Util.sha256_hex)

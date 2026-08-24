@@ -119,7 +119,9 @@ function Conversations:show(on_select)
         height = Screen:getHeight(),
         -- Rows carry a title and a place, so they need the room.
         multilines_show_more_text = true,
-        close_callback = function() UIManager:close(menu) end,
+        -- No `close_callback`: `Menu:onCloseAllMenus` closes itself and *then*
+        -- runs the callback, so closing it there again would dispatch
+        -- `CloseWidget` and `FlushSettings` twice.
         onMenuSelect = function(_self, item)
             UIManager:close(menu)
             on_select(item.marginalia_thread)

@@ -469,6 +469,152 @@ describe('the plugin driven end to end', () => {
     expect(report).toContain('annotations=0')
   })
 
+  it('survives a paging document, where a position is a table', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local ui = FakeUI()
+      ui.rolling = false
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      -- A PDF highlight, as KOReader stores one.
+      ui.annotation.annotations = {{
+        text = "A passage in a PDF",
+        page = 12,
+        pos0 = { page = 12, x = 40, y = 300 },
+        pos1 = { page = 12, x = 380, y = 316 },
+        datetime = "2026-08-24 10:00:00",
+      }}
+
+      -- Both of these reach external_id, which used to be handed a table.
+      local has = ask:has_thread(nil, 1)
+      local thread = ask:thread_for_annotation(ui.annotation.annotations[1])
+
+      return "has=" .. tostring(has) .. "; thread=" .. tostring(thread)
+    `)
+
+    // No conversation exists, so both answer "no" — the point is that neither
+    // raises on the way to saying so.
+    expect(report).toContain('has=false')
+    expect(report).toContain('thread=nil')
+  })
+
+  it('keeps a conversation attached when its highlight is adjusted', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer.", "A follow-up answer." }
+      ui.highlight.selected_text = FakeSelection("Father Mapple rose", "/xp/1.0", "/xp/1.20")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      local before = Store.read(ui.doc_settings).threads[1].highlight_ref
+
+      -- The reader nudges the highlight's end, which is a supported KOReader
+      -- operation and changes both the text and the start position.
+      local annotation = ui.annotation.annotations[1]
+      annotation.text = "Father Mapple rose, and in a mild voice"
+      annotation.pos0 = "/xp/1.1"
+
+      local thread = ask:thread_for_annotation(annotation)
+      local after = Store.read(ui.doc_settings).threads[1].highlight_ref
+
+      -- And continuing from there still lands on the same conversation.
+      ask:continue_thread(Store.read(ui.doc_settings).threads[1])
+      TAP_BUTTON(VIEWERS[#VIEWERS], "Ask a follow-up")
+      ANSWER_QUESTION("Still linked?")
+
+      local data = Store.read(ui.doc_settings)
+      return table.concat({
+        "found=" .. tostring(thread ~= nil),
+        "relinked=" .. tostring(before ~= after),
+        "threads=" .. #data.threads,
+        "turns=" .. #data.threads[1].messages,
+        "annotations=" .. #ui.annotation.annotations,
+      }, "; ")
+    `)
+
+    // Without the repair the id moves and the conversation is orphaned: the
+    // tap offers nothing, and asking again starts a second thread.
+    expect(report).toContain('found=true')
+    expect(report).toContain('relinked=true')
+    expect(report).toContain('threads=1')
+    expect(report).toContain('turns=4')
+    expect(report).toContain('annotations=1')
+  })
+
+  it('does not let a new highlight adopt an existing conversation', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer." }
+      ui.highlight.selected_text = FakeSelection("the whale sounded", "/xp/1.0", "/xp/1.17")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      -- A second, unrelated highlight that happens to contain the first's words,
+      -- made while the original highlight is still there.
+      ui.annotation.annotations[2] = {
+        text = "the whale sounded and", pos0 = "/xp/2.0", datetime = "2026-08-24 12:00:00",
+      }
+
+      local stolen = ask:thread_for_annotation(ui.annotation.annotations[2])
+      local original = ask:thread_for_annotation(ui.annotation.annotations[1])
+
+      return "stolen=" .. tostring(stolen) .. "; original=" .. tostring(original ~= nil)
+    `)
+
+    // The original conversation still has its own mark, so it is not looking
+    // for a new home; attaching it here would claim a conversation about a
+    // passage nobody had one about.
+    expect(report).toContain('stolen=nil')
+    expect(report).toContain('original=true')
+  })
+
+  it('will not adopt a conversation about a passage much shorter than the mark', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer." }
+      ui.highlight.selected_text = FakeSelection("the whale", "/xp/1.0", "/xp/1.9")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      -- The original mark is gone, and what is left is a whole paragraph that
+      -- merely contains those two words.
+      ui.annotation.annotations = {{
+        text = "It was late in the day when the whale sounded for the last time, and the boats gave chase.",
+        pos0 = "/xp/9.0", datetime = "2026-08-24 12:00:00",
+      }}
+
+      local adopted = ask:thread_for_annotation(ui.annotation.annotations[1])
+      local thread = Store.read(ui.doc_settings).threads[1]
+      local reverse = ask:find_annotation(thread.highlight_ref, thread)
+
+      return "adopted=" .. tostring(adopted) .. "; reverse=" .. tostring(reverse)
+    `)
+
+    // A boundary nudge moves a highlight by a word or two. This is a paragraph,
+    // so the conversation stays where it is — still reachable from the list.
+    expect(report).toContain('adopted=nil')
+    expect(report).toContain('reverse=nil')
+  })
+
   it('keeps one previous digest and can put it back', () => {
     const report = runLua(`
       local Memory = require("marginalia_memory")
