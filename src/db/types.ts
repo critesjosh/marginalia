@@ -49,6 +49,14 @@ export interface Highlight {
   color: HighlightColor
   note?: string
   createdAt: number
+  /** Set when the highlight was made somewhere else and imported. */
+  source?: 'koreader'
+  /**
+   * That source's own id for it, so importing the same export twice adds
+   * nothing the second time. Namespaced by the source, so it cannot collide
+   * with an id this reader minted.
+   */
+  externalId?: string
 }
 
 export interface Conversation {
@@ -71,6 +79,10 @@ export interface Conversation {
   summarizedCount?: number
   createdAt: number
   updatedAt: number
+  /** Set when the conversation was held somewhere else and imported. */
+  source?: 'koreader'
+  /** That source's own id for it. See `Highlight.externalId`. */
+  externalId?: string
 }
 
 export type Role = 'system' | 'user' | 'assistant'
@@ -81,6 +93,13 @@ export interface Message {
   role: Role
   content: string
   createdAt: number
+  /**
+   * The id this turn had where it was written, when it was imported.
+   *
+   * Imported turns are never rewritten, only skipped if already present: a
+   * conversation held on an e-reader is finished by the time it is exported.
+   */
+  externalId?: string
 }
 
 export interface BookMemory {
