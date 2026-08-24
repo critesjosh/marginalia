@@ -45,7 +45,8 @@ dismisses it if a model is taking too long. The whole conversation is shown, not
 just the newest reply — a follow-up is asked because of what was said before.
 From there you can ask another, or **Save to note**, which writes the exchange
 into that highlight's KOReader note where the bookmark list and every other
-exporter can see it.
+exporter can see it — and folds the conversation into the notes on this book at
+the same time, however short it is.
 
 ## Going back to a conversation
 
@@ -92,7 +93,11 @@ cancelled by your next tap. Doing it just before the notes are needed puts the
 wait where you had already accepted one, and dismissing it simply asks with the
 notes as they were.
 
-A conversation you never go back to is therefore not folded in automatically.
+A conversation you never go back to is therefore not folded in automatically —
+unless you save it to a note. **Save to note** is you saying this exchange was
+worth keeping, so it folds the conversation in there and then, down to a single
+question and answer. Most conversations are one exchange, and that is the one
+route by which they reach the notes without being asked for twice.
 
 **Notes on this book** shows them, with **Edit** (later updates merge into
 whatever you write, so an edit carries forward), **Clear**, and **Undo last
@@ -101,7 +106,12 @@ version is always kept. Clearing can be put back the same way.
 
 **Update notes now** folds in every conversation with anything unfolded, down to
 a single exchange — the threshold of four turns exists to avoid spending time you
-are giving to a question, and this is the path where you asked for the work.
+are giving to a question, and this is the path where you asked for the work. It
+is the catch-up for conversations you neither continued nor saved.
+
+A fold that fails, is dismissed, or is never reached because you turned down the
+Wi-Fi prompt costs nothing: the note is written and confirmed regardless, and the
+turns stay pending for the next follow-up or the next sweep.
 
 These notes are the device's own. They are not exported and not synchronised with
 the browser's, which keeps its own summary of the same book. Both are built the

@@ -195,6 +195,137 @@ describe('the plugin driven end to end', () => {
     expect(report).toContain('asked_with_notes=true')
   })
 
+  it('folds a one-turn conversation in when it is saved to a note', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Memory = require("marginalia_memory")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local settings = FakeSettings()
+      local memory = Memory:new{ ui = ui, settings = settings,
+                                 plugin_version = "test", cafile = "/ca" }
+      local ask = Ask:new{ ui = ui, settings = settings, memory = memory,
+                           plugin_version = "test", cafile = "/ca" }
+
+      RELAY_REPLIES = { "Because the prow goes first.", "NOTES: prow imagery." }
+
+      ui.highlight.selected_text = FakeSelection("Father Mapple rose", "/xp/1.0", "/xp/1.20")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("Why a ship's prow?")
+
+      -- One exchange and no follow-up: the automatic path would never fold this.
+      local before = Store.read(ui.doc_settings)
+      local due = Memory.is_due(before.threads[1])
+      local summary_before = before.memory and before.memory.summary
+
+      TAP_BUTTON(VIEWERS[#VIEWERS], "Save to note")
+
+      local after = Store.read(ui.doc_settings)
+      return table.concat({
+        "due=" .. tostring(due),
+        "summary_before=" .. tostring(summary_before),
+        "summary=" .. tostring(after.memory and after.memory.summary),
+        "counter=" .. tostring(after.threads[1].summarized_count),
+        "note_has_q=" .. tostring((ui.annotation.annotations[1].note or ""):find("Q: Why", 1, true) ~= nil),
+        "first_message=" .. tostring(MESSAGES[1]),
+        "last_message=" .. tostring(MESSAGES[#MESSAGES]),
+      }, "\\n")
+    `)
+
+    // Two turns is under the automatic threshold, which is the whole point:
+    // saving is the reader's signal that this one exchange was worth keeping.
+    expect(report).toContain('due=false')
+    expect(report).toContain('summary_before=nil')
+    expect(report).toContain('summary=NOTES: prow imagery.')
+    expect(report).toContain('counter=2')
+    // And the note itself, which is what the button says it does.
+    expect(report).toContain('note_has_q=true')
+    // Two acts, two messages, in that order.
+    expect(report).toContain("first_message=Saved to this highlight's note.")
+    expect(report).toContain('last_message=Added to the notes on this book.')
+  })
+
+  it('still confirms the note when the reader turns down the network', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local Memory = require("marginalia_memory")
+      local Store = require("marginalia_store")
+
+      local ui = FakeUI()
+      local settings = FakeSettings()
+      local memory = Memory:new{ ui = ui, settings = settings, plugin_version = "t", cafile = "/ca" }
+      local ask = Ask:new{ ui = ui, settings = settings, memory = memory,
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer." }
+      ui.highlight.selected_text = FakeSelection("A passage", "/xp/1.0", "/xp/1.9")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      -- The Wi-Fi prompt is declined, so runWhenOnline never calls back.
+      MESSAGES = {}
+      NETWORK_DECLINED = true
+      TAP_BUTTON(VIEWERS[#VIEWERS], "Save to note")
+      NETWORK_DECLINED = false
+
+      local after = Store.read(ui.doc_settings)
+      return table.concat({
+        "messages=" .. #MESSAGES,
+        "message=" .. tostring(MESSAGES[1]),
+        "note_saved=" .. tostring((ui.annotation.annotations[1].note or "") ~= ""),
+        "summary=" .. tostring(after.memory and after.memory.summary),
+        "pending=" .. Memory.pending_count(after.threads[1]),
+      }, "\\n")
+    `)
+
+    // The note is local and already written; saying nothing about it because a
+    // network prompt was declined would report a success as a silence.
+    expect(report).toContain('messages=1')
+    expect(report).toContain("message=Saved to this highlight's note.")
+    expect(report).toContain('note_saved=true')
+    // And the fold is deferred, not lost: the turns are still waiting for the
+    // next follow-up or for Update notes now.
+    expect(report).toContain('summary=nil')
+    expect(report).toContain('pending=2')
+  })
+
+  it('saves the note without a fold when there is nothing pending', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "t", cafile = "/ca" }
+
+      RELAY_REPLIES = { "An answer." }
+      ui.highlight.selected_text = FakeSelection("A passage", "/xp/1.0", "/xp/1.9")
+      ask:from_selection(ui.highlight)
+      ANSWER_QUESTION("A question?")
+
+      -- As it stands after a fold: every turn already accounted for.
+      local Store = require("marginalia_store")
+      local data = Store.read(ui.doc_settings)
+      data.threads[1].summarized_count = #data.threads[1].messages
+      Store.write(ui.doc_settings, data)
+
+      local viewer = VIEWERS[#VIEWERS]
+      TAP_BUTTON(viewer, "Save to note")
+      TAP_BUTTON(viewer, "Save to note")
+
+      return table.concat({
+        "folds=" .. #ask.memory.folds,
+        "note_saved=" .. tostring((ui.annotation.annotations[1].note or "") ~= ""),
+        "message=" .. tostring(MESSAGES[#MESSAGES]),
+      }, "\\n")
+    `)
+
+    // Re-saving an already-folded conversation stays local: no relay, and no
+    // network prompt in front of somebody who only wanted the note rewritten.
+    expect(report).toContain('folds=0')
+    expect(report).toContain('note_saved=true')
+    expect(report).toContain("message=Saved to this highlight's note.")
+  })
+
   it('keeps the digest through the write that follows it', () => {
     // The regression this guards: Ask:run reads the whole sidecar blob and
     // writes it back, so a fold that wrote independently used to be undone by

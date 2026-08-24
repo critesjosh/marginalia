@@ -27,6 +27,7 @@ VIEWERS = {}            -- the TextViewer widgets themselves
 MESSAGES = {}           -- text of every InfoMessage shown
 MENUS = {}              -- every Menu shown
 BUTTON_DIALOGS = {}     -- every ButtonDialog shown
+NETWORK_DECLINED = false -- when true, runWhenOnline never calls back
 
 package.loaded["logger"] = setmetatable({}, { __index = function() return function() end end })
 package.loaded["gettext"] = setmetatable({
@@ -166,8 +167,17 @@ package.loaded["ui/widget/container/widgetcontainer"] = {
     end,
 }
 
+--[[--
+`runWhenOnline` does not call back when the reader turns down the Wi-Fi prompt,
+which is a path with its own behaviour rather than an absence of one. Set
+`NETWORK_DECLINED` to be on it.
+--]]
+NETWORK_DECLINED = false
 package.loaded["ui/network/manager"] = {
-    runWhenOnline = function(_, callback) callback() end,
+    runWhenOnline = function(_, callback)
+        if NETWORK_DECLINED then return end
+        callback()
+    end,
 }
 
 package.loaded["ui/trapper"] = {
@@ -258,9 +268,21 @@ function FakeSettings()
     return { endpoint = "https://example.test/api/chat", spoiler_guard = true }
 end
 
---- Stands in for a memory object where a scenario does not want folding.
+--[[--
+Stands in for a memory object where a scenario does not want folding.
+
+Records what it was asked to fold, since the threshold a caller passes is part
+of the behaviour under test, then declines — a scenario that wants a real fold
+uses the real module against the fake relay.
+--]]
 function FakeMemory()
-    return { fold = function() return false, "nothing new to fold in" end }
+    return {
+        folds = {},
+        fold = function(self, thread_id, minimum)
+            self.folds[#self.folds + 1] = { id = thread_id, minimum = minimum }
+            return false, "nothing new to fold in"
+        end,
+    }
 end
 
 --[[--

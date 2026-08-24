@@ -26,6 +26,7 @@ local util = require("util")
 local logger = require("logger")
 local _ = require("gettext")
 
+local Memory = require("marginalia_memory")
 local Payload = require("marginalia_payload")
 local Prompt = require("marginalia_prompt")
 local Relay = require("marginalia_relay")
@@ -605,8 +606,10 @@ function Ask:show_thread(snapshot, thread, annotation, index)
                 -- left to write into.
                 enabled = annotation ~= nil,
                 callback = function()
-                    self:save_to_note(annotation, thread)
+                    -- Closed first: saving now folds, and its spinner should
+                    -- not be drawn over a viewer that is on its way out.
                     UIManager:close(viewer)
+                    self:save_to_note(annotation, thread)
                 end,
             },
         }, {
@@ -620,11 +623,15 @@ function Ask:show_thread(snapshot, thread, annotation, index)
 end
 
 --[[--
-Writes the exchange into the highlight's own KOReader note.
+Writes the exchange into the highlight's own KOReader note, and into the
+book's notes.
 
 The thread is already in the sidecar, but a note is what shows up in the
 bookmark list and in every other exporter, so this is how the conversation
 becomes visible to the rest of KOReader.
+
+The note is written and flushed before anything else is attempted: it is local
+and cannot fail, and it is what the reader actually pressed the button for.
 --]]
 function Ask:save_to_note(annotation, thread)
     annotation.note = View.transcript(thread)
@@ -634,10 +641,57 @@ function Ask:save_to_note(annotation, thread)
     self.ui:handleEvent(Event:new("AnnotationsModified", { annotation }))
     self.ui.doc_settings:flush()
 
+    self:remember(thread)
+end
+
+--[[--
+Folds a conversation into the book's notes on the way out of saving it.
+
+**This is what makes a question asked once count.** The automatic fold runs at
+the *start* of the next question in a thread, and only once four turns have
+piled up, so a conversation of one exchange — which most of them are — never
+reached the digest at all unless the reader happened to run **Update notes
+now**. Saving to a note is the reader saying this one was worth keeping, which
+is the moment to keep it. So the threshold here is one turn, the same as the
+manual sweep uses and for the same reason: waiting for a fourth turn that is
+never coming would keep the exchange out of the notes for good.
+
+**The note is confirmed before the network is involved, and separately from it.**
+`runWhenOnline` does not call back at all when the reader turns down the Wi-Fi
+prompt, so a confirmation folded into that callback would leave the commonest
+offline path — tap Save, decline the prompt — showing nothing whatever, for an
+act that had in fact already succeeded. Two messages about two things beats one
+message that only sometimes arrives.
+
+Nothing pending means returning before `runWhenOnline` is reached at all, so
+re-saving an already-folded conversation never asks for a network.
+
+A fold that fails, is dismissed, or is never reached is not reported: the note —
+the thing that was asked for — was written and confirmed either way, and the
+turns stay pending, so the next follow-up or **Update notes now** picks them up.
+--]]
+function Ask:remember(thread)
     UIManager:show(InfoMessage:new{
         text = _("Saved to this highlight's note."),
         timeout = 2,
     })
+
+    if Memory.pending_count(thread) == 0 then return end
+
+    NetworkMgr:runWhenOnline(function()
+        Trapper:wrap(function()
+            local folded, reason = self.memory:fold(thread.id, 1)
+            if not folded then
+                logger.dbg("marginalia: saved note not folded in:", tostring(reason))
+                return
+            end
+
+            UIManager:show(InfoMessage:new{
+                text = _("Added to the notes on this book."),
+                timeout = 2,
+            })
+        end)
+    end)
 end
 
 return Ask
