@@ -147,6 +147,25 @@ function ANSWER_QUESTION(text)
     error("no Ask button on the dialog")
 end
 
+--[[--
+KOReader's widget base, as much of it as loading `main.lua` needs.
+
+`extend` builds a subclass whose instances look up missing keys on the parent,
+which is enough for the plugin table to be defined and its methods called
+directly. Nothing here draws.
+--]]
+package.loaded["ui/widget/container/widgetcontainer"] = {
+    extend = function(self, spec)
+        spec = spec or {}
+        spec.extend = self.extend
+        spec.new = self.new
+        return setmetatable(spec, { __index = self })
+    end,
+    new = function(self, spec)
+        return setmetatable(spec or {}, { __index = self })
+    end,
+}
+
 package.loaded["ui/network/manager"] = {
     runWhenOnline = function(_, callback) callback() end,
 }

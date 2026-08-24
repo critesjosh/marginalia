@@ -354,7 +354,35 @@ function Marginalia:interceptHighlightTap()
     end
 end
 
+--[[--
+Where the conversation list lives.
+
+Two entries, because they answer two different questions. The Marginalia
+submenu under More tools is the plugin's home: settings, export, the notes and
+the ways to correct them — things you go looking for by name, rarely, and are
+content to dig for.
+
+The conversation list is not that. It is one of the places you go back to in a
+book, like the table of contents, the bookmarks and the book map — and all three
+of those live in the navigation tab, the first one and the one ☰ opens on unless
+the reader left it elsewhere. So it is registered there too, as a top-level item:
+☰, then the row. Four taps down a tools submenu is the wrong price for the thing
+you reach for mid-read.
+
+`sorting_hint` names any menu id, tab or submenu, and the menu sorter appends
+the item to it (`frontend/ui/menusorter.lua`). A hint naming something that does
+not exist would land the item in the first tab with a "NEW: " prefix rather than
+break, so an unfamiliar KOReader is a cosmetic risk, not a crash.
+--]]
 function Marginalia:addToMainMenu(menu_items)
+    menu_items.marginalia_conversations = {
+        text = _("Marginalia conversations"),
+        sorting_hint = "navi",
+        keep_menu_open = false,
+        callback = function() self:showConversations() end,
+        help_text = _("Everything you have asked about this book, newest first. Pick one to read it and carry it on."),
+    }
+
     menu_items.marginalia = {
         text = _("Marginalia"),
         sorting_hint = "more_tools",
@@ -363,7 +391,7 @@ function Marginalia:addToMainMenu(menu_items)
                 text = _("Conversations in this book"),
                 keep_menu_open = false,
                 callback = function() self:showConversations() end,
-                help_text = _("Everything you have asked about this book, newest first. Also reachable from a passage you have already asked about."),
+                help_text = _("Everything you have asked about this book, newest first. Also in the navigation menu, and from a passage you have already asked about."),
             },
             {
                 text = _("Notes on this book"),

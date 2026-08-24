@@ -8,8 +8,9 @@ Marginalia to an e-reader:
   where you are, and the prose around the passage, exactly as it is in the
   browser. Follow-ups continue the same thread, and threads are kept in the
   book's sidecar so they survive a restart.
-- **Conversations in this book** — a list of everything you have asked, most
-  recently active first; pick one to read it and carry it on.
+- **Marginalia conversations** — a list of everything you have asked, most
+  recently active first; pick one to read it and carry it on. In the navigation
+  menu, next to the bookmarks.
 - **Notes on this book** — a running summary of what you and Marginalia have
   worked out, sent with every question so a later one can build on an earlier one.
 - **Export highlights for Marginalia** — writes a JSON file that the web reader
@@ -29,8 +30,9 @@ cp -r marginalia.koplugin <KOReader>/plugins/
 
 `<KOReader>` is `/mnt/us/koreader` on a Kindle, `.adds/koreader` on a Kobo, and
 `koreader/` in internal storage on Android. Restart KOReader. The plugin appears
-under **☰ → More tools → Marginalia**, and **Ask Marginalia** joins the popup
-that appears when you select text.
+under **☰ → More tools → Marginalia**, its conversation list under **☰ →
+Marginalia conversations**, and **Ask Marginalia** joins the popup that appears
+when you select text.
 
 ## Asking a question
 
@@ -57,12 +59,20 @@ there. A highlight with no conversation behaves exactly as it always did.
 *Continue conversation* rather than *Ask Marginalia* when there is one, and
 opens it instead of a question box.
 
-**More tools → Marginalia → Conversations in this book.** A list of every
-conversation, most recently active first, each row showing the chapter, how far
-through, and how many turns. Choosing one opens it with **Ask a follow-up** on
-it. This is the only one of the three that does not need you to find the passage
-first, and it is the way back to a conversation whose highlight you have since
-deleted — a conversation outlives its mark.
+**☰ → Marginalia conversations.** A list of every conversation, most recently
+active first, each row showing the chapter, how far through, and how many turns.
+Choosing one opens it with **Ask a follow-up** on it. This is the only one of the
+three that does not need you to find the passage first, and it is the way back to
+a conversation whose highlight you have since deleted — a conversation outlives
+its mark.
+
+It sits in the navigation menu — the first tab, and the one ☰ opens on unless you
+left it on another, below the table of contents, the bookmarks and the book map —
+because it belongs with them: it is a list of places in this book you meant to
+come back to. The same row is under **More tools
+→ Marginalia** with the rest of the plugin. If you would rather not go through the
+menu at all, *Marginalia conversations* is a dispatcher action, so it can be bound
+to a gesture or put in a profile under **Taps and gestures**.
 
 Conversations live in the book's sidecar, so they travel with the book, and the
 export carries them to the web reader. Nothing comes the other way yet — chats

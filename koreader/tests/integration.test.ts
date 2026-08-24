@@ -37,7 +37,7 @@ function runLua(script: string): string {
     'marginalia_prompt', 'marginalia_digest', 'marginalia_payload',
     'marginalia_util', 'marginalia_store', 'marginalia_view',
     'marginalia_tls', 'marginalia_relay', 'marginalia_memory', 'marginalia_ask',
-    'marginalia_conversations',
+    'marginalia_conversations', 'marginalia_handoff', 'main',
   ]) {
     const source = readFileSync(join(pluginDir, `${name}.lua`))
     check(lauxlib.luaL_loadbuffer(L, source, null, to_luastring(`@${name}.lua`)), `load ${name}`)
@@ -647,5 +647,46 @@ describe('the plugin driven end to end', () => {
     // Clearing keeps what it cleared, which is what makes it recoverable.
     expect(report).toContain('cleared_summary=nil')
     expect(report).toContain('cleared_previous=First version.')
+  })
+
+  it('puts the conversation list where you go back to things in a book', () => {
+    const report = runLua(`
+      -- main.lua as the plugin loader gets it; only the menu is exercised,
+      -- so the plugin table stands in for an initialised instance.
+      local Marginalia = require("main")
+      local plugin = setmetatable({
+        showConversations = function(self) self.opened = true end,
+      }, { __index = Marginalia })
+
+      local menu_items = {}
+      plugin:addToMainMenu(menu_items)
+
+      local top = menu_items.marginalia_conversations
+      top.callback()
+
+      -- The plugin's own submenu keeps its copy.
+      local buried
+      for _, row in ipairs(menu_items.marginalia.sub_item_table) do
+        -- The relay row labels itself with text_func, so not every row has text.
+        if (row.text or ""):find("Conversations", 1, true) then buried = row end
+      end
+
+      return table.concat({
+        "top_text=" .. tostring(top and top.text),
+        "top_hint=" .. tostring(top and top.sorting_hint),
+        "opened=" .. tostring(plugin.opened),
+        "submenu_hint=" .. tostring(menu_items.marginalia.sorting_hint),
+        "submenu_row=" .. tostring(buried and buried.text),
+      }, "\\n")
+    `)
+
+    // The navigation tab, next to the table of contents and the bookmarks —
+    // two taps, not four down a tools submenu.
+    expect(report).toContain('top_hint=navi')
+    expect(report).toContain('top_text=Marginalia conversations')
+    expect(report).toContain('opened=true')
+    // Without emptying the plugin's own menu of it.
+    expect(report).toContain('submenu_hint=more_tools')
+    expect(report).toContain('submenu_row=Conversations in this book')
   })
 })
