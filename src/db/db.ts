@@ -52,6 +52,19 @@ class MarginaliaDB extends Dexie {
     this.version(3).stores({
       books: 'id, title, author, addedAt, lastOpenedAt, archivedAt',
     })
+
+    // Imported records carry the id they had where they were written, so a
+    // second import of the same file adds nothing. Indexed rather than scanned:
+    // an import asks this question once per highlight, and a book can hold
+    // hundreds. Existing rows have no `externalId` and are simply absent from
+    // the index, which is what a sparse index does.
+    this.version(4).stores({
+      highlights: 'id, bookId, createdAt, [bookId+createdAt], [bookId+externalId]',
+      conversations:
+        'id, bookId, highlightId, updatedAt, [bookId+updatedAt], [bookId+externalId]',
+      messages:
+        'id, conversationId, createdAt, [conversationId+createdAt], [conversationId+externalId]',
+    })
   }
 }
 

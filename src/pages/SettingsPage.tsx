@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type Provider } from '../db/types'
 import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
 import { createAudiobookSession } from '../lib/audiobooks'
 import { BackIcon } from '../components/Icons'
+import KoreaderImport from '../components/KoreaderImport'
 
 // Keep retired models listed: a stored value with no matching option renders the
 // select blank, so anything a user might already have saved has to stay.
@@ -275,6 +276,8 @@ export default function SettingsPage() {
             Export highlights and chats
           </button>
         </section>
+
+        <KoreaderImport />
 
         <section>
           <h2 className="text-sm font-semibold">Feedback</h2>

@@ -202,6 +202,13 @@ function parseBody(payload: unknown): ParsedBody {
  * Rejects requests whose Origin is not this site. A determined caller can forge
  * the header, so this only stops casual reuse of the endpoint from other pages;
  * the spend ceiling is the credit limit on the OpenRouter key itself.
+ *
+ * A request with no Origin at all passes, and that is deliberate rather than an
+ * oversight: browsers always send one on a cross-origin request, while a
+ * non-browser client sends none. The KOReader plugin in `koreader/` is one such
+ * client, and asking a question from an e-reader goes through this endpoint.
+ * Those requests identify themselves with `X-Marginalia-Client` if they ever
+ * need throttling separately.
  */
 function isCrossOrigin(request: Request): boolean {
   const origin = request.headers.get('origin')
