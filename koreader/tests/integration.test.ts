@@ -36,7 +36,7 @@ function runLua(script: string): string {
   for (const name of [
     'marginalia_prompt', 'marginalia_digest', 'marginalia_payload',
     'marginalia_util', 'marginalia_store', 'marginalia_view',
-    'marginalia_tls', 'marginalia_relay', 'marginalia_memory', 'marginalia_ask',
+    'marginalia_tls', 'marginalia_endpoint', 'marginalia_relay', 'marginalia_memory', 'marginalia_ask',
     'marginalia_conversations', 'marginalia_handoff', 'main',
   ]) {
     const source = readFileSync(join(pluginDir, `${name}.lua`))

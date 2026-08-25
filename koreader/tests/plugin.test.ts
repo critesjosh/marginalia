@@ -20,6 +20,10 @@ describe('koreader plugin', () => {
     expect(runSpec('tls_spec')).toContain('tls_spec ok')
   })
 
+  it('decides where questions may go', () => {
+    expect(runSpec('endpoint_spec')).toContain('endpoint_spec ok')
+  })
+
   it('renders saved conversations back', () => {
     expect(runSpec('view_spec')).toContain('view_spec ok')
   })

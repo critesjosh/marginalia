@@ -546,12 +546,12 @@ function Ask:run(snapshot, thread, question, index)
                 fence = fence,
             }, history)
 
-            local endpoint = self.settings.endpoint
+            local settings = self.settings
             local cafile = self.cafile
             local version = self.plugin_version
 
             local completed, result = Trapper:dismissableRunInSubprocess(function()
-                return Relay.post(endpoint, messages, cafile, version)
+                return Relay.ask(settings, messages, cafile, version)
             end, _("Asking Marginalia…"))
 
             if not completed then

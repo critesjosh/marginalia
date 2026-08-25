@@ -23,6 +23,7 @@ const MODULES = [
   'marginalia_prompt',
   'marginalia_payload',
   'marginalia_tls',
+  'marginalia_endpoint',
   'marginalia_view',
   'marginalia_digest',
   'marginalia_memory',

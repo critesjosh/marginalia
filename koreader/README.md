@@ -161,8 +161,37 @@ storage, so there is no server to sync through.
 
 - **Avoid spoilers** — on by default. Asks the model not to reveal anything past
   where you are.
-- **Relay** — where questions are sent, `https://lexici.netlify.app/api/chat` by
-  default. Change it only if you host your own. It must be `https://`.
+- **Inference** — where questions go: the Marginalia relay (default) or a
+  server of your own.
+- **Relay** — where questions are sent in relay mode,
+  `https://lexici.netlify.app/api/chat` by default. Change it only if you host
+  your own. It must be `https://`.
+
+The server entries below appear only once **Inference** points at your own
+server.
+
+- **Server** — base address of an OpenAI-compatible chat server: llama.cpp's
+  `llama-server`, vLLM, Ollama or LM Studio all speak the same dialect.
+  Whatever shape you paste lands on `/v1/chat/completions`: a bare
+  `http://192.168.1.50:8080`, an address already ending in `/v1`, or a full
+  URL all work.
+- **Model** — the model name as the server lists it, sent verbatim.
+- **API key** — optional, sent as a bearer token only when set. Servers on a
+  home network usually need none.
+
+### Using your own server
+
+Everything the relay does for you — holding the key, pinning the model —
+becomes yours to arrange, including the trust question. The plugin verifies
+every `https://` connection against the device's certificate store wherever
+it points, but most self-hosted servers answer on plain `http://`, which
+offers no verification at all: what you send travels readable to whoever
+answers. That is acceptable precisely when the hop never leaves your own
+network, so plain http is accepted only for loopback addresses, private
+ranges (10.x, 172.16–31.x, 192.168.x), link-local, CGNAT (which is where
+Tailscale and similar overlays live) and `.local` names — and refused for
+anything else, with no switch to override it. Public endpoints must use
+https://.
 
 ## Connections
 

@@ -10,6 +10,11 @@ pins the model, so there is no key to configure here and no account to make. The
 relay is the same one the web app uses, so a conversation started on an
 e-reader reads exactly like one started in the browser.
 
+Instead of the relay, questions can go to a server of the reader's own —
+anything speaking the OpenAI chat-completions dialect (llama.cpp, vLLM,
+Ollama, LM Studio), including one on the same network as the device. See
+koreader/README.md for the trust rules around plain-http addresses.
+
 @module koplugin.marginalia
 --]]
 
@@ -32,6 +37,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 
 local Ask = require("marginalia_ask")
 local Conversations = require("marginalia_conversations")
+local Endpoint = require("marginalia_endpoint")
 local Handoff = require("marginalia_handoff")
 local Memory = require("marginalia_memory")
 local Store = require("marginalia_store")
@@ -53,12 +59,14 @@ function Marginalia:init()
     self.settings = G_reader_settings:readSetting("marginalia", {
         endpoint = DEFAULT_ENDPOINT,
         spoiler_guard = true,
+        inference = Endpoint.RELAY,
     })
     -- A settings table written by an older version may be missing keys the
     -- current one reads, and `readSetting`'s default only applies when the whole
     -- table is absent.
     if self.settings.endpoint == nil then self.settings.endpoint = DEFAULT_ENDPOINT end
     if self.settings.spoiler_guard == nil then self.settings.spoiler_guard = true end
+    if self.settings.inference == nil then self.settings.inference = Endpoint.RELAY end
 
     local cafile = DataStorage:getDataDir() .. "/data/ca-bundle.crt"
 
@@ -427,13 +435,63 @@ function Marginalia:addToMainMenu(menu_items)
             },
             {
                 text_func = function()
+                    if self.settings.inference == Endpoint.OPENAI_COMPATIBLE then
+                        return _("Inference: your own server")
+                    end
+                    return _("Inference: Marginalia relay")
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    self:toggleInference(touchmenu_instance)
+                end,
+                help_text = _("Ask through the public Marginalia deployment, or through a server of your own that speaks the OpenAI chat format (llama.cpp, vLLM, Ollama, LM Studio)."),
+            },
+            {
+                show = function() return self.settings.inference == Endpoint.OPENAI_COMPATIBLE end,
+                text_func = function()
+                    return _("Server: ") .. (self.settings.server_url or _("not set"))
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    self:editServer(touchmenu_instance)
+                end,
+                help_text = _("Base address of your server, for example http://192.168.1.50:8080. Plain http:// is accepted only for addresses on your own network."),
+            },
+            {
+                show = function() return self.settings.inference == Endpoint.OPENAI_COMPATIBLE end,
+                text_func = function()
+                    return _("Model: ") .. (self.settings.model or _("not set"))
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    self:editModel(touchmenu_instance)
+                end,
+                help_text = _("The model name your server expects, exactly as it lists it."),
+            },
+            {
+                show = function() return self.settings.inference == Endpoint.OPENAI_COMPATIBLE end,
+                text_func = function()
+                    if self.settings.api_key and self.settings.api_key ~= "" then
+                        return _("API key: set")
+                    end
+                    return _("API key: none")
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    self:editApiKey(touchmenu_instance)
+                end,
+                help_text = _("Sent as a bearer token only when set. Servers on your own network usually need none."),
+                separator = true,
+            },
+            {
+                text_func = function()
                     return _("Relay: ") .. (self.settings.endpoint or "")
                 end,
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     self:editEndpoint(touchmenu_instance)
                 end,
-                help_text = _("Where questions are sent. The default is the public Marginalia deployment; change it only if you host your own."),
+                help_text = _("Where questions are sent when using the Marginalia relay. The default is the public deployment; change it only if you host your own."),
             },
         },
     }
@@ -472,6 +530,132 @@ function Marginalia:editEndpoint(touchmenu_instance)
                         return
                     end
                     self.settings.endpoint = endpoint
+                    self:saveSettings()
+                    UIManager:close(dialog)
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+--[[--
+Switches between the hosted relay and the reader's own server.
+
+Toggling is safe at any time: neither side's settings are touched, and the
+next question simply goes to whichever is now selected. The server entries
+appear in the menu only while the own-server mode is selected, so a reader
+who never leaves the relay sees exactly what they saw before.
+--]]
+function Marginalia:toggleInference(touchmenu_instance)
+    if self.settings.inference == Endpoint.OPENAI_COMPATIBLE then
+        self.settings.inference = Endpoint.RELAY
+    else
+        self.settings.inference = Endpoint.OPENAI_COMPATIBLE
+    end
+    self:saveSettings()
+    if touchmenu_instance then touchmenu_instance:updateItems() end
+end
+
+local function trimmed(value)
+    return (value:gsub("^%s+", "")):gsub("%s+$", "")
+end
+
+function Marginalia:editServer(touchmenu_instance)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Your server"),
+        input = self.settings.server_url or "",
+        input_hint = "http://192.168.1.50:8080",
+        description = _("Base address of an OpenAI-compatible chat server (llama.cpp, vLLM, Ollama, LM Studio). Plain http:// works only for addresses on your own network — https:// anywhere."),
+        buttons = {{
+            {
+                text = _("Cancel"),
+                id = "close",
+                callback = function() UIManager:close(dialog) end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    local url = trimmed(dialog:getInputText() or "")
+                    local usable, why = Endpoint.check(url)
+                    if not usable then
+                        UIManager:show(InfoMessage:new{ text = why })
+                        return
+                    end
+                    self.settings.server_url = url
+                    self:saveSettings()
+                    UIManager:close(dialog)
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function Marginalia:editModel(touchmenu_instance)
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Model name"),
+        input = self.settings.model or "",
+        input_hint = "qwen3-32b",
+        description = _("The model name as your server lists it — it must match exactly."),
+        buttons = {{
+            {
+                text = _("Cancel"),
+                id = "close",
+                callback = function() UIManager:close(dialog) end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    local model = trimmed(dialog:getInputText() or "")
+                    self.settings.model = model ~= "" and model or nil
+                    self:saveSettings()
+                    UIManager:close(dialog)
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
+end
+
+function Marginalia:editApiKey(touchmenu_instance)
+    local dialog
+    local current = self.settings.api_key or ""
+    dialog = InputDialog:new{
+        title = _("Server API key"),
+        input = current,
+        description = _("Sent to your server as a bearer token. Leave empty for servers that ask for no key; anything typed here stays on this device."),
+        buttons = {{
+            {
+                text = _("Cancel"),
+                id = "close",
+                callback = function() UIManager:close(dialog) end,
+            },
+            {
+                text = _("Clear"),
+                callback = function()
+                    self.settings.api_key = nil
+                    self:saveSettings()
+                    UIManager:close(dialog)
+                    if touchmenu_instance then touchmenu_instance:updateItems() end
+                end,
+            },
+            {
+                text = _("Save"),
+                is_enter_default = true,
+                callback = function()
+                    local key = trimmed(dialog:getInputText() or "")
+                    self.settings.api_key = key ~= "" and key or nil
                     self:saveSettings()
                     UIManager:close(dialog)
                     if touchmenu_instance then touchmenu_instance:updateItems() end

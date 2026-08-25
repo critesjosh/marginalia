@@ -179,12 +179,12 @@ function Memory:fold(thread_id, minimum)
         fence = fence,
     }
 
-    local endpoint = self.settings.endpoint
+    local settings = self.settings
     local cafile = self.cafile
     local version = self.plugin_version
 
     local completed, result = Trapper:dismissableRunInSubprocess(function()
-        return Relay.post(endpoint, messages, cafile, version)
+        return Relay.ask(settings, messages, cafile, version)
     end, _("Catching up on your notes…"))
 
     if not completed then return false, "cancelled" end
