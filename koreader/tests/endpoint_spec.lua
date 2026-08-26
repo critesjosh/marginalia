@@ -144,4 +144,14 @@ do
     H.equal(headers["Authorization"], "Bearer sk-local")
 end
 
+-- Only https asks for the verified-TLS factory; plain http must ride the
+-- connection KOReader ships, or the request would try to speak TLS at a
+-- server answering in the clear.
+do
+    H.ok(Endpoint.is_https("https://box.ts.net/v1/chat/completions"))
+    H.ok(not Endpoint.is_https("http://192.168.1.50:8080/v1/chat/completions"))
+    H.ok(not Endpoint.is_https("not a url"))
+    H.ok(not Endpoint.is_https(nil))
+end
+
 print("endpoint_spec ok")

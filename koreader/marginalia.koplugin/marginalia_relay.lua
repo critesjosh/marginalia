@@ -148,12 +148,19 @@ local function send(url, payload, headers, cafile, is_relay)
 
     local chunks = {}
     socketutil:set_timeout(BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    -- The verified-TLS factory is for https only; a plain-http endpoint gets
+    -- the connection KOReader ships, or the request would try to speak TLS
+    -- at a server that answers in the clear.
+    local create = nil
+    if Endpoint.is_https(url) then
+        create = TLS.create(host_of(url), cafile)
+    end
     local _, code, _, status = http.request({
         url = url,
         method = "POST",
         source = ltn12.source.string(encoded),
         sink = capped_sink(chunks),
-        create = TLS.create(host_of(url), cafile),
+        create = create,
         headers = setmetatable({ ["Content-Length"] = tostring(#encoded) }, {
             __index = headers,
         }),

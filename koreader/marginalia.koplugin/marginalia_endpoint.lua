@@ -85,6 +85,20 @@ function Endpoint.parse_url(url)
 end
 
 --[[--
+Whether a URL asks for the verified-TLS connection factory.
+
+Plain http must go over the socket KOReader ships — wrapping it in LuaSec
+would attempt a TLS handshake against a server that answers in the clear,
+and the request would die there.
+
+@treturn boolean
+--]]
+function Endpoint.is_https(url)
+    local scheme = Endpoint.parse_url(url)
+    return scheme == "https"
+end
+
+--[[--
 Strips the port from a `host:port` authority.
 --]]
 function Endpoint.host_of(authority)
