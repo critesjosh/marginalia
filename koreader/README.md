@@ -28,8 +28,10 @@ Copy the plugin directory onto the device:
 cp -r marginalia.koplugin <KOReader>/plugins/
 ```
 
-`<KOReader>` is `/mnt/us/koreader` on a Kindle, `.adds/koreader` on a Kobo, and
-`koreader/` in internal storage on Android. Restart KOReader. The plugin appears
+`<KOReader>` is `/mnt/us/koreader` on a Kindle, `.adds/koreader` on a Kobo,
+`applications/koreader` at the storage root as it appears over USB on a
+PocketBook, and `koreader/` in internal storage on Android. Restart KOReader.
+The plugin appears
 under **☰ → More tools → Marginalia**, its conversation list under **☰ →
 Marginalia conversations**, and **Ask Marginalia** joins the popup that appears
 when you select text.
