@@ -128,6 +128,23 @@ function Relay.request_size(messages)
 end
 
 --[[--
+Copies request headers into a flat table and adds Content-Length.
+
+LuaSocket copies headers with `pairs`, which deliberately ignores values
+inherited through a metatable's `__index`. Keeping this as a named, tested
+operation prevents Content-Type (and optional Authorization) quietly
+vanishing from the real request again.
+--]]
+function Relay.request_headers(headers, content_length)
+    local result = {}
+    for name, value in pairs(headers or {}) do
+        result[name] = value
+    end
+    result["Content-Length"] = tostring(content_length)
+    return result
+end
+
+--[[--
 Posts one encoded conversation to one verified endpoint and reads the reply.
 
 Both entry points below funnel here. Returns `{ ok = true, text = "…" }` or
@@ -148,6 +165,8 @@ local function send(url, payload, headers, cafile, is_relay)
 
     local chunks = {}
     socketutil:set_timeout(BLOCK_TIMEOUT, TOTAL_TIMEOUT)
+    local request_headers = Relay.request_headers(headers, #encoded)
+
     -- The verified-TLS factory is for https only; a plain-http endpoint gets
     -- the connection KOReader ships, or the request would try to speak TLS
     -- at a server that answers in the clear.
@@ -161,9 +180,7 @@ local function send(url, payload, headers, cafile, is_relay)
         source = ltn12.source.string(encoded),
         sink = capped_sink(chunks),
         create = create,
-        headers = setmetatable({ ["Content-Length"] = tostring(#encoded) }, {
-            __index = headers,
-        }),
+        headers = request_headers,
     })
     socketutil:reset_timeout()
 

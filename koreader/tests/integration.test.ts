@@ -813,6 +813,46 @@ describe('the plugin driven end to end', () => {
     expect(report).toContain('cleared_previous=First version.')
   })
 
+  it('puts every HTTP header on the real table LuaSocket iterates', () => {
+    const report = runLua(`
+      local Relay = require("marginalia_relay")
+      local inherited = setmetatable({
+        ["Content-Length"] = "wrong",
+      }, {
+        __index = {
+          ["Content-Type"] = "application/json",
+          ["Accept"] = "application/json",
+          ["Authorization"] = "Bearer local",
+        },
+      })
+
+      -- This reproduces the failed implementation: pairs cannot see any of
+      -- those inherited values. The helper must receive an ordinary table,
+      -- and the result itself must be flat for LuaSocket's own pairs loop.
+      local source = {
+        ["Content-Type"] = inherited["Content-Type"],
+        ["Accept"] = inherited["Accept"],
+        ["Authorization"] = inherited["Authorization"],
+      }
+      local headers = Relay.request_headers(source, 123)
+      local count = 0
+      for _ in pairs(headers) do count = count + 1 end
+      return table.concat({
+        "count=" .. count,
+        "type=" .. tostring(headers["Content-Type"]),
+        "accept=" .. tostring(headers["Accept"]),
+        "auth=" .. tostring(headers["Authorization"]),
+        "length=" .. tostring(headers["Content-Length"]),
+      }, "\\n")
+    `)
+
+    expect(report).toContain('count=4')
+    expect(report).toContain('type=application/json')
+    expect(report).toContain('accept=application/json')
+    expect(report).toContain('auth=Bearer local')
+    expect(report).toContain('length=123')
+  })
+
   it('puts the conversation list where you go back to things in a book', () => {
     const report = runLua(`
       -- main.lua as the plugin loader gets it; only the menu is exercised,
