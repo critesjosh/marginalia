@@ -58,8 +58,14 @@ function gutenbergRelay(): Plugin {
         const origin = `http://${req.headers.host ?? 'localhost'}`
         const requestUrl = new URL(req.url ?? '', new URL('/api/gutenberg', origin))
         requestUrl.pathname = '/api/gutenberg'
+
+        const headers = new Headers()
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers.set(name, value)
+        }
+
         const response = await handleGutenbergRequest(
-          new Request(requestUrl, { method: req.method, headers: req.headers as HeadersInit }),
+          new Request(requestUrl, { method: req.method, headers }),
         )
 
         res.statusCode = response.status
