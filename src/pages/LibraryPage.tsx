@@ -4,6 +4,11 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
+import {
+  downloadGutenbergBook,
+  searchGutenberg,
+  type CatalogBook,
+} from '../lib/gutenberg'
 import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
 import RemoveBookDialog from '../components/RemoveBookDialog'
@@ -15,6 +20,7 @@ export default function LibraryPage() {
   const [seeding, setSeeding] = useState(true)
   const [error, setError] = useState<string>()
   const [confirmRemove, setConfirmRemove] = useState<Book>()
+  const [showAddBook, setShowAddBook] = useState(false)
 
   // Most recently read first, so the book in progress is the one under the
   // thumb. A book that has never been opened falls back to when it arrived,
@@ -54,6 +60,20 @@ export default function LibraryPage() {
     }
   }, [])
 
+  async function importFile(file: File): Promise<string> {
+    const book = await parseEpubFile(file, file.name)
+    // Importing the same file as a book that was removed but kept picks its
+    // shelf back up, rather than standing a second, empty copy next to the
+    // notes it belongs to.
+    const archivedMatch = await findArchivedMatch(book)
+    if (archivedMatch) {
+      await restoreBook(archivedMatch.id, book)
+      return archivedMatch.id
+    }
+    await db.books.add(book)
+    return book.id
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
     setImporting(true)
@@ -61,13 +81,7 @@ export default function LibraryPage() {
     const failures: string[] = []
     for (const file of Array.from(files)) {
       try {
-        const book = await parseEpubFile(file, file.name)
-        // Importing the same file as a book that was removed but kept picks its
-        // shelf back up, rather than standing a second, empty copy next to the
-        // notes it belongs to.
-        const archivedMatch = await findArchivedMatch(book)
-        if (archivedMatch) await restoreBook(archivedMatch.id, book)
-        else await db.books.add(book)
+        await importFile(file)
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
@@ -91,12 +105,12 @@ export default function LibraryPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => fileInput.current?.click()}
+              onClick={() => setShowAddBook(true)}
               disabled={importing}
               className="flex items-center gap-1.5 rounded-full bg-amber-500 px-3.5 py-2 text-sm font-medium text-stone-950 disabled:opacity-50"
             >
               <PlusIcon className="h-4 w-4" />
-              {importing ? 'Importing…' : 'Add EPUB'}
+              {importing ? 'Importing…' : 'Add book'}
             </button>
             <Link
               to="/settings"
@@ -126,7 +140,7 @@ export default function LibraryPage() {
         )}
 
         {books && books.length === 0 && !seeding && (
-          <EmptyState onPick={() => fileInput.current?.click()} />
+          <EmptyState onPick={() => setShowAddBook(true)} />
         )}
 
         {books && books.length === 0 && seeding && (
@@ -155,6 +169,17 @@ export default function LibraryPage() {
         )}
       </main>
 
+      {showAddBook && (
+        <AddBookDialog
+          onClose={() => setShowAddBook(false)}
+          onChooseFile={() => {
+            setShowAddBook(false)
+            fileInput.current?.click()
+          }}
+          onImport={importFile}
+        />
+      )}
+
       {confirmRemove && (
         <RemoveBookDialog
           book={confirmRemove}
@@ -171,6 +196,170 @@ export default function LibraryPage() {
   )
 }
 
+function AddBookDialog({
+  onClose,
+  onChooseFile,
+  onImport,
+}: {
+  onClose: () => void
+  onChooseFile: () => void
+  onImport: (file: File) => Promise<string>
+}) {
+  const navigate = useNavigate()
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<CatalogBook[]>([])
+  const [searching, setSearching] = useState(false)
+  const [addingId, setAddingId] = useState<number>()
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    if (trimmed.length < 2) {
+      setResults([])
+      setSearching(false)
+      setError(undefined)
+      return
+    }
+
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      setSearching(true)
+      setError(undefined)
+      void searchGutenberg(trimmed, controller.signal)
+        .then((books) => setResults(books))
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setResults([])
+          setError(err instanceof Error ? err.message : 'Search failed.')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSearching(false)
+        })
+    }, 350)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [query])
+
+  async function addBook(book: CatalogBook) {
+    setAddingId(book.id)
+    setError(undefined)
+    try {
+      const file = await downloadGutenbergBook(book)
+      const bookId = await onImport(file)
+      onClose()
+      navigate(`/book/${bookId}`)
+    } catch (err) {
+      setError(
+        err instanceof EpubImportError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not add that book.',
+      )
+      setAddingId(undefined)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-black/70 sm:items-center sm:justify-center" role="presentation">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-book-title"
+        className="max-h-[88vh] w-full overflow-y-auto rounded-t-2xl border border-stone-800 bg-stone-950 p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 id="add-book-title" className="text-lg font-semibold text-stone-100">
+              Add a book
+            </h2>
+            <p className="text-xs text-stone-500">Search free public-domain EPUBs or import your own.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-2xl leading-none text-stone-400 hover:bg-stone-800 hover:text-stone-100"
+          >
+            ×
+          </button>
+        </div>
+
+        <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-stone-500">
+          Project Gutenberg
+        </label>
+        <input
+          autoFocus
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by title or author"
+          className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-3.5 py-3 text-base text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-500"
+        />
+
+        {searching && <p className="mt-3 text-sm text-stone-500">Searching Project Gutenberg…</p>}
+        {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+        {!searching && query.trim().length >= 2 && !error && results.length === 0 && (
+          <p className="mt-3 text-sm text-stone-500">No EPUBs found.</p>
+        )}
+
+        {results.length > 0 && (
+          <ul className="mt-3 divide-y divide-stone-800 rounded-xl border border-stone-800 bg-stone-900/50">
+            {results.map((book) => (
+              <li key={book.id} className="flex gap-3 p-3">
+                <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-stone-800">
+                  {book.coverUrl ? (
+                    <img src={book.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-1 text-center text-[10px] text-stone-500">
+                      No cover
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-sm font-medium text-stone-200">{book.title}</p>
+                  <p className="mt-0.5 line-clamp-1 text-xs text-stone-500">{book.author}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-stone-600">
+                      {book.languages.join(', ').toUpperCase() || 'EPUB'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={addingId !== undefined}
+                      onClick={() => void addBook(book)}
+                      className="rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-stone-950 disabled:opacity-50"
+                    >
+                      {addingId === book.id ? 'Adding…' : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="my-5 flex items-center gap-3 text-xs text-stone-600">
+          <div className="h-px flex-1 bg-stone-800" />
+          or
+          <div className="h-px flex-1 bg-stone-800" />
+        </div>
+
+        <button
+          type="button"
+          onClick={onChooseFile}
+          className="w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-sm font-medium text-stone-200 hover:bg-stone-800"
+        >
+          Choose an EPUB from this device
+        </button>
+        <p className="mt-2 text-center text-xs text-stone-600">Books stay stored on this device.</p>
+      </section>
+    </div>
+  )
+}
+
 function EmptyState({ onPick }: { onPick: () => void }) {
   return (
     <div className="mt-24 text-center">
@@ -179,13 +368,13 @@ function EmptyState({ onPick }: { onPick: () => void }) {
       </div>
       <h2 className="text-base font-medium text-stone-300">Your library is empty</h2>
       <p className="mx-auto mt-1 max-w-xs text-sm text-stone-500">
-        Add a DRM-free EPUB to start reading. Books are stored on this device only.
+        Search Project Gutenberg or add a DRM-free EPUB to start reading.
       </p>
       <button
         onClick={onPick}
         className="mt-5 rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-100"
       >
-        Choose a file
+        Add a book
       </button>
     </div>
   )
