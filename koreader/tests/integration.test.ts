@@ -102,6 +102,39 @@ describe('the plugin driven end to end', () => {
     expect(report).toContain('transcript_has_q=true')
   })
 
+  it('leaves room to type a question longer than one line', () => {
+    const report = runLua(`
+      local Ask = require("marginalia_ask")
+      local ui = FakeUI()
+      local ask = Ask:new{ ui = ui, settings = FakeSettings(), memory = FakeMemory(),
+                           plugin_version = "test", cafile = "/ca" }
+
+      -- A passage of several paragraphs, which is what crowds the box: it is
+      -- quoted above the input, and the input gets what is left.
+      local passage = string.rep("Call me Ishmael. ", 60)
+      ui.highlight.selected_text = FakeSelection(passage, "/xp/1.0", "/xp/1.20")
+      ask:from_selection(ui.highlight)
+
+      local dialog = INPUT_DIALOGS[1]
+      return table.concat({
+        "grows=" .. tostring(dialog.use_available_height == true),
+        "fixed_height=" .. tostring(dialog.text_height ~= nil),
+        "quote_bounded=" .. tostring(#dialog.description < #passage),
+        "quote_kept=" .. tostring(dialog.description:find("Call me Ishmael.", 1, true) ~= nil),
+        "enter_asks=" .. tostring(dialog.allow_newline ~= true),
+      }, "\\n")
+    `)
+
+    // The box sizes itself from what the passage and keyboard leave over
+    // rather than from a fixed height, and the quote is bounded so that there
+    // is something left to size.
+    expect(report).toContain('grows=true')
+    expect(report).toContain('fixed_height=false')
+    expect(report).toContain('quote_bounded=true')
+    expect(report).toContain('quote_kept=true')
+    expect(report).toContain('enter_asks=true')
+  })
+
   it('reopens an existing conversation instead of asking again', () => {
     const report = runLua(`
       local Ask = require("marginalia_ask")

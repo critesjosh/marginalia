@@ -137,4 +137,29 @@ do
         "a tie keeps the later-stored thread first, stably")
 end
 
+-- The passage quoted above the question box. What matters is that an ordinary
+-- highlight is shown whole and a page-long one is not, since the box below it
+-- is sized from what the quote leaves behind.
+do
+    local short = "One must be superior to mankind in force."
+    H.equal(View.excerpt(short), short, "a sentence is quoted whole")
+    H.equal(View.excerpt(""), "", "nothing quotes as nothing")
+    H.equal(View.excerpt(nil), "", "no passage at all is not an error")
+
+    local long = ("word "):rep(200)
+    local cut = View.excerpt(long)
+    H.ok(#cut < #long, "a page-long passage is shortened")
+    H.equal(cut:sub(-4), "d…", "it ends on a whole word, with the ellipsis against it")
+
+    H.equal(View.excerpt("alpha beta gamma", 12), "alpha beta…",
+        "the last whole word inside the limit, with the space trimmed")
+
+    -- Measured in characters, not bytes: an accented passage must not be cut to
+    -- a third of its apparent length, nor severed mid-codepoint.
+    local accented = ("é"):rep(40)
+    H.equal(View.excerpt(accented, 40), accented, "40 characters is 40 characters")
+    H.equal(View.excerpt(accented, 20), ("é"):rep(20) .. "…",
+        "an unbroken run of multibyte characters cuts on a codepoint boundary")
+end
+
 print("view_spec ok")

@@ -435,11 +435,21 @@ function Ask:prompt_for_question(snapshot, thread, index)
     local dialog
     dialog = InputDialog:new{
         title = thread and _("Ask a follow-up") or _("Ask Marginalia"),
-        description = snapshot.text,
+        -- Quoted back so it is clear what the question will be about, but only
+        -- as much of it as leaves somewhere to type: the passage sits in the
+        -- title bar, and the box below is sized from whatever the title bar and
+        -- the keyboard have left over.
+        description = View.excerpt(snapshot.text),
         description_face = nil,
         input = "",
         input_hint = _("What do you want to know about this passage?"),
         allow_newline = false,
+        -- A question long enough to wrap is not unusual, and a one-line box
+        -- shows only the end of it while it is being written. This grows the
+        -- box into the space between the passage and the keyboard, and regrows
+        -- it when the keyboard is dismissed, so the whole question stays in
+        -- view. Enter still asks: `allow_newline` stays off.
+        use_available_height = true,
         buttons = {{
             {
                 text = _("Cancel"),

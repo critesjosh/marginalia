@@ -207,8 +207,12 @@ function Marginalia:editNotes(summary)
         title = _("Notes on this book"),
         input = summary,
         allow_newline = true,
-        -- Tall, because this is a paragraph of notes rather than a question.
-        text_height = math.floor(require("device").screen:getHeight() * 0.4),
+        -- Tall, because this is a paragraph of notes rather than a question:
+        -- the box takes everything the description and the keyboard leave, so
+        -- the notes are edited whole rather than through a slot. A fixed
+        -- fraction of the screen could not do that — it does not know how much
+        -- room the keyboard has taken, so it either wastes space or overflows.
+        use_available_height = true,
         description = _("Later updates merge into whatever is here, so an edit carries forward rather than being summarised away."),
         buttons = {{
             {

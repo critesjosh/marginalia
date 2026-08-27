@@ -28,6 +28,53 @@ local function trimmed(value)
     return clean
 end
 
+--- Byte offset of the start of every UTF-8 character in `s`, plus an end sentinel.
+-- A byte begins a character iff it is not a continuation byte (0x80..0xBF).
+local function char_offsets(s)
+    local offsets = {}
+    for position in s:gmatch("()[^\128-\191]") do
+        offsets[#offsets + 1] = position
+    end
+    offsets[#offsets + 1] = #s + 1
+    return offsets
+end
+
+--[[--
+How much of a passage a dialog quotes back before it starts eating the screen.
+
+Generous enough that an ordinary highlight — a sentence, a short paragraph — is
+shown whole, and only a selection of several paragraphs is shortened.
+--]]
+View.EXCERPT_CHARS = 320
+
+--[[--
+A passage cut down to something that can sit above an input box.
+
+The point is the room *below* it: the question box is sized from what is left of
+the screen once the quoted passage and the keyboard have taken theirs, so an
+unbounded quote is an unusably small place to type. Cutting at the last space
+keeps the excerpt to whole words, and measuring in characters rather than bytes
+keeps it from severing a codepoint in accented or CJK prose.
+
+@param text the passage
+@param limit characters to keep, defaulting to `View.EXCERPT_CHARS`
+@treturn string
+--]]
+function View.excerpt(text, limit)
+    if type(text) ~= "string" then return "" end
+    limit = limit or View.EXCERPT_CHARS
+
+    local offsets = char_offsets(text)
+    if #offsets - 1 <= limit then return text end
+
+    local head = text:sub(1, offsets[limit + 1] - 1)
+    -- Back off to the last space, unless the whole excerpt is one long word, in
+    -- which case the character boundary above is the best cut there is.
+    local words = head:match("^(.*)%s")
+    if words and words:match("%S") then head = words end
+    return (head:gsub("%s+$", "")) .. "…"
+end
+
 --[[--
 One thread as a transcript.
 
