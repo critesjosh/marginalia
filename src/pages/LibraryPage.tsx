@@ -11,6 +11,7 @@ import {
 } from '../lib/gutenberg'
 import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
+import { useModal } from '../lib/useModal'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 
@@ -206,6 +207,8 @@ function AddBookDialog({
   onImport: (file: File) => Promise<string>
 }) {
   const navigate = useNavigate()
+  // Searching is why the dialog opens, so focus lands in the field.
+  const ref = useModal<HTMLElement>(onClose, 'input[type="search"]')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CatalogBook[]>([])
   const [searching, setSearching] = useState(false)
@@ -222,9 +225,13 @@ function AddBookDialog({
     }
 
     const controller = new AbortController()
+    // Set before the debounce, not inside it: during those 350 ms the results
+    // are empty, and a `searching` of false there renders "No EPUBs found."
+    // for a search that has not run yet.
+    setSearching(true)
+    setError(undefined)
+
     const timer = window.setTimeout(() => {
-      setSearching(true)
-      setError(undefined)
       void searchGutenberg(trimmed, controller.signal)
         .then((books) => setResults(books))
         .catch((err) => {
@@ -243,15 +250,26 @@ function AddBookDialog({
     }
   }, [query])
 
+  // A download the reader walked away from must not pull them into the reader
+  // when it lands. The controller cancels the transfer as the dialog closes;
+  // the guards cover the window between the bytes arriving and the import
+  // finishing, when there is no longer a dialog to report back to.
+  const download = useRef<AbortController | null>(null)
+  useEffect(() => () => download.current?.abort(), [])
+
   async function addBook(book: CatalogBook) {
+    const controller = new AbortController()
+    download.current = controller
     setAddingId(book.id)
     setError(undefined)
     try {
-      const file = await downloadGutenbergBook(book)
+      const file = await downloadGutenbergBook(book, controller.signal)
       const bookId = await onImport(file)
+      if (controller.signal.aborted) return
       onClose()
       navigate(`/book/${bookId}`)
     } catch (err) {
+      if (controller.signal.aborted) return
       setError(
         err instanceof EpubImportError
           ? err.message
@@ -264,12 +282,14 @@ function AddBookDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-30 flex items-end bg-black/70 sm:items-center sm:justify-center" role="presentation">
+    <div className="fixed inset-0 z-30 flex items-end sm:items-center sm:justify-center" role="presentation">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
       <section
+        ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-book-title"
-        className="max-h-[88vh] w-full overflow-y-auto rounded-t-2xl border border-stone-800 bg-stone-950 p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl"
+        className="relative max-h-[88vh] w-full overflow-y-auto rounded-t-2xl border border-stone-800 bg-stone-950 p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl"
       >
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -292,7 +312,6 @@ function AddBookDialog({
           Project Gutenberg
         </label>
         <input
-          autoFocus
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}

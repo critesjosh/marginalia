@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { downloadGutenbergBook, searchGutenberg } from './gutenberg'
+import { downloadGutenbergBook, searchGutenberg } from './gutenberg.ts'
 
 describe('searchGutenberg', () => {
   it('normalizes Gutendex results and URL-encodes the search', async () => {
@@ -65,10 +65,11 @@ describe('downloadGutenbergBook', () => {
         languages: ['en'],
         downloadCount: 10,
       },
+      undefined,
       fetcher,
     )
 
-    expect(fetcher).toHaveBeenCalledWith('/api/gutenberg?book=2701')
+    expect(fetcher).toHaveBeenCalledWith('/api/gutenberg?book=2701', { signal: undefined })
     expect(file.name).toBe('Moby-Dick or, The Whale.epub')
     expect(file.type).toBe('application/epub+zip')
     expect(file.size).toBe(4)

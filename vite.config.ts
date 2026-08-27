@@ -66,6 +66,7 @@ function gutenbergRelay(): Plugin {
 
         const response = await handleGutenbergRequest(
           new Request(requestUrl, { method: req.method, headers }),
+          { ip: req.socket.remoteAddress ?? '' },
         )
 
         res.statusCode = response.status
