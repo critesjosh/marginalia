@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { Readable } from 'node:stream'
 import { handleRelayRequest } from './shared/relay.ts'
+import { handleGutenbergRequest } from './shared/gutenberg.ts'
 
 /**
  * Serves /api/chat in dev with the same handler the Netlify edge function uses,
@@ -48,6 +49,28 @@ function chatRelay(apiKey: string): Plugin {
   }
 }
 
+/** Uses the production Gutenberg handler in dev too, including its URL validation. */
+function gutenbergRelay(): Plugin {
+  return {
+    name: 'marginalia-gutenberg-relay',
+    configureServer(server) {
+      server.middlewares.use('/api/gutenberg', async (req, res) => {
+        const origin = `http://${req.headers.host ?? 'localhost'}`
+        const requestUrl = new URL(req.url ?? '', new URL('/api/gutenberg', origin))
+        requestUrl.pathname = '/api/gutenberg'
+        const response = await handleGutenbergRequest(
+          new Request(requestUrl, { method: req.method, headers: req.headers as HeadersInit }),
+        )
+
+        res.statusCode = response.status
+        response.headers.forEach((value, key) => res.setHeader(key, value))
+        if (response.body) Readable.fromWeb(response.body).pipe(res)
+        else res.end()
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
@@ -56,6 +79,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       chatRelay(env.OPENROUTER_API_KEY ?? ''),
+      gutenbergRelay(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg'],
@@ -78,7 +102,7 @@ export default defineConfig(({ mode }) => {
           // Books live in IndexedDB, not the SW cache, so the precache stays
           // small — including the sample EPUB, which is fetched once on first run.
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          // The relay must never be served from the SPA fallback or a cache.
+          // Relays must never be served from the SPA fallback or a cache.
           navigateFallbackDenylist: [/^\/api\//],
         },
       }),
