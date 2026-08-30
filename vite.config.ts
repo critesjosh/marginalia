@@ -98,6 +98,14 @@ export default defineConfig(({ mode }) => {
           background_color: '#1c1917',
           display: 'standalone',
           start_url: '/',
+          // Lets the reader share a Gutenberg book page straight out of their
+          // browser into Marginalia instead of copying the link across. Android
+          // share sheets vary in which field they fill, so /add reads them all.
+          share_target: {
+            action: '/add',
+            method: 'GET',
+            params: { title: 'title', text: 'text', url: 'url' },
+          },
           icons: [
             { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
             { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },

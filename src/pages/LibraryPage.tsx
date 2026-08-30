@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
+import { archiveBook, db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
-import { EpubImportError, parseEpubFile } from '../lib/epub'
+import { EpubImportError } from '../lib/epub'
 import {
   downloadGutenbergBook,
+  parseGutenbergRef,
   searchGutenberg,
   type CatalogBook,
 } from '../lib/gutenberg'
+import { importEpub } from '../lib/importBook'
 import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
 import { useModal } from '../lib/useModal'
@@ -61,20 +63,6 @@ export default function LibraryPage() {
     }
   }, [])
 
-  async function importFile(file: File): Promise<string> {
-    const book = await parseEpubFile(file, file.name)
-    // Importing the same file as a book that was removed but kept picks its
-    // shelf back up, rather than standing a second, empty copy next to the
-    // notes it belongs to.
-    const archivedMatch = await findArchivedMatch(book)
-    if (archivedMatch) {
-      await restoreBook(archivedMatch.id, book)
-      return archivedMatch.id
-    }
-    await db.books.add(book)
-    return book.id
-  }
-
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return
     setImporting(true)
@@ -82,7 +70,7 @@ export default function LibraryPage() {
     const failures: string[] = []
     for (const file of Array.from(files)) {
       try {
-        await importFile(file)
+        await importEpub(file)
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
@@ -177,7 +165,7 @@ export default function LibraryPage() {
             setShowAddBook(false)
             fileInput.current?.click()
           }}
-          onImport={importFile}
+          onImport={importEpub}
         />
       )}
 
@@ -213,6 +201,9 @@ function AddBookDialog({
   // Searching is why the dialog opens, so focus lands in the field.
   const ref = useModal<HTMLElement>(onClose, 'input[type="search"]')
   const [query, setQuery] = useState('')
+  // A pasted link resolves to a book on its own; a bare number is ambiguous
+  // and gets offered alongside the search rather than instead of it.
+  const pastedRef = parseGutenbergRef(query)
   const [results, setResults] = useState<CatalogBook[]>([])
   const [searching, setSearching] = useState(false)
   const [slow, setSlow] = useState(false)
@@ -225,7 +216,8 @@ function AddBookDialog({
 
   useEffect(() => {
     const trimmed = query.trim()
-    if (trimmed.length < 2) {
+    // Searching Gutendex for the text of a URL can only ever return nothing.
+    if (pastedRef?.source === 'url' || trimmed.length < 2) {
       setResults([])
       setSearching(false)
       setSlow(false)
@@ -267,7 +259,7 @@ function AddBookDialog({
       window.clearTimeout(slowTimer)
       controller.abort()
     }
-  }, [query, attempt])
+  }, [query, attempt, pastedRef?.source])
 
   // A download the reader walked away from must not pull them into the reader
   // when it lands. The controller cancels the transfer as the dialog closes;
@@ -276,7 +268,7 @@ function AddBookDialog({
   const download = useRef<AbortController | null>(null)
   useEffect(() => () => download.current?.abort(), [])
 
-  async function addBook(book: CatalogBook) {
+  async function addBook(book: { id: number; title?: string }) {
     const controller = new AbortController()
     download.current = controller
     setAddingId(book.id)
@@ -337,6 +329,39 @@ function AddBookDialog({
           placeholder="Search by title or author"
           className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-3.5 py-3 text-base text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-500"
         />
+        <p className="mt-2 text-xs text-stone-500">
+          Or paste a book link from{' '}
+          <a
+            href="https://www.gutenberg.org/ebooks/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-500 underline underline-offset-2"
+          >
+            gutenberg.org
+          </a>
+          .
+        </p>
+
+        {pastedRef && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-stone-800 bg-stone-900/50 p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-stone-200">Project Gutenberg #{pastedRef.id}</p>
+              <p className="mt-0.5 text-xs text-stone-500">
+                {pastedRef.source === 'url'
+                  ? 'From the link you pasted.'
+                  : 'Add this book id directly.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={addingId !== undefined}
+              onClick={() => void addBook({ id: pastedRef.id })}
+              className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-stone-950 disabled:opacity-50"
+            >
+              {addingId === pastedRef.id ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        )}
 
         {searching && (
           <p className="mt-3 text-sm text-stone-500">
@@ -358,7 +383,7 @@ function AddBookDialog({
           </div>
         )}
         {addError && <p className="mt-3 text-sm text-red-300">{addError}</p>}
-        {!searching && query.trim().length >= 2 && !searchError && results.length === 0 && (
+        {!searching && !pastedRef && query.trim().length >= 2 && !searchError && results.length === 0 && (
           <p className="mt-3 text-sm text-stone-500">No EPUBs found.</p>
         )}
 
