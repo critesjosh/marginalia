@@ -8,6 +8,8 @@
  * only the conversation, never what it costs to answer it.
  */
 
+import { createRateLimiter, isCrossOrigin } from './http-guards.ts'
+
 const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions'
 
 interface Route {
@@ -39,9 +41,8 @@ const MAX_MESSAGES = 60
 const MAX_TOTAL_CHARS = 120_000
 const MAX_OUTPUT_TOKENS = 1500
 
-/** Best-effort per-IP throttle. See `rateLimited` for what this does not cover. */
-const WINDOW_MS = 5 * 60_000
-const MAX_REQUESTS_PER_WINDOW = 40
+/** Best-effort per-IP throttle. See `createRateLimiter` for what it cannot cover. */
+const rateLimited = createRateLimiter({ windowMs: 5 * 60_000, maxRequests: 40 })
 
 /**
  * How long the upstream attempt may spend waiting for response headers. The
@@ -196,51 +197,6 @@ function parseBody(payload: unknown): ParsedBody {
   }
 
   return { messages: clean, stream: stream === true }
-}
-
-/**
- * Rejects requests whose Origin is not this site. A determined caller can forge
- * the header, so this only stops casual reuse of the endpoint from other pages;
- * the spend ceiling is the credit limit on the OpenRouter key itself.
- *
- * A request with no Origin at all passes, and that is deliberate rather than an
- * oversight: browsers always send one on a cross-origin request, while a
- * non-browser client sends none. The KOReader plugin in `koreader/` is one such
- * client, and asking a question from an e-reader goes through this endpoint.
- * Those requests identify themselves with `X-Marginalia-Client` if they ever
- * need throttling separately.
- */
-function isCrossOrigin(request: Request): boolean {
-  const origin = request.headers.get('origin')
-  if (!origin) return false
-  try {
-    return new URL(origin).host !== new URL(request.url).host
-  } catch {
-    return true
-  }
-}
-
-const hits = new Map<string, number[]>()
-
-/**
- * Sliding window kept in isolate memory. Edge isolates are per-region and
- * short-lived, so this trims obvious hammering rather than enforcing a global
- * quota — treat it as a speed bump, not a budget.
- */
-function rateLimited(ip: string): boolean {
-  if (!ip) return false
-  const now = Date.now()
-  const recent = (hits.get(ip) ?? []).filter((at) => now - at < WINDOW_MS)
-  recent.push(now)
-  hits.set(ip, recent)
-
-  if (hits.size > 5000) {
-    for (const [key, times] of hits) {
-      if (times.every((at) => now - at >= WINDOW_MS)) hits.delete(key)
-    }
-  }
-
-  return recent.length > MAX_REQUESTS_PER_WINDOW
 }
 
 /** Pulls OpenRouter's own message out of an error body, if it sent one. */
