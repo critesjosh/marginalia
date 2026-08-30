@@ -30,7 +30,7 @@ afterEach(() => {
 })
 
 describe('handleGutenbergRequest', () => {
-  it('proxies search through Gutendex with the EPUB filter', async () => {
+  it('proxies search through Gutendex without the slow format filter', async () => {
     fetchMock.mockResolvedValue(Response.json({ results: [] }))
 
     const response = await handleGutenbergRequest(catalogRequest('search=pride%20prejudice'), {
@@ -41,7 +41,20 @@ describe('handleGutenbergRequest', () => {
     const [url] = fetchMock.mock.calls[0] as [URL]
     expect(String(url)).toContain('https://gutendex.com/books?')
     expect(String(url)).toContain('search=pride+prejudice')
-    expect(String(url)).toContain('mime_type=application%2Fepub%2Bzip')
+    // Filtering by format here makes Gutendex scan each book's formats blob,
+    // which is what pushed slow queries past the budget. The client filters.
+    expect(String(url)).not.toContain('mime_type')
+  })
+
+  it('lets the CDN answer a search someone already ran', async () => {
+    fetchMock.mockResolvedValue(Response.json({ results: [] }))
+
+    const response = await handleGutenbergRequest(catalogRequest('search=whale'), {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(response.headers.get('Netlify-CDN-Cache-Control')).toContain('s-maxage=3600')
+    expect(response.headers.get('Cache-Control')).toContain('max-age=300')
   })
 
   it('rejects arbitrary book paths instead of becoming an open proxy', async () => {
@@ -124,7 +137,7 @@ describe('unreachable upstream', () => {
 
     expect(response.status).toBe(504)
     expect(response.headers.get('content-type')).toContain('application/json')
-    expect(await errorMessage(response)).toMatch(/unavailable/i)
+    expect(await errorMessage(response)).toMatch(/too long/i)
   })
 
   it('cuts off a download that never sends headers', async () => {

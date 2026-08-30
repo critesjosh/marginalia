@@ -11,7 +11,10 @@ describe('searchGutenberg', () => {
             title: 'Pride and Prejudice',
             authors: [{ name: 'Austen, Jane' }],
             languages: ['en'],
-            formats: { 'image/jpeg': 'https://example.test/cover.jpg' },
+            formats: {
+              'image/jpeg': 'https://example.test/cover.jpg',
+              'application/epub+zip': 'https://example.test/1342.epub',
+            },
             download_count: 123,
           },
         ],
@@ -33,6 +36,29 @@ describe('searchGutenberg', () => {
         downloadCount: 123,
       },
     ])
+  })
+
+  it('drops results with no EPUB, since the relay no longer filters upstream', async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        results: [
+          {
+            id: 1,
+            title: 'Audio only',
+            formats: { 'audio/mpeg': 'https://example.test/1.mp3' },
+          },
+          {
+            id: 2,
+            title: 'Has an EPUB',
+            formats: { 'application/epub+zip': 'https://example.test/2.epub' },
+          },
+        ],
+      }),
+    ) as unknown as typeof fetch
+
+    const books = await searchGutenberg('anything', undefined, fetcher)
+
+    expect(books.map((book) => book.id)).toEqual([2])
   })
 
   it('does not fetch an empty query', async () => {

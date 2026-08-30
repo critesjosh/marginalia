@@ -197,6 +197,9 @@ export default function LibraryPage() {
   )
 }
 
+/** How long a search may run before the dialog admits it is being slow. */
+const SLOW_SEARCH_MS = 5_000
+
 function AddBookDialog({
   onClose,
   onChooseFile,
@@ -212,15 +215,21 @@ function AddBookDialog({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CatalogBook[]>([])
   const [searching, setSearching] = useState(false)
+  const [slow, setSlow] = useState(false)
   const [addingId, setAddingId] = useState<number>()
-  const [error, setError] = useState<string>()
+  // Kept apart because only one of them is worth offering a Retry for.
+  const [searchError, setSearchError] = useState<string>()
+  const [addError, setAddError] = useState<string>()
+  // Bumped by Retry to re-run the effect on an unchanged query.
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     const trimmed = query.trim()
     if (trimmed.length < 2) {
       setResults([])
       setSearching(false)
-      setError(undefined)
+      setSlow(false)
+      setSearchError(undefined)
       return
     }
 
@@ -229,7 +238,8 @@ function AddBookDialog({
     // are empty, and a `searching` of false there renders "No EPUBs found."
     // for a search that has not run yet.
     setSearching(true)
-    setError(undefined)
+    setSlow(false)
+    setSearchError(undefined)
 
     const timer = window.setTimeout(() => {
       void searchGutenberg(trimmed, controller.signal)
@@ -237,18 +247,27 @@ function AddBookDialog({
         .catch((err) => {
           if (controller.signal.aborted) return
           setResults([])
-          setError(err instanceof Error ? err.message : 'Search failed.')
+          setSearchError(err instanceof Error ? err.message : 'Search failed.')
         })
         .finally(() => {
-          if (!controller.signal.aborted) setSearching(false)
+          if (!controller.signal.aborted) {
+            setSearching(false)
+            setSlow(false)
+          }
         })
     }, 350)
 
+    // Gutendex regularly takes many seconds to answer. Saying so is the
+    // difference between a wait a reader will sit through and a spinner they
+    // cannot tell apart from a hang.
+    const slowTimer = window.setTimeout(() => setSlow(true), SLOW_SEARCH_MS)
+
     return () => {
       window.clearTimeout(timer)
+      window.clearTimeout(slowTimer)
       controller.abort()
     }
-  }, [query])
+  }, [query, attempt])
 
   // A download the reader walked away from must not pull them into the reader
   // when it lands. The controller cancels the transfer as the dialog closes;
@@ -261,7 +280,7 @@ function AddBookDialog({
     const controller = new AbortController()
     download.current = controller
     setAddingId(book.id)
-    setError(undefined)
+    setAddError(undefined)
     try {
       const file = await downloadGutenbergBook(book, controller.signal)
       const bookId = await onImport(file)
@@ -270,7 +289,7 @@ function AddBookDialog({
       navigate(`/book/${bookId}`)
     } catch (err) {
       if (controller.signal.aborted) return
-      setError(
+      setAddError(
         err instanceof EpubImportError
           ? err.message
           : err instanceof Error
@@ -319,9 +338,27 @@ function AddBookDialog({
           className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-3.5 py-3 text-base text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-500"
         />
 
-        {searching && <p className="mt-3 text-sm text-stone-500">Searching Project Gutenberg…</p>}
-        {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-        {!searching && query.trim().length >= 2 && !error && results.length === 0 && (
+        {searching && (
+          <p className="mt-3 text-sm text-stone-500">
+            {slow
+              ? 'Still searching — Project Gutenberg is slow right now…'
+              : 'Searching Project Gutenberg…'}
+          </p>
+        )}
+        {searchError && (
+          <div className="mt-3 flex items-start justify-between gap-3">
+            <p className="text-sm text-red-300">{searchError}</p>
+            <button
+              type="button"
+              onClick={() => setAttempt((n) => n + 1)}
+              className="shrink-0 rounded-full border border-stone-700 px-3 py-1 text-xs font-medium text-stone-300 hover:bg-stone-800 hover:text-stone-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {addError && <p className="mt-3 text-sm text-red-300">{addError}</p>}
+        {!searching && query.trim().length >= 2 && !searchError && results.length === 0 && (
           <p className="mt-3 text-sm text-stone-500">No EPUBs found.</p>
         )}
 

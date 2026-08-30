@@ -57,14 +57,20 @@ export async function handleGutenbergRequest(
   if (search) {
     if (search.length > 200) return json({ error: 'Search is too long.' }, 400)
 
+    // Deliberately no `mime_type` filter. Gutendex matches that against each
+    // book's formats blob rather than an index, and paying for it on top of a
+    // full-text search is slow enough to push some queries past the budget
+    // below — while excluding almost nothing, since nearly every Gutenberg
+    // book has an EPUB. The client drops the few results that lack one.
     const upstream = new URL(GUTENDEX_URL)
     upstream.searchParams.set('search', search)
-    upstream.searchParams.set('mime_type', 'application/epub+zip')
 
     const response = await fetchUpstream(fetcher, upstream, {
       headers: { Accept: 'application/json' },
     })
-    if (!response) return json({ error: 'Project Gutenberg search is unavailable.' }, 504)
+    // Distinct from the 502 below: a reader who timed out should retry, and a
+    // reader whose upstream refused should not be told to wait it out.
+    if (!response) return json({ error: 'Project Gutenberg took too long to answer.' }, 504)
     if (!response.ok) return json({ error: 'Project Gutenberg search is unavailable.' }, 502)
 
     return new Response(response.body, {
@@ -72,6 +78,12 @@ export async function handleGutenbergRequest(
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'public, max-age=300',
+        // The browser directive above only spares the reader who repeats their
+        // own search. Gutendex is slow enough that nobody should reach it for a
+        // query someone already ran, and the catalog barely moves, so the CDN
+        // holds answers for an hour and serves stale ones for a day while it
+        // refreshes. Netlify reads this header; other platforms ignore it.
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
       },
     })
   }

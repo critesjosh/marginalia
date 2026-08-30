@@ -36,14 +36,19 @@ export async function searchGutenberg(
   if (!response.ok) throw new Error(await relayError(response, 'Could not search Project Gutenberg.'))
 
   const body = (await response.json()) as GutendexResponse
-  return (body.results ?? []).map((book) => ({
-    id: book.id,
-    title: book.title?.trim() || `Gutenberg #${book.id}`,
-    author: book.authors?.map((author) => author.name).filter(Boolean).join(', ') || 'Unknown author',
-    languages: book.languages ?? [],
-    coverUrl: book.formats?.['image/jpeg'],
-    downloadCount: book.download_count ?? 0,
-  }))
+  return (body.results ?? [])
+    // The relay no longer asks Gutendex to filter by format — that filter is
+    // slow and rules out almost nothing — so the handful of results without an
+    // EPUB are dropped here instead.
+    .filter((book) => book.formats?.['application/epub+zip'])
+    .map((book) => ({
+      id: book.id,
+      title: book.title?.trim() || `Gutenberg #${book.id}`,
+      author: book.authors?.map((author) => author.name).filter(Boolean).join(', ') || 'Unknown author',
+      languages: book.languages ?? [],
+      coverUrl: book.formats?.['image/jpeg'],
+      downloadCount: book.download_count ?? 0,
+    }))
 }
 
 export async function downloadGutenbergBook(
