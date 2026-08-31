@@ -95,6 +95,16 @@ describe('request policy', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('blocks a cross-site browser GET even when it omits Origin', async () => {
+    const response = await handleGutenbergRequest(
+      catalogRequest('book=2701', { 'Sec-Fetch-Site': 'cross-site' }),
+      { fetch: fetchMock as unknown as typeof fetch },
+    )
+
+    expect(response.status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('turns away an address that keeps hammering the endpoint', async () => {
     fetchMock.mockResolvedValue(Response.json({ results: [] }))
     const options = { fetch: fetchMock as unknown as typeof fetch, ip: '203.0.113.7' }

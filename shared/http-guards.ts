@@ -6,21 +6,26 @@
  */
 
 /**
- * Rejects requests whose Origin is not this site. A determined caller can forge
- * the header, so this only stops casual reuse of the endpoint from other pages.
+ * Rejects browser requests that came from another site. `Origin` catches normal
+ * cross-origin fetches, while Fetch Metadata closes the gap left by `no-cors`
+ * GETs such as image hotlinks, where browsers may omit `Origin` entirely.
  *
- * A request with no Origin at all passes, and that is deliberate rather than an
- * oversight: browsers always send one on a cross-origin request, while a
- * non-browser client sends none. The KOReader plugin in `koreader/` is one such
- * client, and asking a question from an e-reader goes through the chat relay.
- * Those requests identify themselves with `X-Marginalia-Client` if they ever
- * need throttling separately.
+ * A request with neither header still passes deliberately: non-browser clients
+ * do not send Fetch Metadata and may omit Origin. The KOReader plugin in
+ * `koreader/` is one such client, and asking a question from an e-reader goes
+ * through the chat relay. Those requests identify themselves with
+ * `X-Marginalia-Client` if they ever need throttling separately.
+ *
+ * These headers are still only a speed bump — a determined non-browser caller
+ * can forge or omit them — so the relays also keep their per-IP throttles.
  */
 export function isCrossOrigin(request: Request): boolean {
+  if (request.headers.get('sec-fetch-site') === 'cross-site') return true
+
   const origin = request.headers.get('origin')
   if (!origin) return false
   try {
-    return new URL(origin).host !== new URL(request.url).host
+    return new URL(origin).origin !== new URL(request.url).origin
   } catch {
     return true
   }
