@@ -7,6 +7,9 @@ import { HOSTED_MODEL_LABEL, verifyKey } from '../lib/inference'
 import { createAudiobookSession } from '../lib/audiobooks'
 import { BackIcon } from '../components/Icons'
 import KoreaderImport from '../components/KoreaderImport'
+import { updateSyncPreferences } from '../sync/preferences'
+import { discardOutboxEvent, retryRejectedEvent } from '../sync/delivery'
+import type { SyncPreferenceKey } from '../sync/types'
 
 // Keep retired models listed: a stored value with no matching option renders the
 // select blank, so anything a user might already have saved has to stay.
@@ -32,6 +35,11 @@ export default function SettingsPage() {
     'idle',
   )
   const [audiobookMessage, setAudiobookMessage] = useState<string>()
+  const [syncToken, setSyncToken] = useState('')
+  const [dirtySyncToken, setDirtySyncToken] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string>()
+
+  const outbox = useLiveQuery(() => db.eventOutbox.orderBy('sequence').toArray(), []) ?? []
 
   const settings = stored ?? DEFAULT_SETTINGS
 
@@ -44,6 +52,10 @@ export default function SettingsPage() {
       setAudiobookToken(stored.audiobookAccessToken ?? '')
     }
   }, [stored, dirtyAudiobookToken])
+
+  useEffect(() => {
+    if (stored && !dirtySyncToken) setSyncToken(stored.syncToken ?? '')
+  }, [stored, dirtySyncToken])
 
   async function testAndSave() {
     const key = apiKey.trim()
@@ -90,6 +102,17 @@ export default function SettingsPage() {
       setAudiobookStatus('error')
       setAudiobookMessage(err instanceof Error ? err.message : 'Could not verify that token.')
     }
+  }
+
+  async function setSyncPreference(key: SyncPreferenceKey, value: boolean) {
+    await updateSyncPreferences({ [key]: value })
+  }
+
+  async function saveSyncToken() {
+    const token = syncToken.trim()
+    await saveSettings({ syncToken: token || undefined })
+    setDirtySyncToken(false)
+    setSyncMessage(token ? 'Sync token saved only on this device.' : 'Sync token cleared.')
   }
 
   return (
@@ -261,6 +284,161 @@ export default function SettingsPage() {
           </label>
         </section>
 
+        <section className="rounded-xl border border-stone-800 bg-stone-900/50 p-4">
+          <h2 className="text-sm font-semibold">Private intelligence sync</h2>
+          <p className="mt-1 text-sm text-stone-400">
+            Local preparation only in this phase. Events stay in this browser until the
+            authenticated delivery service is added; nothing here sends data over the network.
+          </p>
+
+          <label className="mt-4 flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={settings.syncEnabled}
+              onChange={(event) => void setSyncPreference('syncEnabled', event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-amber-500"
+            />
+            <span>
+              <span className="text-sm font-medium">Record future activity for sync</span>
+              <span className="mt-0.5 block text-xs text-stone-400">
+                Off by default. Existing books, highlights, and chats are never backfilled.
+              </span>
+            </span>
+          </label>
+
+          {settings.storagePersistence === 'denied' && (
+            <p role="status" className="mt-3 rounded-lg bg-amber-950/60 p-3 text-xs text-amber-200">
+              This browser did not grant persistent storage. Queued events can be evicted under
+              storage pressure; normal reading data has the same browser limitation.
+            </p>
+          )}
+          {settings.storagePersistence === 'unavailable' && settings.syncEnabled && (
+            <p role="status" className="mt-3 rounded-lg bg-stone-800 p-3 text-xs text-stone-300">
+              Persistent-storage status is unavailable in this browser. Sync remains local and
+              enabled, but queued events are not eviction-proof.
+            </p>
+          )}
+
+          <div className="mt-5">
+            <label htmlFor="sync-token" className="text-sm font-medium">
+              Personal sync token
+            </label>
+            <p className="mt-1 text-xs text-stone-400">
+              Credential shape for the next phase. It is stored locally and is not tested or
+              transmitted yet.
+            </p>
+            <input
+              id="sync-token"
+              type="password"
+              value={syncToken}
+              onChange={(event) => {
+                setSyncToken(event.target.value)
+                setDirtySyncToken(true)
+                setSyncMessage(undefined)
+              }}
+              placeholder="Personal sync token"
+              autoComplete="off"
+              spellCheck={false}
+              className="mt-2 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2.5 font-mono text-sm outline-none focus:border-amber-500"
+            />
+            <div className="mt-2 flex items-center gap-3">
+              <button
+                onClick={() => void saveSyncToken()}
+                disabled={!dirtySyncToken}
+                className="rounded-lg border border-stone-700 px-3 py-2 text-sm font-medium disabled:opacity-40"
+              >
+                Save token
+              </button>
+              {syncMessage && <p className="text-xs text-emerald-300">{syncMessage}</p>}
+            </div>
+          </div>
+
+          <fieldset className="mt-5">
+            <legend className="text-sm font-medium">Text shared with intelligence</legend>
+            <p className="mt-1 text-xs text-stone-400">
+              Each category is separate and off by default. Metadata-only events can still be
+              recorded when activity sync is on.
+            </p>
+            <div className="mt-3 space-y-3">
+              <ConsentToggle
+                label="Book metadata"
+                detail="Title, author, publisher, date, language, and description."
+                checked={settings.shareBookMetadata}
+                onChange={(value) => void setSyncPreference('shareBookMetadata', value)}
+              />
+              <ConsentToggle
+                label="Highlighted passages"
+                detail="The exact text you highlight."
+                checked={settings.shareHighlightText}
+                onChange={(value) => void setSyncPreference('shareHighlightText', value)}
+              />
+              <ConsentToggle
+                label="Highlight notes"
+                detail="Notes you write on highlights."
+                checked={settings.shareHighlightNotes}
+                onChange={(value) => void setSyncPreference('shareHighlightNotes', value)}
+              />
+              <ConsentToggle
+                label="Your conversation text"
+                detail="Conversation titles, seed text, and questions you ask."
+                checked={settings.shareConversationText}
+                onChange={(value) => void setSyncPreference('shareConversationText', value)}
+              />
+              <ConsentToggle
+                label="Assistant replies"
+                detail="AI responses, kept separate from your own words."
+                checked={settings.shareAssistantText}
+                onChange={(value) => void setSyncPreference('shareAssistantText', value)}
+              />
+              <ConsentToggle
+                label="Book memory"
+                detail="The rolling digest that carries context between chats."
+                checked={settings.shareBookMemory}
+                onChange={(value) => void setSyncPreference('shareBookMemory', value)}
+              />
+              <ConsentToggle
+                label="Surrounding prose"
+                detail="Nearby book text. This remains excluded from the first deployed slice."
+                checked={settings.shareSurroundingContext}
+                onChange={(value) => void setSyncPreference('shareSurroundingContext', value)}
+              />
+            </div>
+          </fieldset>
+
+          <div className="mt-5 border-t border-stone-800 pt-4">
+            <h3 className="text-sm font-medium">Local outbox diagnostics</h3>
+            <p className="mt-1 text-xs text-stone-400">
+              {outbox.length === 0
+                ? 'No queued events.'
+                : `${outbox.length} queued: ${outbox.filter((row) => row.status === 'held').length} held, ${outbox.filter((row) => row.status === 'pending').length} pending, ${outbox.filter((row) => row.status === 'rejected').length} rejected.`}
+            </p>
+            {outbox.filter((row) => row.status === 'rejected').map((row) => (
+              <div key={row.eventId} className="mt-3 rounded-lg border border-red-900/60 p-3">
+                <p className="break-all text-xs font-medium text-red-200">
+                  {row.eventType} · {row.eventId}
+                </p>
+                <p className="mt-1 text-xs text-stone-400">
+                  {row.lastErrorCode ?? 'Rejected without an error code'}
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => void retryRejectedEvent(row.eventId)}
+                    className="rounded border border-stone-700 px-2 py-1 text-xs"
+                  >
+                    Retry
+                  </button>
+                  <button
+                    onClick={() => void discardOutboxEvent(row.eventId)}
+                    className="rounded border border-red-900 px-2 py-1 text-xs text-red-200"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
         <section>
           <h2 className="text-sm font-semibold">Data</h2>
           <p className="mt-1 text-sm text-stone-400">
@@ -295,6 +473,33 @@ export default function SettingsPage() {
         </section>
       </main>
     </div>
+  )
+}
+
+function ConsentToggle({
+  label,
+  detail,
+  checked,
+  onChange,
+}: {
+  label: string
+  detail: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-amber-500"
+      />
+      <span>
+        <span className="text-sm">{label}</span>
+        <span className="block text-xs text-stone-400">{detail}</span>
+      </span>
+    </label>
   )
 }
 

@@ -4,6 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
 import type { ReaderTheme } from '../db/types'
 import { newId } from '../lib/id'
+import {
+  commitQuestion,
+  finalizeQuestion,
+  rollbackQuestion,
+  stageQuestion,
+  type StagedQuestion,
+} from '../sync/operations'
 import { InferenceError, streamChat, targetFor } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
@@ -115,7 +122,7 @@ export default function ChatSheet({
 
     // Tracks how far we got, so a failure can put the reader back where they
     // were instead of stranding a question with no answer.
-    let userMessageId: string | undefined
+    let stagedQuestion: StagedQuestion | undefined
 
     try {
       const settings = await getSettings()
@@ -127,15 +134,14 @@ export default function ChatSheet({
 
       // Only clear the composer once the message is safely stored. Clearing it
       // first loses the text outright if IndexedDB rejects the write.
-      userMessageId = newId()
-      await db.messages.add({
+      const userMessageId = newId()
+      stagedQuestion = await stageQuestion({
         id: userMessageId,
         conversationId,
         role: 'user',
         content,
         createdAt: Date.now(),
-      })
-      await db.conversations.update(conversationId, { updatedAt: Date.now() })
+      }, conversation)
       // Anchor on the question rather than the reply: it is the last thing that
       // stops growing, and reading an answer starts from what was asked.
       pinnedRef.current = userMessageId
@@ -159,15 +165,17 @@ export default function ChatSheet({
         },
       })
 
-      if (reply.trim()) {
-        await db.messages.add({
+      const assistantMessage = reply.trim()
+        ? {
           id: newId(),
           conversationId,
-          role: 'assistant',
+          role: 'assistant' as const,
           content: reply,
           createdAt: Date.now(),
-        })
-        await db.conversations.update(conversationId, { updatedAt: Date.now() })
+        }
+        : undefined
+      await finalizeQuestion(stagedQuestion.eventId, conversationId, assistantMessage)
+      if (assistantMessage) {
         void updateBookMemory(conversation.bookId, conversationId)
       }
     } catch (err) {
@@ -175,10 +183,13 @@ export default function ChatSheet({
       // deleting what they typed would read as data loss. Any other failure
       // rolls the turn back so the transcript never shows a question that was
       // never actually asked, and hands the text back to the composer.
-      if ((err as Error)?.name === 'AbortError') return
+      if ((err as Error)?.name === 'AbortError') {
+        await commitQuestion(stagedQuestion?.eventId)
+        return
+      }
 
-      if (userMessageId) {
-        await db.messages.delete(userMessageId).catch(() => {})
+      if (stagedQuestion) {
+        await rollbackQuestion(stagedQuestion, conversationId).catch(() => {})
       }
       setDraft((current) => (current.trim() ? current : content))
       setError(

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/highlight-created.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["color", "createdAt"],
+  "properties": {
+    "color": { "enum": ["yellow", "green", "blue", "pink"] },
+    "chapter": { "type": "string", "maxLength": 500 },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "text": { "type": "string", "maxLength": 20000 },
+    "note": { "type": "string", "maxLength": 20000 }
+  }
+}

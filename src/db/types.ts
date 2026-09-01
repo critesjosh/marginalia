@@ -1,3 +1,5 @@
+import type { EventOutboxRow, InsightsCache, SyncState } from '../sync/types'
+
 export interface Book {
   id: string
   title: string
@@ -143,6 +145,19 @@ export interface Settings {
   audiobookAccessToken?: string
   /** Playback position for the personal Twilight of the Idols audiobook. */
   audiobookPositionSeconds?: number
+  /** Local-only credential shape until Phase 1 adds network delivery. */
+  syncToken?: string
+  consentVersion: 1
+  consentUpdatedAt: string
+  syncEnabled: boolean
+  shareBookMetadata: boolean
+  shareHighlightText: boolean
+  shareHighlightNotes: boolean
+  shareConversationText: boolean
+  shareAssistantText: boolean
+  shareBookMemory: boolean
+  shareSurroundingContext: boolean
+  storagePersistence: 'unknown' | 'granted' | 'denied' | 'unavailable'
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -153,4 +168,17 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   fontSize: 100,
   spoilerGuard: true,
+  consentVersion: 1,
+  consentUpdatedAt: new Date(0).toISOString(),
+  syncEnabled: false,
+  shareBookMetadata: false,
+  shareHighlightText: false,
+  shareHighlightNotes: false,
+  shareConversationText: false,
+  shareAssistantText: false,
+  shareBookMemory: false,
+  shareSurroundingContext: false,
+  storagePersistence: 'unknown',
 }
+
+export type { EventOutboxRow, InsightsCache, SyncState }

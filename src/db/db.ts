@@ -6,21 +6,27 @@ import {
   type Book,
   type BookMemory,
   type Conversation,
+  type EventOutboxRow,
   type Highlight,
+  type InsightsCache,
   type Message,
   type Settings,
+  type SyncState,
 } from './types'
 
-class MarginaliaDB extends Dexie {
+export class MarginaliaDB extends Dexie {
   books!: EntityTable<Book, 'id'>
   highlights!: EntityTable<Highlight, 'id'>
   conversations!: EntityTable<Conversation, 'id'>
   messages!: EntityTable<Message, 'id'>
   bookMemory!: EntityTable<BookMemory, 'bookId'>
   settings!: EntityTable<Settings, 'id'>
+  eventOutbox!: EntityTable<EventOutboxRow, 'eventId'>
+  syncState!: EntityTable<SyncState, 'id'>
+  insightsCache!: EntityTable<InsightsCache, 'id'>
 
-  constructor() {
-    super('marginalia')
+  constructor(name = 'marginalia') {
+    super(name)
     this.version(1).stores({
       books: 'id, title, author, addedAt, lastOpenedAt',
       highlights: 'id, bookId, createdAt, [bookId+createdAt]',
@@ -64,6 +70,15 @@ class MarginaliaDB extends Dexie {
         'id, bookId, highlightId, updatedAt, [bookId+updatedAt], [bookId+externalId]',
       messages:
         'id, conversationId, createdAt, [conversationId+createdAt], [conversationId+externalId]',
+    })
+
+    // Intelligence sync stays local in Phase 0. These tables add an atomic
+    // outbox, one installation-scoped sequence, and a future Insights cache;
+    // no existing table is rewritten during this migration.
+    this.version(5).stores({
+      eventOutbox: 'eventId, sequence, nextAttemptAt, status, [status+sequence]',
+      syncState: 'id',
+      insightsCache: 'id, sourceUpdatedAt, cachedAt',
     })
   }
 }
