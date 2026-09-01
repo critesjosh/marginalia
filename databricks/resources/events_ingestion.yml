@@ -1,0 +1,29 @@
+resources:
+  pipelines:
+    events_ingestion:
+      name: marginalia-events-ingestion
+      serverless: true
+      # Triggered, not continuous: an update processes the available backlog and
+      # stops, so cost follows event volume instead of wall-clock time.
+      continuous: false
+      catalog: ${var.catalog}
+      schema: ${var.bronze_schema}
+      libraries:
+        - file:
+            path: ../src/events_ingestion.py
+      configuration:
+        marginalia.kafka.secret_scope: ${var.kafka_secret_scope}
+        marginalia.kafka.topic: ${var.kafka_topic}
+
+  jobs:
+    events_ingestion_schedule:
+      name: marginalia-events-ingestion-schedule
+      # Bronze freshness is this interval. Shortening it shortens the end-to-end
+      # freshness objective and raises pipeline cost proportionally.
+      schedule:
+        quartz_cron_expression: 0 0/15 * * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.events_ingestion.id}

@@ -27,6 +27,13 @@ dist-ssr
 test-books
 .env*.local
 
+# Worker secrets for local runs; only the .example file is tracked.
+.dev.vars
+**/.dev.vars
+
+# Wrangler build output and local binding state.
+.wrangler/
+
 # Python bytecode and virtualenvs from tools/
 __pycache__/
 *.py[cod]

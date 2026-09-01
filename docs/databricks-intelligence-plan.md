@@ -10,7 +10,7 @@ reading, highlighting, chat, import, export, or audiobook playback.
 The finished system will:
 
 - emit useful reading behavior as a versioned event stream;
-- ingest that stream through Kafka and Lakeflow Connect;
+- ingest that stream through Kafka and a triggered Databricks pipeline;
 - transform it through Bronze, Silver, and Gold tables with Lakeflow Spark Declarative
   Pipelines;
 - enrich books and concepts with targeted Open Library and OpenAlex data;
@@ -50,7 +50,7 @@ These choices remove implementation branches from the first `/goal` runs.
 | Event endpoint | Same-origin `POST /api/events/v1/batches` | Separate ingestion domain |
 | Kafka provider | Confluent Cloud Kafka | Redpanda or self-managed Kafka |
 | Worker-to-Kafka protocol | Confluent Kafka REST API v3 over HTTPS | Native Kafka over outbound TCP |
-| Kafka-to-Databricks | Managed Kafka connector in Lakeflow Connect | Structured Streaming Kafka source |
+| Kafka-to-Databricks | Structured Streaming Kafka source in a triggered pipeline | Managed Kafka connector in Lakeflow Connect |
 | Infrastructure definition | Declarative Automation Bundles checked into this repository | UI-only configuration |
 | Transform cadence | Triggered every 15 minutes in the personal prototype | Continuous Gold computation |
 | Lakebase serving sync | Triggered after a successful Gold update | Continuous sync |
@@ -58,11 +58,16 @@ These choices remove implementation branches from the first `/goal` runs.
 | Initial client | PWA | KOReader live delivery after the PWA contract is stable |
 | Tenancy | One trusted personal user | Multi-user sign-in and row isolation |
 
-The managed Kafka connector is a capability gate because it is currently a Databricks
-Beta feature. Before Phase 1, verify that the target workspace has Unity Catalog,
-serverless compute, and the managed Kafka connector preview enabled. If any requirement
-is unavailable, stop that goal and report the missing capability. Do not silently switch
-architectures.
+The Structured Streaming Kafka source is generally available, so Phase 1 has no preview
+dependency. Before Phase 1, verify that the target workspace has Unity Catalog and
+serverless compute. If either is unavailable, stop that goal and report the missing
+capability. Do not silently switch architectures.
+
+The managed Kafka connector in Lakeflow Connect was the original choice and is kept as
+the deferred alternative. It requires continuous pipeline mode, which bills for an
+always-running cluster regardless of event volume; at personal scale that cost dominates
+every other line in the system. Reconsider it only if ingestion latency below the trigger
+interval becomes a real requirement.
 
 Lakebase Change Data Feed is the approved alternative ingestion architecture if the
 Kafka connector cannot be used. Its flow would be:
@@ -79,7 +84,9 @@ fixtures before implementation resumes.
 
 Current references for the choices above:
 
-- [Databricks managed Kafka connector](https://docs.databricks.com/aws/en/ingestion/lakeflow-connect/kafka)
+- [Connect to Apache Kafka from Databricks](https://docs.databricks.com/aws/en/connect/streaming/kafka/)
+- [Kafka authentication options](https://docs.databricks.com/aws/en/connect/streaming/kafka/authentication)
+- [Triggered and continuous pipeline modes](https://docs.databricks.com/aws/en/ldp/pipeline-mode)
 - [Confluent Cloud Kafka REST API](https://docs.confluent.io/cloud/current/kafka-rest/kafka-rest-cc.html)
 - [Lakebase Change Data Feed](https://docs.databricks.com/aws/en/oltp/projects/lakebase-cdf)
 - [Lakebase synced tables](https://docs.databricks.com/aws/en/oltp/projects/sync-tables)
@@ -100,9 +107,9 @@ Cloudflare Worker: /api/events/v1/batches
     v
 Confluent Cloud: marginalia.events.v1
     |
-    | SASL/TLS Kafka connection held in Unity Catalog
+    | SASL/TLS credentials held in a Databricks secret scope
     v
-Lakeflow Connect managed Kafka ingestion
+Triggered pipeline: Structured Streaming Kafka source
     |
     v
 marginalia_bronze.events_raw
@@ -146,8 +153,10 @@ inspect. It uses `cleanup.policy=delete` and seven-day retention. The record key
 `<trusted_user_id>:<installation_id>`. Increase partitions only when multi-user traffic
 requires it; per-installation ordering must remain stable.
 
-The user-visible freshness objective is 20 minutes: up to two minutes to reach Bronze,
-the 15-minute transform cadence, and up to three minutes for Gold sync and API refresh.
+The user-visible freshness objective is 35 minutes: up to 15 minutes for the triggered
+ingestion pipeline to reach Bronze, the 15-minute transform cadence, and up to three
+minutes for Gold sync and API refresh. Shortening the ingestion interval shortens this
+objective and raises pipeline cost proportionally.
 The Phase 4 smoke test and end-to-end slice measure this objective from browser event time
 to the source timestamp returned by the Insights API.
 
@@ -189,11 +198,15 @@ The API key has produce-only permission on that topic. The Worker uses non-strea
 Kafka REST Produce requests because personal traffic is low and each event needs an
 unambiguous delivery report before its outbox row is acknowledged.
 
-### Lakeflow Connect to Kafka
+### Pipeline to Kafka
 
-Unity Catalog stores the Kafka connection and its SASL/TLS credentials. The pipeline
-configuration references the connection object and topic; credentials never appear in
-bundle variables committed to Git.
+A Databricks secret scope stores the read-only Confluent API key and secret. The pipeline
+reads them with `dbutils.secrets.get` and passes them through `kafka.sasl.jaas.config`;
+credentials never appear in bundle variables committed to Git. Unity Catalog service
+credentials are not usable here because they support Amazon MSK only, not Confluent Cloud.
+
+The key is read-only on `marginalia.events.v1` and is a different credential from the
+produce-only key the Worker holds. Neither side can perform the other's operation.
 
 ### Worker to Databricks App API
 
@@ -544,9 +557,11 @@ marginalia_bronze.openlibrary_reading_logs
 marginalia_bronze.openalex_responses
 ```
 
-`events_raw` preserves Kafka topic, partition, offset, Kafka timestamp, raw JSON, parsed
-envelope fields, connector ingestion time, and rescue data. Kafka coordinates are unique
-ingestion identifiers, not product-event identifiers.
+`events_raw` preserves Kafka topic, partition, offset, and Kafka timestamp, which the
+Kafka source exposes as native columns, alongside the raw JSON value, parsed envelope
+fields, and pipeline ingestion time. An envelope field the pipeline does not recognize is
+kept in the raw JSON rather than dropped. Kafka coordinates are unique ingestion
+identifiers, not product-event identifiers.
 
 Bronze retains valid and malformed source records for 30 days. Quarantine retains
 failures for 14 days. Access is limited to the pipeline and Observatory administrators.
@@ -901,7 +916,7 @@ Acceptance:
 Preflight:
 
 - verify Databricks CLI authentication and target workspace identity;
-- verify Unity Catalog, serverless compute, and Kafka connector Beta access;
+- verify Unity Catalog and serverless compute;
 - create or identify the Confluent cluster in the same cloud region when practical; and
 - verify the Cloudflare deployment can reach the Confluent REST endpoint.
 
@@ -910,19 +925,21 @@ Deliver:
 - Confluent topic, least-privilege credentials, and retention configuration;
 - Worker batch endpoint, token validation, schema validation, rate limits, and producer;
 - PWA network delivery loop;
-- Unity Catalog Kafka connection;
-- Lakeflow Connect pipeline to `marginalia_bronze.events_raw`;
+- Databricks secret scope holding the read-only Confluent credentials;
+- triggered pipeline reading the Kafka source into `marginalia_bronze.events_raw`;
 - DAB development target and validation commands; and
 - ingestion observability without payload logging.
 
 Acceptance:
 
-- an opted-in fixture highlight reaches Bronze within two minutes;
+- an opted-in fixture highlight reaches Bronze on the next pipeline run;
 - an invalid token, browser-supplied user ID, oversized batch, unknown field, and unknown
   schema version are rejected;
 - Confluent or network failure leaves the exact event queued;
 - a simulated lost acknowledgement creates two Bronze records with the same `event_id`,
   ready for Phase 2 deduplication;
+- a pipeline run that starts after a gap resumes from its committed offset and ingests
+  every record produced while it was stopped;
 - text excluded by consent never appears in Worker logs, Kafka, or Bronze;
 - `databricks bundle validate -t dev` passes; and
 - live Databricks work is recorded in `docs/databricks-feedback.md`.
@@ -1007,7 +1024,7 @@ Acceptance:
 - invalid sync tokens and unauthorized service principals cannot read it;
 - cached Insights remain visible offline and are labeled stale;
 - no Insights state affects normal reader operation; and
-- a fixture event appears through Insights within 20 minutes of its browser event time;
+- a fixture event appears through Insights within 35 minutes of its browser event time;
 - deletion disables local sync and the Worker's `SYNC_CONTROL`, clears the requesting
   browser's outbox/cache, removes the user from every queryable layer deployed through
   Phase 4, and suppresses retained Kafka replay.
@@ -1113,7 +1130,7 @@ Nietzsche highlight
       -> atomic IndexedDB outbox
       -> authenticated Cloudflare event API
       -> Confluent Cloud Kafka
-      -> Lakeflow Connect
+      -> triggered Kafka ingestion pipeline
       -> Bronze event
       -> deduplicated Silver highlight
       -> GPT-5.6 Luna concept extraction
@@ -1135,7 +1152,7 @@ The slice is complete only when:
 - Insights work online, degrade to a labeled cache offline, and never block reading;
 - secrets and private text are absent from logs and committed files;
 - full cloud deletion removes queryable copies and suppresses retained-source replay;
-- the fixture event is returned by Insights within 20 minutes of browser event time;
+- the fixture event is returned by Insights within 35 minutes of browser event time;
 - bundle validation, local tests, lint, typecheck, production build, and live smoke checks
   pass; and
 - every hands-on Databricks phase appends concise feedback to

@@ -119,7 +119,7 @@ export interface SyncState {
   leaseOwner?: string
   leaseExpiresAt?: number
   lastSuccessfulDeliveryAt?: number
-  pausedReason?: 'invalid_token' | 'rejected_event'
+  pausedReason?: 'invalid_token' | 'rejected_event' | 'sync_disabled'
   activeDeletionRequestId?: string
 }
 

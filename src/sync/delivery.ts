@@ -47,13 +47,20 @@ export async function deliverPendingEvents(
   await db.transaction('rw', [db.eventOutbox, db.syncState], async () => {
     let blocked = false
     for (const row of batch) {
-      const delivery = blocked
-        ? { eventId: row.eventId, status: 'retry' as const, code: 'blocked_by_prior_event' }
-        : results.get(row.eventId) ?? {
-            eventId: row.eventId,
-            status: 'retry' as const,
-            code: 'missing_delivery_result',
-          }
+      // A rejection is a verdict about this event itself, so it survives an
+      // earlier failure in the same batch; discarding it would strand the row as
+      // pending forever, invisible to the diagnostics that let it be retried or
+      // discarded. Any other result after a failure is replaced, because nothing
+      // was produced once the batch stopped.
+      const reported = results.get(row.eventId)
+      const delivery =
+        reported && (!blocked || reported.status === 'rejected')
+          ? reported
+          : {
+              eventId: row.eventId,
+              status: 'retry' as const,
+              code: blocked ? 'blocked_by_prior_event' : 'missing_delivery_result',
+            }
 
       if (delivery.status === 'accepted') {
         await db.eventOutbox.delete(row.eventId)

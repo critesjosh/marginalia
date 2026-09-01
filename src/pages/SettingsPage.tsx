@@ -9,7 +9,14 @@ import { BackIcon } from '../components/Icons'
 import KoreaderImport from '../components/KoreaderImport'
 import { updateSyncPreferences } from '../sync/preferences'
 import { discardOutboxEvent, retryRejectedEvent } from '../sync/delivery'
-import type { SyncPreferenceKey } from '../sync/types'
+import { deliverNow } from '../sync/scheduler'
+import type { SyncPreferenceKey, SyncState } from '../sync/types'
+
+const PAUSE_EXPLANATION: Record<NonNullable<SyncState['pausedReason']>, string> = {
+  invalid_token: 'Delivery is paused: the server did not accept this sync token.',
+  rejected_event: 'Delivery is paused on a rejected event. Retry or discard it below.',
+  sync_disabled: 'Delivery is paused while cloud data is being deleted for this account.',
+}
 
 // Keep retired models listed: a stored value with no matching option renders the
 // select blank, so anything a user might already have saved has to stay.
@@ -40,6 +47,8 @@ export default function SettingsPage() {
   const [syncMessage, setSyncMessage] = useState<string>()
 
   const outbox = useLiveQuery(() => db.eventOutbox.orderBy('sequence').toArray(), []) ?? []
+  const syncState = useLiveQuery(() => db.syncState.get('sync'), [])
+  const [delivering, setDelivering] = useState(false)
 
   const settings = stored ?? DEFAULT_SETTINGS
 
@@ -113,6 +122,27 @@ export default function SettingsPage() {
     await saveSettings({ syncToken: token || undefined })
     setDirtySyncToken(false)
     setSyncMessage(token ? 'Sync token saved only on this device.' : 'Sync token cleared.')
+
+    // A token the server refused pauses the loop. Saving a new one is the
+    // reader's way of saying it is worth trying again.
+    const state = await db.syncState.get('sync')
+    if (token && state?.pausedReason === 'invalid_token') {
+      await db.syncState.put({ ...state, pausedReason: undefined })
+    }
+  }
+
+  async function sendQueuedEvents() {
+    setDelivering(true)
+    try {
+      const accepted = await deliverNow()
+      setSyncMessage(accepted ? `Delivered ${accepted} events.` : 'Nothing was delivered.')
+    } catch (err) {
+      // Without this the button silently resets and the failure surfaces only as
+      // an unhandled rejection in the console.
+      setSyncMessage(err instanceof Error ? err.message : 'Could not send queued events.')
+    } finally {
+      setDelivering(false)
+    }
   }
 
   return (
@@ -287,8 +317,8 @@ export default function SettingsPage() {
         <section className="rounded-xl border border-stone-800 bg-stone-900/50 p-4">
           <h2 className="text-sm font-semibold">Private intelligence sync</h2>
           <p className="mt-1 text-sm text-stone-400">
-            Local preparation only in this phase. Events stay in this browser until the
-            authenticated delivery service is added; nothing here sends data over the network.
+            Off unless you turn it on. With sync on and a token saved, recorded events are
+            sent to Marginalia's own server; with either missing, they stay in this browser.
           </p>
 
           <label className="mt-4 flex items-start gap-3">
@@ -324,8 +354,8 @@ export default function SettingsPage() {
               Personal sync token
             </label>
             <p className="mt-1 text-xs text-stone-400">
-              Credential shape for the next phase. It is stored locally and is not tested or
-              transmitted yet.
+              Stored only in this browser and sent to Marginalia's own server to authorize
+              delivery. Without it, queued events stay on this device.
             </p>
             <input
               id="sync-token"
@@ -406,12 +436,29 @@ export default function SettingsPage() {
           </fieldset>
 
           <div className="mt-5 border-t border-stone-800 pt-4">
-            <h3 className="text-sm font-medium">Local outbox diagnostics</h3>
+            <h3 className="text-sm font-medium">Delivery</h3>
             <p className="mt-1 text-xs text-stone-400">
               {outbox.length === 0
                 ? 'No queued events.'
                 : `${outbox.length} queued: ${outbox.filter((row) => row.status === 'held').length} held, ${outbox.filter((row) => row.status === 'pending').length} pending, ${outbox.filter((row) => row.status === 'rejected').length} rejected.`}
             </p>
+            <p className="mt-1 text-xs text-stone-400">
+              {syncState?.lastSuccessfulDeliveryAt
+                ? `Last delivered ${new Date(syncState.lastSuccessfulDeliveryAt).toLocaleString()}.`
+                : 'Nothing has been delivered from this device yet.'}
+            </p>
+            {syncState?.pausedReason && (
+              <p role="status" className="mt-2 rounded-lg bg-amber-950/60 p-3 text-xs text-amber-200">
+                {PAUSE_EXPLANATION[syncState.pausedReason]}
+              </p>
+            )}
+            <button
+              onClick={() => void sendQueuedEvents()}
+              disabled={delivering || !settings.syncEnabled || !settings.syncToken}
+              className="mt-2 rounded-lg border border-stone-700 px-3 py-2 text-sm font-medium disabled:opacity-40"
+            >
+              {delivering ? 'Sending…' : 'Send queued events now'}
+            </button>
             {outbox.filter((row) => row.status === 'rejected').map((row) => (
               <div key={row.eventId} className="mt-3 rounded-lg border border-red-900/60 p-3">
                 <p className="break-all text-xs font-medium text-red-200">

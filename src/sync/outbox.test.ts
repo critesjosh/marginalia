@@ -402,6 +402,38 @@ describe('head-of-line delivery and coordination', () => {
     })
   })
 
+  it('records a rejection reported after an earlier failure in the same batch', async () => {
+    // The Worker validates the whole batch before producing anything, so a valid
+    // event and an invalid one come back together. Synthesising a retry for the
+    // second row would discard its verdict and leave both rows pending with no
+    // backoff, re-sending the identical batch on every tick forever.
+    await settings({ syncEnabled: true })
+    await db.syncState.put({ id: 'sync', installationId: crypto.randomUUID(), nextSequence: 3 })
+    await db.eventOutbox.bulkAdd([row(1), row(2)])
+    const transport: DeliveryTransport = {
+      async send(events) {
+        return [
+          { eventId: events[0].eventId, status: 'retry', code: 'batch_not_produced' },
+          { eventId: events[1].eventId, status: 'rejected', code: 'schema_invalid' },
+        ]
+      },
+    }
+
+    await deliverPendingEvents(transport, { now: NOW, random: () => 0 })
+
+    expect(await db.eventOutbox.get('event-2')).toMatchObject({
+      status: 'rejected',
+      lastErrorCode: 'schema_invalid',
+    })
+    expect(await db.syncState.get('sync')).toMatchObject({ pausedReason: 'rejected_event' })
+    // The valid event backs off rather than retrying for free.
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({
+      attempts: 1,
+      lastErrorCode: 'batch_not_produced',
+    })
+    expect((await db.eventOutbox.get('event-1'))!.nextAttemptAt).toBeGreaterThan(NOW)
+  })
+
   it('keeps rejected diagnostics retryable or discardable', async () => {
     await settings({ syncEnabled: true })
     await db.syncState.put({ id: 'sync', installationId: crypto.randomUUID(), nextSequence: 2 })

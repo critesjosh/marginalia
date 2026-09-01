@@ -1,0 +1,52 @@
+bundle:
+  name: marginalia-intelligence
+
+# Nothing here names a workspace, a credential, or a private resource id. The
+# host comes from the Databricks CLI profile or DATABRICKS_HOST, and the Kafka
+# credentials live in the secret scope the pipeline reads.
+variables:
+  catalog:
+    description: Unity Catalog catalog holding every Marginalia layer.
+    default: marginalia
+  bronze_schema:
+    description: Raw ingested events, quarantine, and public-source responses.
+    default: marginalia_bronze
+  silver_schema:
+    description: Deduplicated events and current-state entity tables.
+    default: marginalia_silver
+  gold_schema:
+    description: Engagement, interest, frontier, and recommendation tables.
+    default: marginalia_gold
+  ops_schema:
+    description: Deletion requests and other operational bookkeeping.
+    default: marginalia_ops
+  kafka_secret_scope:
+    description: >-
+      Databricks secret scope holding the read-only Confluent credentials as
+      bootstrap-servers, api-key, and api-secret. Created outside this bundle so
+      no credential and no private host appears in a committed variable.
+    default: marginalia_kafka
+  kafka_topic:
+    description: Topic the Cloudflare Worker produces consented events to.
+    default: marginalia.events.v1
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: marginalia_dev
+
+  prod:
+    mode: production
+    workspace:
+      # Explicit so a deploy does not depend on the CLI's default path. It
+      # resolves per deploying identity, so a second identity deploying prod
+      # creates its own copy; pin a shared path here once more than one person
+      # or a CI principal deploys. No principal is committed either way.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: marginalia

@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "build:cloudflare": "npm run build && tsc -p tsconfig.cloudflare.json",
     "cloudflare:types": "wrangler types workers/app/worker-configuration.d.ts --env-file workers/app/.dev.vars.example --include-runtime false",
+    "contracts:validators": "node tools/generate-event-validators.mjs",
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "lint": "oxlint",
     "preview": "vite preview",

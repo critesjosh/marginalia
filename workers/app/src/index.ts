@@ -1,4 +1,5 @@
 import { handleRelayRequest } from '../../../shared/relay.ts'
+import { EVENTS_PATH, handleEventBatchRequest, type EventsEnv } from './events.ts'
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; " +
@@ -38,6 +39,10 @@ export default {
           { apiKey: env.OPENROUTER_API_KEY, siteUrl: url.origin },
           { ip: request.headers.get('CF-Connecting-IP') ?? '' },
         )
+      }
+
+      if (url.pathname === EVENTS_PATH) {
+        return await handleEventBatchRequest(request, env as unknown as EventsEnv)
       }
 
       if (url.pathname.startsWith('/api/')) {

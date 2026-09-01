@@ -11,6 +11,9 @@
     "skipLibCheck": true,
     "types": ["@cloudflare/workers-types"]
   },
+  // Tests run under Vitest with Node built-ins available; this project exists
+  // to typecheck what is actually deployed to the Workers runtime.
+  "exclude": ["**/*.test.ts"],
   "include": [
     "workers/app/src/**/*.ts",
     "workers/app/worker-configuration.d.ts",
