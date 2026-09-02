@@ -36,6 +36,15 @@ EVENT_TYPES = [
     "chapter_entered",
     "book_completed",
     "book_reopened",
+    "book_added",
+    "book_archived",
+    "book_restored",
+    "book_deleted",
+    "book_memory_updated",
+    "conversation_deleted",
+    "conversation_resumed",
+    "assistant_response_received",
+    "recommendation_dismissed",
 ]
 READING_TYPES = [
     "book_opened",
@@ -44,6 +53,13 @@ READING_TYPES = [
     "chapter_entered",
     "book_completed",
     "book_reopened",
+]
+LIBRARY_TYPES = [
+    "book_added",
+    "book_archived",
+    "book_restored",
+    "book_deleted",
+    "book_memory_updated",
 ]
 SESSION_EVENT_TYPES = ["book_opened", "book_closed", "reading_progressed", "chapter_entered"]
 HIGHLIGHT_TYPES = ["highlight_created", "highlight_updated", "highlight_deleted"]
@@ -135,6 +151,35 @@ def _payload_keys(event_type):
             event_type == "book_reopened",
             _strings(["progress", "chapter", "reopenedAt", "daysSinceLastOpen"]),
         )
+        .when(
+            event_type == "book_added",
+            _strings(
+                [
+                    "addedAt", "origin", "title", "author", "publisher",
+                    "published", "language", "description",
+                ]
+            ),
+        )
+        .when(event_type == "book_archived", _strings(["archivedAt", "progress"]))
+        .when(event_type == "book_restored", _strings(["restoredAt", "progress"]))
+        .when(
+            event_type == "book_deleted",
+            _strings(["removedAt", "highlightsRemoved", "conversationsRemoved"]),
+        )
+        .when(event_type == "book_memory_updated", _strings(["updatedAt", "summary", "cleared"]))
+        .when(event_type == "conversation_deleted", _strings(["deletedAt", "messagesRemoved"]))
+        .when(
+            event_type == "conversation_resumed",
+            _strings(["resumedAt", "messageCount", "chapter", "progress"]),
+        )
+        .when(
+            event_type == "assistant_response_received",
+            _strings(["receivedAt", "succeeded", "latencyMs", "model", "failureCode", "content"]),
+        )
+        .when(
+            event_type == "recommendation_dismissed",
+            _strings(["dismissedAt", "candidateId", "scoreVersion", "reason"]),
+        )
         .otherwise(_strings(["__unknown_event_type__"]))
     )
 
@@ -172,6 +217,17 @@ def parsed_event_records():
     close_reason = _variant(variant, "$.payload.reason", "string")
     progress_trigger = _variant(variant, "$.payload.trigger", "string")
     payload_chapter = _variant(variant, "$.payload.chapter", "string")
+    payload_origin = _variant(variant, "$.payload.origin", "string")
+    book_title = _variant(variant, "$.payload.title", "string")
+    book_author = _variant(variant, "$.payload.author", "string")
+    book_publisher = _variant(variant, "$.payload.publisher", "string")
+    book_published = _variant(variant, "$.payload.published", "string")
+    book_language = _variant(variant, "$.payload.language", "string")
+    book_description = _variant(variant, "$.payload.description", "string")
+    memory_summary = _variant(variant, "$.payload.summary", "string")
+    assistant_content = _variant(variant, "$.payload.content", "string")
+    assistant_succeeded = _variant(variant, "$.payload.succeeded", "boolean")
+    recommendation_candidate_id = _variant(variant, "$.payload.candidateId", "string")
     canonical_payload = F.to_json(payload)
     canonical_privacy = F.to_json(privacy)
     canonical_entities = F.to_json(entities)
@@ -203,7 +259,17 @@ def parsed_event_records():
     invalid_privacy_category = (
         (
             event_type.isin(
-                [*READING_TYPES, "privacy_consent_changed", "highlight_deleted"]
+                [
+                    *READING_TYPES,
+                    "privacy_consent_changed",
+                    "highlight_deleted",
+                    "book_archived",
+                    "book_restored",
+                    "book_deleted",
+                    "conversation_deleted",
+                    "conversation_resumed",
+                    "recommendation_dismissed",
+                ]
             )
             & (F.size(privacy_included) != 0)
         )
@@ -211,6 +277,12 @@ def parsed_event_records():
             event_type.isin("conversation_started", "question_asked")
             & (F.size(F.array_except(privacy_included, _strings(["conversationText"]))) > 0)
         )
+        | (event_type == "book_added")
+        & (F.size(F.array_except(privacy_included, _strings(["bookMetadata"]))) > 0)
+        | (event_type == "book_memory_updated")
+        & (F.size(F.array_except(privacy_included, _strings(["bookMemory"]))) > 0)
+        | (event_type == "assistant_response_received")
+        & (F.size(F.array_except(privacy_included, _strings(["assistantText"]))) > 0)
         | (
             event_type.isin("highlight_created", "highlight_updated")
             & (
@@ -232,16 +304,47 @@ def parsed_event_records():
         | invalid_privacy_category
     )
 
+    book_metadata_present = (
+        book_title.isNotNull()
+        | book_author.isNotNull()
+        | book_publisher.isNotNull()
+        | book_published.isNotNull()
+        | book_language.isNotNull()
+        | book_description.isNotNull()
+    )
+    invalid_text_consent = (
+        (event_type == "book_added")
+        & book_metadata_present
+        & ~F.array_contains(privacy_included, "bookMetadata")
+    ) | (
+        (event_type == "book_memory_updated")
+        & memory_summary.isNotNull()
+        & ~F.array_contains(privacy_included, "bookMemory")
+    ) | (
+        (event_type == "assistant_response_received")
+        & assistant_content.isNotNull()
+        & ~F.array_contains(privacy_included, "assistantText")
+    )
+
+    missing_book = book_id.isNull() | (F.length(book_id) == 0)
+    missing_highlight = highlight_id.isNull() | (F.length(highlight_id) == 0)
+    missing_conversation = conversation_id.isNull() | (F.length(conversation_id) == 0)
+    missing_message = message_id.isNull() | (F.length(message_id) == 0)
     missing_highlight_entity = event_type.isin(HIGHLIGHT_TYPES) & (
-        book_id.isNull() | highlight_id.isNull()
+        missing_book | missing_highlight
     )
-    missing_conversation_entity = (event_type == "conversation_started") & (
-        book_id.isNull() | conversation_id.isNull()
+    missing_conversation_entity = event_type.isin(
+        "conversation_started", "conversation_deleted", "conversation_resumed"
+    ) & (
+        missing_book | missing_conversation
     )
-    missing_question_entity = (event_type == "question_asked") & (
-        book_id.isNull() | conversation_id.isNull() | message_id.isNull()
+    missing_question_entity = event_type.isin(
+        "question_asked", "assistant_response_received"
+    ) & (
+        missing_book | missing_conversation | missing_message
     )
-    missing_reading_entity = event_type.isin(READING_TYPES) & book_id.isNull()
+    missing_reading_entity = event_type.isin(READING_TYPES) & missing_book
+    missing_library_entity = event_type.isin(LIBRARY_TYPES) & missing_book
     bad_progress = (
         payload_progress.isNotNull() & ((payload_progress < 0) | (payload_progress > 1))
     ) | (event_type.isin(READING_TYPES) & payload_progress.isNull())
@@ -275,6 +378,30 @@ def parsed_event_records():
             _variant(variant, "$.payload.completedAt", "timestamp"),
         )
         .when(event_type == "book_reopened", _variant(variant, "$.payload.reopenedAt", "timestamp"))
+        .when(event_type == "book_added", _variant(variant, "$.payload.addedAt", "timestamp"))
+        .when(event_type == "book_archived", _variant(variant, "$.payload.archivedAt", "timestamp"))
+        .when(event_type == "book_restored", _variant(variant, "$.payload.restoredAt", "timestamp"))
+        .when(event_type == "book_deleted", _variant(variant, "$.payload.removedAt", "timestamp"))
+        .when(
+            event_type == "book_memory_updated",
+            _variant(variant, "$.payload.updatedAt", "timestamp"),
+        )
+        .when(
+            event_type == "conversation_deleted",
+            _variant(variant, "$.payload.deletedAt", "timestamp"),
+        )
+        .when(
+            event_type == "conversation_resumed",
+            _variant(variant, "$.payload.resumedAt", "timestamp"),
+        )
+        .when(
+            event_type == "assistant_response_received",
+            _variant(variant, "$.payload.receivedAt", "timestamp"),
+        )
+        .when(
+            event_type == "recommendation_dismissed",
+            _variant(variant, "$.payload.dismissedAt", "timestamp"),
+        )
     )
     missing_payload_timestamp = (
         ~event_type.eqNullSafe("privacy_consent_changed") & payload_timestamp.isNull()
@@ -290,6 +417,16 @@ def parsed_event_records():
         | ~progress_trigger.isin("progress_delta", "chapter_change", "closing", "backgrounded")
     )
     missing_chapter = (event_type == "chapter_entered") & payload_chapter.isNull()
+    invalid_book_origin = (event_type == "book_added") & (
+        payload_origin.isNull()
+        | ~payload_origin.isin("import", "sample", "gutenberg", "koreader")
+    )
+    missing_assistant_outcome = (
+        (event_type == "assistant_response_received") & assistant_succeeded.isNull()
+    )
+    missing_recommendation_candidate = (event_type == "recommendation_dismissed") & (
+        recommendation_candidate_id.isNull() | (F.length(recommendation_candidate_id) == 0)
+    )
 
     quarantine_reason = (
         F.when(
@@ -317,16 +454,21 @@ def parsed_event_records():
         .when(unknown_entity, F.lit("unknown_entity_field"))
         .when(unknown_privacy, F.lit("unknown_privacy_field"))
         .when(invalid_privacy, F.lit("invalid_privacy"))
+        .when(invalid_text_consent, F.lit("invalid_privacy"))
         .when(missing_highlight_entity, F.lit("missing_highlight_entity"))
         .when(missing_conversation_entity, F.lit("missing_conversation_entity"))
         .when(missing_question_entity, F.lit("missing_question_entity"))
         .when(missing_reading_entity, F.lit("missing_book_entity"))
+        .when(missing_library_entity, F.lit("missing_book_entity"))
         .when(bad_progress, F.lit("invalid_progress"))
         .when(missing_payload_timestamp, F.lit("invalid_payload_timestamp"))
         .when(invalid_highlight_payload, F.lit("invalid_highlight_payload"))
         .when(invalid_close_reason, F.lit("invalid_close_reason"))
         .when(invalid_progress_trigger, F.lit("invalid_progress_trigger"))
         .when(missing_chapter, F.lit("missing_chapter"))
+        .when(invalid_book_origin, F.lit("invalid_book_origin"))
+        .when(missing_assistant_outcome, F.lit("missing_assistant_outcome"))
+        .when(missing_recommendation_candidate, F.lit("missing_recommendation_candidate"))
     )
 
     future_clock = event_time > received_at + F.expr("INTERVAL 24 HOURS")
@@ -404,15 +546,21 @@ EVENT_EXPECTATIONS = {
         "AND effective_event_time IS NOT NULL"
     ),
     "valid_progress": "progress IS NULL OR (progress >= 0 AND progress <= 1)",
-    "required_book_entity": "event_type = 'privacy_consent_changed' OR book_id IS NOT NULL",
+    "required_book_entity": (
+        "event_type IN ('privacy_consent_changed','recommendation_dismissed') "
+        "OR book_id IS NOT NULL"
+    ),
     "required_highlight_entity": (
         "event_type NOT IN ('highlight_created','highlight_updated','highlight_deleted') "
         "OR highlight_id IS NOT NULL"
     ),
     "required_conversation_entity": (
-        "event_type NOT IN ('conversation_started','question_asked') OR conversation_id IS NOT NULL"
+        "event_type NOT IN ('conversation_started','question_asked','conversation_deleted',"
+        "'conversation_resumed','assistant_response_received') OR conversation_id IS NOT NULL"
     ),
-    "required_message_entity": "event_type != 'question_asked' OR message_id IS NOT NULL",
+    "required_message_entity": (
+        "event_type NOT IN ('question_asked','assistant_response_received') OR message_id IS NOT NULL"
+    ),
 }
 
 

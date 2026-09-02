@@ -8,11 +8,13 @@
 import json
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
 
+from pyspark.errors import AnalysisException
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
@@ -39,15 +41,22 @@ GOLD = _argument("gold_schema")
 # that cannot say who it is gets rate limited far harder.
 CONTACT = _argument("public_contact")
 BATCH_LIMIT = int(_argument("public_batch_limit", "25"))
-# Open Library asks for no more than 100 requests per five minutes; one per
-# second is well inside that and needs no coordination between runs.
-REQUEST_SPACING_SECONDS = float(_argument("public_request_spacing", "1.0"))
+# Open Library asks for no more than 100 requests per five minutes. That is one
+# every three seconds, not one every second: at a second apart a full batch runs
+# at three times the rate the provider asks for.
+REQUEST_SPACING_SECONDS = float(_argument("public_request_spacing", "3.0"))
+# How long a concept's enrichment stays current before it is worth asking again.
+ENRICHMENT_TTL_DAYS = int(_argument("public_enrichment_ttl_days", "30"))
+# Failed requests retry on a slower clock than the 15-minute job schedule but
+# do not wait a full successful-result TTL.
+FAILED_REQUEST_RETRY_HOURS = int(_argument("public_failed_retry_hours", "6"))
 
 SILVER_EVENTS = f"{CATALOG}.{SILVER}.events"
 INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
 RAW = f"{CATALOG}.{BRONZE}.public_sources_raw"
 MATCHES = f"{CATALOG}.{SILVER}.book_work_matches"
 RESEARCH = f"{CATALOG}.{SILVER}.research_works"
+REQUEST_SUBJECTS = f"{CATALOG}.{SILVER}.public_request_subjects"
 
 USER_AGENT = f"Marginalia/0.1 ({CONTACT})"
 PARSER_VERSION = "public-sources-v1"
@@ -110,14 +119,92 @@ def ensure_tables():
         ) USING DELTA
         """
     )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {REQUEST_SUBJECTS} (
+          request_id STRING NOT NULL,
+          user_id STRING NOT NULL,
+          book_id STRING,
+          concept_id STRING,
+          linked_at TIMESTAMP NOT NULL
+        ) USING DELTA
+        """
+    )
+    _backfill_request_subjects()
+
+
+def _backfill_request_subjects():
+    """Give already-written raw rows the deletion join path newer rows get."""
+    if spark.read.table(REQUEST_SUBJECTS).limit(1).count() > 0:
+        return
+    sources = [
+        spark.read.table(MATCHES)
+        .filter(F.col("request_id").isNotNull())
+        .select(
+            "request_id",
+            "user_id",
+            "book_id",
+            F.lit(None).cast("string").alias("concept_id"),
+        )
+    ]
+    if spark.catalog.tableExists(INTEREST):
+        sources.append(
+            spark.read.table(RESEARCH)
+            .filter(F.col("request_id").isNotNull())
+            .select("request_id", "concept_id")
+            .distinct()
+            .join(
+                spark.read.table(INTEREST).select("user_id", "concept_id").distinct(),
+                ["concept_id"],
+            )
+            .select(
+                "request_id",
+                "user_id",
+                F.lit(None).cast("string").alias("book_id"),
+                "concept_id",
+            )
+        )
+    combined = sources[0]
+    for source in sources[1:]:
+        combined = combined.unionByName(source)
+    _merge_subject_frame(
+        combined.distinct().withColumn("linked_at", F.current_timestamp())
+    )
+
+
+def _known_etag(url: str) -> str | None:
+    """The ETag from the last successful fetch of this exact URL, if any."""
+    try:
+        previous = (
+            spark.read.table(RAW)
+            .filter(
+                (F.col("request_url") == url)
+                & F.col("etag").isNotNull()
+                & F.col("body").isNotNull()
+            )
+            .orderBy(F.col("retrieved_at").desc())
+            .select("etag")
+            .limit(1)
+            .collect()
+        )
+    except AnalysisException:
+        return None
+    return previous[0]["etag"] if previous else None
 
 
 def fetch(source: str, url: str) -> dict:
     """
     One request, with everything needed to explain it later. A failure is a row
     too: a provider outage must be visible in Bronze, not an absence.
+
+    Conditional when we have already seen this URL: a 304 costs the provider
+    almost nothing and tells us the body we stored is still current.
     """
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    headers = {"User-Agent": USER_AGENT, "Accept": "application/json"}
+    etag = _known_etag(url)
+    if etag:
+        headers["If-None-Match"] = etag
+    request = urllib.request.Request(url, headers=headers)
     record = {
         "request_id": str(uuid.uuid4()),
         "source": source,
@@ -133,13 +220,38 @@ def fetch(source: str, url: str) -> dict:
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             record["http_status"] = response.status
-            record["etag"] = response.headers.get("ETag")
+            record["etag"] = response.headers.get("ETag") or etag
             record["body"] = response.read().decode("utf-8")
+    except urllib.error.HTTPError as error:
+        record["http_status"] = error.code
+        record["etag"] = error.headers.get("ETag") or etag
+        if error.code == 304:
+            # Unchanged since we last asked. The stored body is still the answer.
+            record["body"] = _stored_body(url)
+            if record["body"] is None:
+                record["error"] = "HTTPError 304 without a cached body"
+        else:
+            record["error"] = f"HTTPError {error.code}"
     except Exception as error:  # noqa: BLE001 - the reason is the data here
         record["error"] = f"{type(error).__name__}: {error}"[:500]
     # Spaced rather than hammered. These are free services run for everyone.
     time.sleep(REQUEST_SPACING_SECONDS)
     return record
+
+
+def _stored_body(url: str) -> str | None:
+    try:
+        previous = (
+            spark.read.table(RAW)
+            .filter((F.col("request_url") == url) & F.col("body").isNotNull())
+            .orderBy(F.col("retrieved_at").desc())
+            .select("body")
+            .limit(1)
+            .collect()
+        )
+    except AnalysisException:
+        return None
+    return previous[0]["body"] if previous else None
 
 
 def _write_raw(records: list[dict]):
@@ -157,6 +269,37 @@ def _write_raw(records: list[dict]):
         "retrieved_at TIMESTAMP, parser_version STRING, source_license STRING, body STRING, "
         "error STRING",
     ).write.mode("append").saveAsTable(RAW)
+
+
+def _write_subjects(records: list[dict]):
+    if not records:
+        return
+    incoming = spark.createDataFrame(
+        [
+            (
+                row["request_id"], row["user_id"], row.get("book_id"),
+                row.get("concept_id"), row["linked_at"],
+            )
+            for row in records
+        ],
+        "request_id STRING, user_id STRING, book_id STRING, concept_id STRING, linked_at TIMESTAMP",
+    ).dropDuplicates(["request_id", "user_id", "book_id", "concept_id"])
+    _merge_subject_frame(incoming)
+
+
+def _merge_subject_frame(incoming):
+    incoming.createOrReplaceTempView("incoming_public_request_subjects")
+    spark.sql(
+        f"""
+        MERGE INTO {REQUEST_SUBJECTS} target
+        USING incoming_public_request_subjects source
+        ON target.request_id = source.request_id
+          AND target.user_id = source.user_id
+          AND target.book_id <=> source.book_id
+          AND target.concept_id <=> source.concept_id
+        WHEN NOT MATCHED THEN INSERT *
+        """
+    )
 
 
 def books_to_match():
@@ -184,17 +327,21 @@ def books_to_match():
     )
     added = added.join(deleted, ["user_id", "book_id"], "left_anti")
 
-    try:
+    if spark.catalog.tableExists(MATCHES):
+        # Only a decision counts as done. A request that failed left an `error`
+        # row, and that book must be asked about again rather than being stuck
+        # at "unmatched" because a provider was down for a minute.
         done = (
             spark.read.table(MATCHES)
-            .filter(F.col("matcher_version") == MATCHER_VERSION)
+            .filter(
+                (F.col("matcher_version") == MATCHER_VERSION)
+                & (F.col("status") != "error")
+            )
             .select("user_id", "book_id")
             .distinct()
         )
         added = added.join(done, ["user_id", "book_id"], "left_anti")
-    except Exception:
-        pass
-    return added.limit(BATCH_LIMIT)
+    return added.orderBy("user_id", "book_id").limit(BATCH_LIMIT)
 
 
 def match_books() -> int:
@@ -202,7 +349,7 @@ def match_books() -> int:
     if not pending:
         return 0
 
-    raw_records, rows = [], []
+    raw_records, rows, subjects = [], [], []
     now = datetime.now(timezone.utc)
     for book in pending:
         query = urllib.parse.urlencode(
@@ -214,13 +361,40 @@ def match_books() -> int:
         )
         record = fetch("openlibrary", f"https://openlibrary.org/search.json?{query}")
         raw_records.append(record)
+        subjects.append(
+            {
+                "request_id": record["request_id"],
+                "user_id": book["user_id"],
+                "book_id": book["book_id"],
+                "concept_id": None,
+                "linked_at": now,
+            }
+        )
 
-        candidates = []
-        if record["body"]:
-            try:
-                candidates = json.loads(record["body"]).get("docs", []) or []
-            except ValueError:
-                candidates = []
+        # A request that did not come back with a usable body has decided
+        # nothing. Recording "unmatched" would be a claim the run cannot make,
+        # and would permanently retire the book from ever being asked about.
+        if record["error"] or not record["body"]:
+            rows.append(
+                (
+                    book["user_id"], book["book_id"], None, 0.0, "error", None,
+                    MATCHER_VERSION, record["request_id"], now,
+                )
+            )
+            if record["http_status"] == 429:
+                break
+            continue
+        try:
+            candidates = json.loads(record["body"]).get("docs", []) or []
+        except ValueError:
+            rows.append(
+                (
+                    book["user_id"], book["book_id"], None, 0.0, "error", None,
+                    MATCHER_VERSION, record["request_id"], now,
+                )
+            )
+            continue
+
         decision = choose_match({"title": book["title"], "author": book["author"] or ""}, candidates)
         rows.append(
             (
@@ -231,6 +405,7 @@ def match_books() -> int:
         )
 
     _write_raw(raw_records)
+    _write_subjects(subjects)
     spark.createDataFrame(
         rows,
         "user_id STRING, book_id STRING, work_key STRING, confidence DOUBLE, status STRING, "
@@ -244,27 +419,48 @@ def enrich_concepts() -> int:
     Targeted, never a mirror. Only concepts a reader actually has interest in,
     and only the strongest of those.
     """
-    try:
-        concepts = (
-            spark.read.table(INTEREST)
-            .orderBy(F.col("interest_score").desc())
-            .select("concept_id")
-            .distinct()
-            .limit(BATCH_LIMIT)
-            .collect()
-        )
-    except Exception:
+    if not spark.catalog.tableExists(INTEREST):
         return 0
+
+    wanted = spark.read.table(INTEREST).groupBy("concept_id").agg(
+        F.max("interest_score").alias("strongest_interest"),
+        F.sort_array(F.collect_set("user_id")).alias("user_ids"),
+    )
+    # Eligibility follows attempts, not result rows. A successful empty result
+    # still consumes its TTL; a failed request retries after six hours instead
+    # of pinning every 15-minute batch forever.
+    attempts = spark.read.table(REQUEST_SUBJECTS).filter(F.col("concept_id").isNotNull()).join(
+        spark.read.table(RAW), ["request_id"]
+    )
+    recent_success = attempts.filter(
+        F.col("body").isNotNull()
+        & F.col("error").isNull()
+        & (
+            F.col("retrieved_at")
+            >= F.current_timestamp() - F.expr(f"INTERVAL {ENRICHMENT_TTL_DAYS} DAYS")
+        )
+    ).select("concept_id")
+    recent_failure = attempts.filter(
+        F.col("error").isNotNull()
+        & (
+            F.col("retrieved_at")
+            >= F.current_timestamp() - F.expr(f"INTERVAL {FAILED_REQUEST_RETRY_HOURS} HOURS")
+        )
+    ).select("concept_id")
+    recent = recent_success.union(recent_failure).distinct()
+    wanted = wanted.join(recent, ["concept_id"], "left_anti")
+
+    concepts = wanted.orderBy(F.col("strongest_interest").desc(), "concept_id").limit(BATCH_LIMIT).collect()
     if not concepts:
         return 0
 
-    raw_records, rows = [], []
+    raw_records, rows, subjects = [], [], []
     now = datetime.now(timezone.utc)
     for row in concepts:
         concept = row["concept_id"]
         query = urllib.parse.urlencode(
             {
-                "filter": f"title.search:{concept}",
+                "search": concept,
                 "per-page": "10",
                 "sort": "cited_by_count:desc",
                 "mailto": CONTACT,
@@ -272,17 +468,32 @@ def enrich_concepts() -> int:
         )
         record = fetch("openalex", f"https://api.openalex.org/works?{query}")
         raw_records.append(record)
+        subjects.extend(
+            {
+                "request_id": record["request_id"],
+                "user_id": user_id,
+                "book_id": None,
+                "concept_id": concept,
+                "linked_at": now,
+            }
+            for user_id in row["user_ids"]
+        )
         if not record["body"]:
+            if record["http_status"] == 429:
+                break
             continue
         try:
             works = json.loads(record["body"]).get("results", []) or []
         except ValueError:
             continue
         for work in works:
+            work_id = work.get("id")
+            if not work_id:
+                continue
             rows.append(
                 (
                     concept,
-                    work.get("id"),
+                    work_id,
                     work.get("title") or work.get("display_name"),
                     work.get("publication_year"),
                     work.get("cited_by_count"),
@@ -300,6 +511,7 @@ def enrich_concepts() -> int:
             )
 
     _write_raw(raw_records)
+    _write_subjects(subjects)
     if rows:
         spark.createDataFrame(
             rows,

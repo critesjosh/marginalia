@@ -732,14 +732,17 @@ Every row names the established concepts and public works that explain the candi
 
 #### Recommendation heuristic v1
 
-Candidate books exclude books already in the library, dismissed within 90 days, or
-missing a stable Open Library work ID. Components are:
+Candidate public works exclude books already in the library, works dismissed within 90
+days, or rows missing a stable OpenAlex work ID. Open Library work keys identify matches
+to books already in the reader's library; OpenAlex work IDs identify the external research
+rows that supply frontier and recommendation candidates. They are deliberately not joined
+as though they were the same identifier namespace. Components are:
 
 ```text
 0.45 concept-interest match
 0.20 frontier coverage
 0.15 diversity from recently read authors and subjects
-0.10 Open Library popularity prior
+0.10 OpenAlex citation prior
 0.10 metadata completeness
 ```
 
@@ -840,6 +843,12 @@ Raw API responses land in Bronze with request URL stripped of secrets, retrieval
 HTTP status, ETag when available, parser version, and source license metadata. Jobs use
 conditional requests and provider-friendly rate limits.
 
+`marginalia_silver.public_request_subjects` links every raw request to the user and book or
+concept that caused it. The link is written even for errors and empty results, drives retry
+and TTL eligibility, and gives cloud deletion a complete request-ID path into the otherwise
+public raw response table. The first deployment backfills links for requests already
+represented in `book_work_matches` or `research_works`.
+
 OpenAlex enrichment is targeted, not a bulk mirror. Queries begin from concepts and
 works already present in a user's profile. Research works retain source IDs, titles,
 authorship, publication dates, concepts, cited-by counts, and retrieval provenance.
@@ -898,6 +907,23 @@ preview response, explicit confirmation, and a compensating or deletion action.
 
 Each phase is an independently completable `/goal`. A goal must not silently continue
 into the next phase.
+
+### Implementation status (2026-09-02)
+
+| Phase | Status | Evidence and remaining gate |
+| --- | --- | --- |
+| 0 | Complete | Local contracts, privacy controls, outbox, fixtures, and repository checks landed. |
+| 1 | Complete | Authenticated ingress and triggered Bronze ingestion were deployed and exercised. |
+| 2 | Complete | Silver deduplication, quarantine, highlights, and sessions were deployed and exercised. |
+| 3 | Complete | Incremental extraction and Gold profiles ran against live data; the evaluation passed at 4/5 recall and 0 unsupported additions. |
+| 4 | Local half implemented and reviewed; external half not implemented | Worker endpoints, cached Insights, and deletion UX are tested. Lakebase, synced tables, the Databricks App API/resource binding, least-privilege grants, and the full 35-minute serving-loop acceptance run remain. The feedback entry titled "Phases 2 through 4 deployed and run end to end" verifies the Databricks path through Gold, not these missing serving resources. |
+| 5 | Complete | Behavioral event contracts and atomic PWA instrumentation landed; existing KOReader handoff remains offline and idempotent. |
+| 6 | Complete | Public-source ingestion, matching, frontier, and heuristic recommendations passed local tests, bundle validation, selected-compute egress, a cache/TTL rerun, live materialization, and SQL checks for keys, provenance, score reproduction, direct-interest exclusion, and deletion linkage. The client-side dismissal emitter remains Phase 9 work, so dismissed exclusion is contract- and transformation-tested here but not yet a live UI loop. |
+| 7-11 | Not started | Later phases retain the preflight and sequencing gates below. |
+
+This table is the status record; phase headings below remain the normative deliverables and
+acceptance criteria. A later phase having code does not make an earlier incomplete phase
+complete.
 
 ### Phase 0: local contracts, privacy, outbox, and fixtures
 
@@ -1144,7 +1170,9 @@ after the read surface is stable.
 
 ## First end-to-end vertical slice
 
-The first deployed slice now spans Phases 0–4 and has no hidden Phase 6 dependency:
+The target first slice spans Phases 0–4 and has no hidden Phase 6 dependency. Its data path
+through Gold has run successfully, but the slice is not complete until Phase 4's Lakebase,
+Databricks App, and full browser-serving acceptance work above is delivered:
 
 ```text
 Nietzsche highlight
@@ -1154,7 +1182,7 @@ Nietzsche highlight
       -> triggered Kafka ingestion pipeline
       -> Bronze event
       -> deduplicated Silver highlight
-      -> GPT-5.6 Luna concept extraction
+      -> databricks-gpt-oss-120b concept extraction
       -> Gold reader interest profile
       -> triggered Lakebase synced table
       -> authenticated Databricks App API

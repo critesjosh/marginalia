@@ -8,6 +8,9 @@ from pyspark import pipelines as dp
 from pyspark.sql import SparkSession, Window
 from pyspark.sql import functions as F
 
+from concepts import make_concept_canonicalizer
+from public_matching import FRONTIER_WEIGHTS, RECOMMENDATION_WEIGHTS, make_title_normalizer
+
 spark = SparkSession.getActiveSession()
 
 CATALOG = spark.conf.get("marginalia.catalog")
@@ -15,9 +18,7 @@ SILVER = spark.conf.get("marginalia.silver_schema")
 GOLD = spark.conf.get("marginalia.gold_schema")
 
 INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
-EXTRACTIONS = f"{CATALOG}.{SILVER}.concept_extractions"
 RESEARCH = f"{CATALOG}.{SILVER}.research_works"
-MATCHES = f"{CATALOG}.{SILVER}.book_work_matches"
 SILVER_EVENTS = f"{CATALOG}.{SILVER}.events"
 
 FRONTIER = f"{CATALOG}.{GOLD}.intellectual_frontier"
@@ -28,12 +29,41 @@ RECOMMENDATION_SCORE_VERSION = "recommendation_heuristic_v1"
 
 # A candidate needs more than one established concept pointing at it before it
 # counts as adjacent rather than incidental.
-MINIMUM_NEIGHBOURS = 1
+MINIMUM_NEIGHBOURS = 2
 DISMISSAL_WINDOW_DAYS = 90
 
 
 def _clamp(column):
     return F.least(F.lit(1.0), F.greatest(F.lit(0.0), column))
+
+
+def normalized_title(column):
+    """
+    The same shape public_matching.normalize_title produces: lowercased, the
+    subtitle dropped, punctuation flattened, a leading article removed. Kept in
+    step with it deliberately, so what counts as "already owned" here is what
+    counted as a match there.
+    """
+    return F.udf(make_title_normalizer(), "string")(column)
+
+
+def canonical_topic(column):
+    """Use the exact canonicalization that produced Gold concept ids."""
+    return F.udf(make_concept_canonicalizer(), "string")(column)
+
+
+def current_research_works():
+    """One current row per concept and work, even after a TTL refresh."""
+    latest = Window.partitionBy("concept_id", "work_id").orderBy(
+        F.col("retrieved_at").desc(), F.col("request_id").desc()
+    )
+    return (
+        spark.read.table(RESEARCH)
+        .filter(F.col("work_id").isNotNull() & F.col("title").isNotNull())
+        .withColumn("_recency", F.row_number().over(latest))
+        .filter(F.col("_recency") == 1)
+        .drop("_recency")
+    )
 
 
 @dp.materialized_view(
@@ -49,10 +79,10 @@ def intellectual_frontier():
     # Adjacency comes from research works: a work that a reader's established
     # concept turned up, whose topics name something else, makes that something
     # else a neighbour of the concept.
-    works = spark.read.table(RESEARCH)
+    works = current_research_works()
     topics = works.withColumn(
         "topic", F.explode(F.from_json(F.col("topics"), "array<string>"))
-    ).withColumn("topic", F.lower(F.trim(F.col("topic"))))
+    ).withColumn("topic", canonical_topic(F.col("topic")))
 
     established = interests.filter(F.col("evidence_count") > 0)
     neighbours = (
@@ -65,6 +95,7 @@ def intellectual_frontier():
             established.interest_score,
             F.col("work_id"),
             F.col("title").alias("work_title"),
+            F.col("request_id"),
             F.coalesce(F.col("cited_by_count"), F.lit(0)).alias("cited_by_count"),
         )
     )
@@ -84,9 +115,13 @@ def intellectual_frontier():
             F.countDistinct("work_id").alias("supporting_work_count"),
             F.max("cited_by_count").alias("best_cited_by_count"),
             F.slice(
-                F.array_distinct(F.collect_list("established_concept")), 1, 5
+                F.sort_array(F.array_distinct(F.collect_list("established_concept"))), 1, 5
             ).alias("established_concepts"),
-            F.slice(F.array_distinct(F.collect_list("work_title")), 1, 5).alias("supporting_works"),
+            F.slice(F.sort_array(F.array_distinct(F.collect_list("work_title"))), 1, 5).alias("supporting_works"),
+            # The ids, not only the titles: a row has to link back to the
+            # public-source record it was derived from, not merely name it.
+            F.slice(F.sort_array(F.array_distinct(F.collect_list("work_id"))), 1, 5).alias("supporting_work_ids"),
+            F.slice(F.sort_array(F.array_distinct(F.collect_list("request_id"))), 1, 5).alias("source_request_ids"),
         )
         .filter(F.col("neighbour_count") >= MINIMUM_NEIGHBOURS)
     )
@@ -109,9 +144,11 @@ def intellectual_frontier():
         )
         .withColumn(
             "frontier_score",
-            0.45 * _clamp(F.col("similarity_to_established_interests"))
-            + 0.35 * _clamp(F.col("normalized_neighbor_strength"))
-            + 0.20 * _clamp(F.col("source_quality")),
+            FRONTIER_WEIGHTS["similarity"]
+            * _clamp(F.col("similarity_to_established_interests"))
+            + FRONTIER_WEIGHTS["neighbor_strength"]
+            * _clamp(F.col("normalized_neighbor_strength"))
+            + FRONTIER_WEIGHTS["source_quality"] * _clamp(F.col("source_quality")),
         )
         .withColumn("score_version", F.lit(FRONTIER_SCORE_VERSION))
         .withColumn("computed_at", F.current_timestamp())
@@ -126,18 +163,30 @@ def intellectual_frontier():
 def recommendation_candidates():
     interests = spark.read.table(INTEREST)
     frontier = spark.read.table(FRONTIER)
-    works = spark.read.table(RESEARCH)
+    works = current_research_works()
 
-    # Every book the reader already has, matched or not, and every book they
-    # deleted. Neither may be recommended back to them.
-    owned = (
-        spark.read.table(MATCHES)
-        .filter(F.col("work_key").isNotNull())
-        .select("user_id", F.col("work_key").alias("candidate_id"))
+    events = spark.read.table(SILVER_EVENTS)
+
+    # Every book the reader already has must not come back as a suggestion.
+    # Open Library work keys and OpenAlex work ids are different identifier
+    # spaces, so an anti-join between them matches nothing and would recommend a
+    # reader the book already on their shelf. The comparable thing both sides
+    # have is the title, normalized the way the matcher normalizes it.
+    added_books = (
+        events.filter(F.col("event_type") == "book_added")
+        .withColumn("title", F.try_variant_get(F.col("payload"), "$.title", "string"))
+        .filter(F.col("title").isNotNull())
+        .select("user_id", "book_id", normalized_title(F.col("title")).alias("owned_title"))
+    )
+    deleted_books = events.filter(F.col("event_type") == "book_deleted").select(
+        "user_id", "book_id"
+    )
+    owned_titles = (
+        added_books.join(deleted_books, ["user_id", "book_id"], "left_anti")
+        .select("user_id", "owned_title")
         .distinct()
     )
 
-    events = spark.read.table(SILVER_EVENTS)
     dismissed = (
         events.filter(F.col("event_type") == "recommendation_dismissed")
         .filter(
@@ -149,51 +198,76 @@ def recommendation_candidates():
         .distinct()
     )
 
+    # Generators must be their own projection in Spark: nesting explode inside
+    # lower/trim is rejected during Lakeflow analysis.
     topics = works.withColumn(
-        "topic", F.lower(F.trim(F.explode(F.from_json(F.col("topics"), "array<string>"))))
-    )
+        "topic", F.explode(F.from_json(F.col("topics"), "array<string>"))
+    ).withColumn("topic", canonical_topic(F.col("topic")))
 
     by_interest = (
         interests.join(topics, interests.concept_id == topics.concept_id)
         .select(
             interests.user_id,
             F.col("work_id").alias("candidate_id"),
-            F.col("title").alias("candidate_title"),
-            F.col("authors"),
+            F.col("request_id"),
             F.coalesce(F.col("cited_by_count"), F.lit(0)).alias("cited_by_count"),
-            F.col("publication_year"),
             interests.concept_id,
             interests.interest_score,
         )
     )
 
-    frontier_hits = frontier.select(
-        "user_id",
-        F.col("candidate_concept").alias("concept_id"),
-        F.col("frontier_score"),
+    interest_scored = by_interest.groupBy("user_id", "candidate_id").agg(
+        F.avg("interest_score").alias("concept_interest_match"),
+        F.max("cited_by_count").alias("cited_by_count"),
+        F.slice(F.sort_array(F.array_distinct(F.collect_list("concept_id"))), 1, 5).alias("matched_concepts"),
+        F.slice(F.sort_array(F.array_distinct(F.collect_list("request_id"))), 1, 3).alias("source_request_ids"),
+    )
+    metadata_recency = Window.partitionBy("work_id").orderBy(
+        F.col("retrieved_at").desc(), F.col("request_id").desc(), F.col("concept_id")
+    )
+    candidate_metadata = (
+        works.withColumn("_metadata_recency", F.row_number().over(metadata_recency))
+        .filter(F.col("_metadata_recency") == 1)
+        .select(
+            F.col("work_id").alias("candidate_id"),
+            F.col("title").alias("candidate_title"),
+            "authors",
+            "publication_year",
+        )
+    )
+    interest_scored = interest_scored.join(candidate_metadata, ["candidate_id"])
+
+    # Coverage is how far a candidate reaches into the reader's frontier, so it
+    # is measured against that candidate's own topics. Joining the reader's
+    # established concepts to the frontier could never match: the frontier is
+    # defined as the concepts they have no direct evidence for.
+    frontier_topics = topics.select(
+        F.col("work_id").alias("candidate_id"), F.col("topic")
+    ).distinct()
+    coverage = (
+        frontier.select(
+            "user_id", F.col("candidate_concept").alias("topic"), "frontier_score"
+        )
+        .join(frontier_topics, ["topic"])
+        .groupBy("user_id", "candidate_id")
+        .agg(
+            F.avg("frontier_score").alias("frontier_coverage"),
+            F.slice(F.sort_array(F.array_distinct(F.collect_list("topic"))), 1, 5).alias("frontier_concepts"),
+        )
     )
 
-    scored = (
-        by_interest.join(frontier_hits, ["user_id", "concept_id"], "left")
-        .groupBy("user_id", "candidate_id", "candidate_title", "authors", "publication_year")
-        .agg(
-            F.avg("interest_score").alias("concept_interest_match"),
-            F.coalesce(F.avg("frontier_score"), F.lit(0.0)).alias("frontier_coverage"),
-            F.max("cited_by_count").alias("cited_by_count"),
-            F.slice(F.array_distinct(F.collect_list("concept_id")), 1, 5).alias("matched_concepts"),
-        )
+    scored = interest_scored.join(coverage, ["user_id", "candidate_id"], "left").fillna(
+        {"frontier_coverage": 0.0}
     )
 
     # A book by an author already all over the reader's shelf is a weaker
     # suggestion than one that opens something new, however well it matches.
+    # From the events themselves. Joining these to the matched works would only
+    # have counted authors whose book Open Library happened to recognise, and an
+    # author the reader is plainly reading is being read either way.
     read_authors = (
-        spark.read.table(MATCHES)
-        .join(
-            events.filter(F.col("event_type") == "book_added")
-            .withColumn("author", F.try_variant_get(F.col("payload"), "$.author", "string"))
-            .select("user_id", "book_id", "author"),
-            ["user_id", "book_id"],
-        )
+        events.filter(F.col("event_type") == "book_added")
+        .withColumn("author", F.try_variant_get(F.col("payload"), "$.author", "string"))
         .filter(F.col("author").isNotNull())
         .select("user_id", F.lower(F.trim(F.col("author"))).alias("read_author"))
         .distinct()
@@ -235,15 +309,21 @@ def recommendation_candidates():
     )
 
     final = (
-        complete.join(owned, ["user_id", "candidate_id"], "left_anti")
+        complete.withColumn("normalized_title", normalized_title(F.col("candidate_title")))
+        .join(
+            owned_titles,
+            (complete.user_id == owned_titles.user_id)
+            & (F.col("normalized_title") == owned_titles.owned_title),
+            "left_anti",
+        )
         .join(dismissed, ["user_id", "candidate_id"], "left_anti")
         .withColumn(
             "recommendation_score",
-            0.45 * _clamp(F.col("concept_interest_match"))
-            + 0.20 * _clamp(F.col("frontier_coverage"))
-            + 0.15 * _clamp(F.col("diversity"))
-            + 0.10 * _clamp(F.col("popularity_prior"))
-            + 0.10 * _clamp(F.col("metadata_completeness")),
+            RECOMMENDATION_WEIGHTS["interest"] * _clamp(F.col("concept_interest_match"))
+            + RECOMMENDATION_WEIGHTS["frontier"] * _clamp(F.col("frontier_coverage"))
+            + RECOMMENDATION_WEIGHTS["diversity"] * _clamp(F.col("diversity"))
+            + RECOMMENDATION_WEIGHTS["popularity"] * _clamp(F.col("popularity_prior"))
+            + RECOMMENDATION_WEIGHTS["metadata"] * _clamp(F.col("metadata_completeness")),
         )
     )
 
@@ -261,5 +341,5 @@ def recommendation_candidates():
         final.withColumn("explanation", explanation)
         .withColumn("score_version", F.lit(RECOMMENDATION_SCORE_VERSION))
         .withColumn("computed_at", F.current_timestamp())
-        .drop("candidate_authors")
+        .drop("candidate_authors", "normalized_title")
     )

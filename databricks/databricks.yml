@@ -44,6 +44,15 @@ variables:
   public_batch_limit:
     description: Most public-source requests one run will make, per provider.
     default: "25"
+  public_request_spacing:
+    description: Minimum seconds between public-source requests.
+    default: "3.0"
+  public_enrichment_ttl_days:
+    description: Days before a concept is eligible for OpenAlex refresh.
+    default: "30"
+  public_failed_retry_hours:
+    description: Hours before retrying a failed public-source request.
+    default: "6"
   extraction_batch_limit:
     description: >-
       Most candidates one extraction run will pay for. The next run takes the

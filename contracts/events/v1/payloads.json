@@ -20,6 +20,7 @@
     "conversation_deleted": "conversation-deleted.schema.json",
     "book_deleted": "book-deleted.schema.json",
     "assistant_response_received": "assistant-response-received.schema.json",
-    "conversation_resumed": "conversation-resumed.schema.json"
+    "conversation_resumed": "conversation-resumed.schema.json",
+    "recommendation_dismissed": "recommendation-dismissed.schema.json"
   }
 }

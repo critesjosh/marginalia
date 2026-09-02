@@ -67,6 +67,9 @@ resources:
               - --gold_schema=${resources.schemas.gold.name}
               - --public_contact=${var.public_contact}
               - --public_batch_limit=${var.public_batch_limit}
+              - --public_request_spacing=${var.public_request_spacing}
+              - --public_enrichment_ttl_days=${var.public_enrichment_ttl_days}
+              - --public_failed_retry_hours=${var.public_failed_retry_hours}
           environment_key: concepts
         - task_key: build_frontier
           depends_on:

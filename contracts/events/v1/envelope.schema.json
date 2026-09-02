@@ -66,7 +66,8 @@
         "book_memory_updated",
         "conversation_deleted",
         "assistant_response_received",
-        "conversation_resumed"
+        "conversation_resumed",
+        "recommendation_dismissed"
       ]
     },
     "eventTime": {
@@ -941,6 +942,32 @@
               "conversationId"
             ]
           },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "Dismissing a recommendation is usage. The candidate id is a public work identifier, never a reader's words.",
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "recommendation_dismissed"
+          }
+        },
+        "required": [
+          "eventType"
+        ]
+      },
+      "then": {
+        "properties": {
           "privacy": {
             "type": "object",
             "properties": {

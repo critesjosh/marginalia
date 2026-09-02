@@ -36,3 +36,4 @@ export declare const validate_conversation_deleted: StandaloneValidator
 export declare const validate_book_deleted: StandaloneValidator
 export declare const validate_assistant_response_received: StandaloneValidator
 export declare const validate_conversation_resumed: StandaloneValidator
+export declare const validate_recommendation_dismissed: StandaloneValidator

@@ -3,7 +3,14 @@
 Declarative Automation Bundle for the Databricks side of
 [the intelligence plan](../docs/databricks-intelligence-plan.md). Phase 1 covers
 authenticated ingress to Bronze; Phase 2 adds deterministic Silver identity,
-highlights, and reading sessions.
+highlights, and reading sessions; Phase 3 adds extraction and the first Gold
+profiles; Phase 6 adds targeted public sources, frontier, and recommendations.
+
+Phase 4 is only represented here by the Gold tables its eventual serving loop
+will read. This bundle does not yet define Lakebase, synced tables, or a
+Databricks App. The Worker proxy and PWA Insights UI therefore do not constitute
+Phase 4 acceptance by themselves; see the implementation-status table in the
+plan.
 
 ## What is here
 
@@ -22,6 +29,10 @@ src/public_matching.py           work matching and the Phase 6 score formulas
 src/public_sources.py            Open Library matching, targeted OpenAlex enrichment
 src/frontier.py                  intellectual_frontier and recommendation_candidates
 ```
+
+`public_sources.py` also maintains `public_request_subjects`, the user-to-request
+index used for cache eligibility and eventual cloud deletion of raw provider
+requests.
 
 Nothing in this directory names a workspace, a credential, or a private resource
 id. The host comes from your Databricks CLI profile or `DATABRICKS_HOST`.
@@ -179,6 +190,13 @@ Set it to a real address before running against production.
 An ambiguous match attaches nothing. Two candidate works that title and author
 cannot tell apart stay unresolved with their candidates recorded, because a
 wrong work quietly poisons every recommendation built on top of it.
+
+Requests default to at least three seconds apart, matching Open Library's
+published ceiling of 100 requests per five minutes. A provider throttle stops
+the remainder of that provider's batch after the response is recorded. ETags
+make repeated URLs conditional, and OpenAlex enrichment is eligible for refresh
+only after `public_enrichment_ttl_days` (30 by default). Override cadence through
+bundle variables instead of editing the job.
 
 Run the live concept evaluation by hand when the prompt, the model, or the
 canonicalization version changes. It is deliberately outside `npm test`, which

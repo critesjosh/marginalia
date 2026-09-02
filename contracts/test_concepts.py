@@ -20,6 +20,7 @@ from concepts import (  # noqa: E402
     canonicalize,
     engagement_score_v1,
     evidence_contribution,
+    make_concept_canonicalizer,
     next_validation_status,
     parse_extraction_response,
     recency_decay,
@@ -60,6 +61,14 @@ class Canonicalization(unittest.TestCase):
     def test_empty_input_canonicalizes_to_nothing(self):
         self.assertEqual(canonicalize("   "), "")
         self.assertEqual(canonicalize(None), "")
+
+    def test_spark_closure_matches_the_local_canonicalizer(self):
+        canonicalize_for_spark = make_concept_canonicalizer()
+        labels = ["Value Judgments", "Genealogy of Morals", "ethics", "good vs evil"]
+        self.assertEqual(
+            [canonicalize_for_spark(label) for label in labels],
+            [canonicalize(label) for label in labels],
+        )
 
 
 class FixedResponse(unittest.TestCase):

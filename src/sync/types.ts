@@ -51,6 +51,7 @@ export type MarginaliaEventType =
   | 'book_deleted'
   | 'assistant_response_received'
   | 'conversation_resumed'
+  | 'recommendation_dismissed'
   | 'book_memory_updated'
   | 'conversation_deleted'
 
@@ -149,6 +150,12 @@ export interface EventPayloadByType {
     messageCount?: number
     chapter?: string
     progress?: number
+  }
+  recommendation_dismissed: {
+    dismissedAt: string
+    candidateId: string
+    scoreVersion?: string
+    reason?: 'not_interested' | 'already_read' | 'wrong_topic' | 'unspecified'
   }
   book_memory_updated: { updatedAt: string; summary?: string; cleared?: boolean }
   conversation_deleted: { deletedAt: string; messagesRemoved?: number }

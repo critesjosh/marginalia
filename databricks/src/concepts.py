@@ -63,36 +63,43 @@ CONCEPT_ALIASES = {
 NON_PLURAL_SUFFIXES = ("ss", "us", "is", "ics", "ous")
 
 
-def _singularize(word: str) -> str:
-    """Simple English plurals only. Anything irregular is left alone."""
-    if len(word) > 4 and word.endswith("ies"):
-        return word[:-3] + "y"
-    if len(word) > 4 and word.endswith(("sses", "shes", "ches", "xes", "zes")):
-        return word[:-2]
-    if len(word) > 3 and word.endswith("s") and not word.endswith(NON_PLURAL_SUFFIXES):
-        return word[:-1]
-    return word
-
-
-def canonicalize(label: str) -> str:
+def make_concept_canonicalizer():
     """
     Lowercase, Unicode-normalize, singularize the final word, then apply
     aliases. Aliases run last so an alias key is written the way a canonical
     label already reads.
-    """
-    if label is None:
-        return ""
-    text = unicodedata.normalize("NFKC", str(label)).strip().lower()
-    text = re.sub(r"[‐-―]", "-", text)
-    text = re.sub(r"\s+", " ", text)
-    text = text.strip(" .,;:")
-    if not text:
-        return ""
 
-    words = text.split(" ")
-    words[-1] = _singularize(words[-1])
-    text = " ".join(words)
-    return CONCEPT_ALIASES.get(text, text)
+    Returned as a closure over values rather than as a module function because
+    Spark resolves an imported module on the driver and not always on a worker.
+    Everything it needs is bound here, so it serializes whole.
+    """
+    aliases = dict(CONCEPT_ALIASES)
+    non_plural_suffixes = tuple(NON_PLURAL_SUFFIXES)
+
+    def canonicalize_value(value):
+        text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+        text = re.sub(r"[‐-―]", "-", text)
+        text = re.sub(r"\s+", " ", text).strip(" .,;:")
+        if not text:
+            return ""
+        words = text.split(" ")
+        word = words[-1]
+        if len(word) > 4 and word.endswith("ies"):
+            word = word[:-3] + "y"
+        elif len(word) > 4 and word.endswith(("sses", "shes", "ches", "xes", "zes")):
+            word = word[:-2]
+        elif len(word) > 3 and word.endswith("s") and not word.endswith(non_plural_suffixes):
+            word = word[:-1]
+        words[-1] = word
+        normalized = " ".join(words)
+        return aliases.get(normalized, normalized)
+
+    return canonicalize_value
+
+
+def canonicalize(label: str) -> str:
+    """The same canonicalization the Spark side uses, never a second copy of it."""
+    return make_concept_canonicalizer()(label)
 
 
 class ResponseInvalid(Exception):

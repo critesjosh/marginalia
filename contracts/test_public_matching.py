@@ -18,6 +18,7 @@ from public_matching import (  # noqa: E402
     explain_recommendation,
     frontier_score_v1,
     match_confidence,
+    make_title_normalizer,
     metadata_completeness,
     normalize_author,
     normalize_title,
@@ -56,7 +57,35 @@ class Normalization(unittest.TestCase):
         self.assertEqual(
             normalize_author("Nietzsche, Friedrich"), normalize_author("Friedrich Nietzsche")
         )
-        self.assertEqual(normalize_author("Friedrich Nietzsche"), "nietzsche f")
+        self.assertEqual(normalize_author("Friedrich Nietzsche"), "nietzsche friedrich")
+
+    def test_people_who_share_a_surname_and_initial_stay_distinct(self):
+        book = {"title": "A Shared Title", "author": "John Smith"}
+        candidate = {
+            "key": "/works/wrong-author",
+            "title": "A Shared Title",
+            "author_name": ["Jane Smith"],
+            "edition_count": 100,
+        }
+        self.assertLess(match_confidence(book, candidate), MATCH_ACCEPT)
+
+    def test_catalogue_middle_names_do_not_break_a_match(self):
+        book = {"title": "A Wizard of Earthsea", "author": "Ursula Le Guin"}
+        candidate = {
+            "key": "/works/OL59885W",
+            "title": "A Wizard of Earthsea",
+            "author_name": ["Ursula K. Le Guin"],
+            "edition_count": 100,
+        }
+        self.assertGreaterEqual(match_confidence(book, candidate), MATCH_ACCEPT)
+
+    def test_spark_title_closure_matches_the_local_normalizer(self):
+        normalize_for_spark = make_title_normalizer()
+        titles = ["The Čapek Reader", "Émile: or On Education", "A Wizard of Earthsea"]
+        self.assertEqual(
+            [normalize_for_spark(title) for title in titles],
+            [normalize_title(title) for title in titles],
+        )
 
 
 class Matching(unittest.TestCase):
@@ -121,7 +150,12 @@ class Scores(unittest.TestCase):
 
     def test_metadata_completeness_counts_what_is_there(self):
         self.assertEqual(metadata_completeness({}), 0.0)
-        self.assertEqual(metadata_completeness(GENEALOGY), 2 / 5)
+        self.assertEqual(
+            metadata_completeness(
+                {"title": "A work", "authors": ["An author"], "publication_year": 2026}
+            ),
+            1.0,
+        )
 
     def test_an_explanation_needs_no_model_and_names_the_evidence(self):
         text = explain_recommendation(

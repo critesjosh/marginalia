@@ -8,6 +8,14 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 6 deployment and live acceptance
+
+- Surface used: Databricks CLI, Automation Bundles, jobs, Lakeflow pipelines, and SQL warehouse
+- Goal: deploy the reviewed public-source, frontier, recommendation, and expanded Silver changes and exercise them on selected compute.
+- Result: bundle validation passed. The user profile deployed the job and new frontier pipeline; ingestion, Silver, extraction, Gold, and public sources succeeded. Selected compute reached OpenAlex and wrote 99 research-work rows; the next run wrote zero, confirming the request-attempt TTL. Final views contained 25 frontier rows and 125 recommendations. SQL found no duplicate keys, missing provenance, score-recomputation mismatches, direct-interest leaks, or raw requests without a user deletion link.
+- Friction: the default service-principal profile authenticated but lacked `USE CATALOG`, while validation still passed; the existing user profile had the required grants. Spark rejects `explode` nested inside scalar functions, and imported-module UDFs resolved on the driver but failed on workers. Pipeline tasks silently retried both failures. A SQL statement sent with Unicode-escaped quotes also arrived without string delimiters.
+- Workaround or follow-up: deploy privileged bundle changes with the existing user profile until the service principal receives catalog grants. Project generators separately and serialize nested UDF implementations by value. Inspect pipeline events when a task stays running through retries; use parameterized or quote-free acceptance SQL.
+
 ### 2026-09-02: Phase 6 preflight, public sources
 
 - Surface used: Open Library search API, OpenAlex works API

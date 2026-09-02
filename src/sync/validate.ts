@@ -19,6 +19,7 @@ import bookRestoredSchema from '../../contracts/events/v1/payloads/book-restored
 import bookDeletedSchema from '../../contracts/events/v1/payloads/book-deleted.schema.json'
 import assistantResponseReceivedSchema from '../../contracts/events/v1/payloads/assistant-response-received.schema.json'
 import conversationResumedSchema from '../../contracts/events/v1/payloads/conversation-resumed.schema.json'
+import recommendationDismissedSchema from '../../contracts/events/v1/payloads/recommendation-dismissed.schema.json'
 import bookMemoryUpdatedSchema from '../../contracts/events/v1/payloads/book-memory-updated.schema.json'
 import conversationDeletedSchema from '../../contracts/events/v1/payloads/conversation-deleted.schema.json'
 import consentSchema from '../../contracts/privacy/v1/consent.schema.json'
@@ -50,6 +51,7 @@ export const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = 
   book_deleted: compile(bookDeletedSchema),
   assistant_response_received: compile(assistantResponseReceivedSchema),
   conversation_resumed: compile(conversationResumedSchema),
+  recommendation_dismissed: compile(recommendationDismissedSchema),
   book_memory_updated: compile(bookMemoryUpdatedSchema),
   conversation_deleted: compile(conversationDeletedSchema),
 }

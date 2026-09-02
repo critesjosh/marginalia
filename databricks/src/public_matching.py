@@ -20,6 +20,19 @@ MATCH_CONSIDER = 0.55
 # author alone, however high they score.
 MATCH_SEPARATION = 0.08
 
+FRONTIER_WEIGHTS = {
+    "similarity": 0.45,
+    "neighbor_strength": 0.35,
+    "source_quality": 0.20,
+}
+RECOMMENDATION_WEIGHTS = {
+    "interest": 0.45,
+    "frontier": 0.20,
+    "diversity": 0.15,
+    "popularity": 0.10,
+    "metadata": 0.10,
+}
+
 ARTICLES = ("the ", "a ", "an ")
 
 
@@ -29,28 +42,46 @@ def _fold(value: str) -> str:
     return text.lower()
 
 
-def normalize_title(title: str) -> str:
+def make_title_normalizer():
     """
     Titles differ by subtitle, punctuation, and article between editions and
     catalogues. What survives is the part that identifies the work.
+
+    Returned as a closure over values rather than as a module function because
+    Spark resolves an imported module on the driver and not always on a worker.
+    Everything it needs is bound here, so it serializes whole.
     """
-    text = _fold(title)
-    # A subtitle is the commonest difference between the same work in two
-    # catalogues, so the part before the colon is what gets compared.
-    text = text.split(":")[0]
-    text = re.sub(r"[^a-z0-9 ]+", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    for article in ARTICLES:
-        if text.startswith(article):
-            text = text[len(article) :]
-            break
-    return text
+    articles = tuple(ARTICLES)
+
+    def normalize(value):
+        text = unicodedata.normalize("NFKD", str(value or ""))
+        text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
+        # A subtitle is the commonest difference between the same work in two
+        # catalogues, so the part before the colon is what gets compared.
+        text = text.split(":")[0]
+        text = re.sub(r"[^a-z0-9 ]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        for article in articles:
+            if text.startswith(article):
+                text = text[len(article) :]
+                break
+        return text
+
+    return normalize
+
+
+def normalize_title(title: str) -> str:
+    """The same normalization the Spark side uses, never a second copy of it."""
+    return make_title_normalizer()(title)
 
 
 def normalize_author(author: str) -> str:
     """
-    "Nietzsche, Friedrich" and "Friedrich Nietzsche" are one person. Surname
-    plus first initial is what both reliably contain.
+    "Nietzsche, Friedrich" and "Friedrich Nietzsche" are one person.
+
+    The given name is kept whole rather than reduced to an initial. Surname plus
+    initial made "John Smith" and "Jane Smith" the same author, which is enough
+    to attach a shared title to the wrong person.
     """
     text = _fold(author)
     text = re.sub(r"[^a-z, ]+", " ", text)
@@ -61,9 +92,9 @@ def normalize_author(author: str) -> str:
         if not parts:
             return ""
         surname, rest = parts[-1], " ".join(parts[:-1])
-    surname = surname.strip()
-    initial = next((c for c in rest.strip() if c.isalpha()), "")
-    return f"{surname} {initial}".strip()
+    surname = re.sub(r"\s+", " ", surname).strip()
+    given = re.sub(r"\s+", " ", rest).strip()
+    return f"{surname} {given}".strip() if given else surname
 
 
 def _tokens(value: str) -> set[str]:
@@ -74,6 +105,41 @@ def _jaccard(left: set[str], right: set[str]) -> float:
     if not left or not right:
         return 0.0
     return len(left & right) / len(left | right)
+
+
+def _author_similarity(left: str, right: str) -> float:
+    """
+    Surnames must agree, and so must given names unless one side is an initial.
+    Two people who share only a surname are not a partial match for each other,
+    they are different people, and scoring them as close is how a shared title
+    gets attached to the wrong author.
+    """
+    left_parts = left.split(" ")
+    right_parts = right.split(" ")
+    if not left_parts or not right_parts or left_parts[0] != right_parts[0]:
+        return 0.0
+    left_given = set(left_parts[1:])
+    right_given = set(right_parts[1:])
+    if not left_given or not right_given:
+        # A surname alone matches a surname alone, but weakly: it is one name
+        # in common and no evidence that it is the same person.
+        return 0.5
+    if left_given == right_given:
+        return 1.0
+    if left_given < right_given or right_given < left_given:
+        # Catalogues disagree about middle names constantly. An extra middle
+        # name is compatible; a different given name is not.
+        return 0.95
+    # "J. Smith" against "John Smith" is the common catalogue difference, and an
+    # initial is genuinely one letter. "Jane" against "John" is not an initial
+    # difference, it is a different person who happens to share a letter.
+    for given in left_given:
+        for other in right_given:
+            if not given or not other:
+                continue
+            if (len(given) == 1 or len(other) == 1) and given[0] == other[0]:
+                return 0.85
+    return 0.0
 
 
 def match_confidence(
@@ -99,10 +165,7 @@ def match_confidence(
     elif book_author in candidates:
         author = 1.0
     else:
-        author = max(
-            (_jaccard(_tokens(book_author), _tokens(name)) for name in candidates),
-            default=0.0,
-        )
+        author = max((_author_similarity(book_author, name) for name in candidates), default=0.0)
 
     # An edition count says a work is the well-known one rather than a stray
     # record of it, but it says nothing about whether it is this book.
@@ -166,9 +229,9 @@ def frontier_score_v1(
     """The plan's formula, with every component clamped rather than trusted."""
     clamp = lambda value: min(1.0, max(0.0, value))  # noqa: E731
     return round(
-        0.45 * clamp(similarity_to_established)
-        + 0.35 * clamp(normalized_neighbor_strength)
-        + 0.20 * clamp(source_quality),
+        FRONTIER_WEIGHTS["similarity"] * clamp(similarity_to_established)
+        + FRONTIER_WEIGHTS["neighbor_strength"] * clamp(normalized_neighbor_strength)
+        + FRONTIER_WEIGHTS["source_quality"] * clamp(source_quality),
         6,
     )
 
@@ -182,18 +245,18 @@ def recommendation_score_v1(
 ) -> float:
     clamp = lambda value: min(1.0, max(0.0, value))  # noqa: E731
     return round(
-        0.45 * clamp(concept_interest_match)
-        + 0.20 * clamp(frontier_coverage)
-        + 0.15 * clamp(diversity)
-        + 0.10 * clamp(popularity_prior)
-        + 0.10 * clamp(metadata_completeness),
+        RECOMMENDATION_WEIGHTS["interest"] * clamp(concept_interest_match)
+        + RECOMMENDATION_WEIGHTS["frontier"] * clamp(frontier_coverage)
+        + RECOMMENDATION_WEIGHTS["diversity"] * clamp(diversity)
+        + RECOMMENDATION_WEIGHTS["popularity"] * clamp(popularity_prior)
+        + RECOMMENDATION_WEIGHTS["metadata"] * clamp(metadata_completeness),
         6,
     )
 
 
 def metadata_completeness(work: dict) -> float:
     """How much of a work's record is actually there, as a 0-1 fraction."""
-    fields = ("title", "author_name", "first_publish_year", "subject", "cover_i")
+    fields = ("title", "authors", "publication_year")
     present = sum(1 for field in fields if work.get(field))
     return present / len(fields)
 

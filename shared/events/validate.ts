@@ -23,6 +23,7 @@ import {
   validate_book_deleted,
   validate_assistant_response_received,
   validate_conversation_resumed,
+  validate_recommendation_dismissed,
   validate_book_memory_updated,
   validate_conversation_deleted,
   type StandaloneValidator,
@@ -50,6 +51,7 @@ export const PAYLOAD_VALIDATORS: Record<string, StandaloneValidator> = {
   book_deleted: validate_book_deleted,
   assistant_response_received: validate_assistant_response_received,
   conversation_resumed: validate_conversation_resumed,
+  recommendation_dismissed: validate_recommendation_dismissed,
   book_memory_updated: validate_book_memory_updated,
   conversation_deleted: validate_conversation_deleted,
 }

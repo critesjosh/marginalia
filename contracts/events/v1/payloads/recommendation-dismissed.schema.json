@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/recommendation-dismissed.schema.json",
+  "title": "recommendation_dismissed payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dismissedAt", "candidateId"],
+  "properties": {
+    "dismissedAt": { "type": "string", "format": "date-time" },
+    "candidateId": { "type": "string", "maxLength": 300 },
+    "scoreVersion": { "type": "string", "maxLength": 80 },
+    "reason": { "enum": ["not_interested", "already_read", "wrong_topic", "unspecified"] }
+  }
+}
