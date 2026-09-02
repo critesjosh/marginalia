@@ -21,20 +21,10 @@ def load(path: Path) -> dict[str, Any]:
 ENVELOPE = Draft202012Validator(
     load(EVENT_ROOT / "envelope.schema.json"), format_checker=FormatChecker()
 )
-PAYLOADS = {
-    "privacy_consent_changed": "privacy-consent-changed.schema.json",
-    "highlight_created": "highlight-created.schema.json",
-    "highlight_updated": "highlight-updated.schema.json",
-    "highlight_deleted": "highlight-deleted.schema.json",
-    "conversation_started": "conversation-started.schema.json",
-    "question_asked": "question-asked.schema.json",
-    "book_opened": "book-opened.schema.json",
-    "book_closed": "book-closed.schema.json",
-    "reading_progressed": "reading-progressed.schema.json",
-    "chapter_entered": "chapter-entered.schema.json",
-    "book_completed": "book-completed.schema.json",
-    "book_reopened": "book-reopened.schema.json",
-}
+# Derived from the manifest, not retyped. Three registries listed these by hand
+# and two of them had already drifted.
+PAYLOADS = load(EVENT_ROOT / "payloads.json")["payloads"]
+
 PAYLOAD_VALIDATORS = {
     event_type: Draft202012Validator(
         load(EVENT_ROOT / "payloads" / filename), format_checker=FormatChecker()

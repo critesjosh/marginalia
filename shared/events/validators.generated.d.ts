@@ -1,6 +1,6 @@
 // Types for the generated validators. The generator emits plain JavaScript so
-// the Worker can run it without dynamic code generation; the shape below is
-// fixed by tools/generate-event-validators.mjs.
+// the Worker can run it without dynamic code generation, so the declarations
+// are generated alongside it by tools/generate-event-validators.mjs.
 export interface StandaloneValidatorError {
   instancePath: string
   schemaPath: string
@@ -28,3 +28,9 @@ export declare const validate_reading_progressed: StandaloneValidator
 export declare const validate_chapter_entered: StandaloneValidator
 export declare const validate_book_completed: StandaloneValidator
 export declare const validate_book_reopened: StandaloneValidator
+export declare const validate_book_added: StandaloneValidator
+export declare const validate_book_archived: StandaloneValidator
+export declare const validate_book_restored: StandaloneValidator
+export declare const validate_book_removed: StandaloneValidator
+export declare const validate_book_memory_updated: StandaloneValidator
+export declare const validate_conversation_deleted: StandaloneValidator

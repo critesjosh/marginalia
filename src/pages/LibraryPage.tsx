@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
+import { addBook, archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
 import { seedSampleBooks } from '../lib/sampleBook'
@@ -74,7 +74,7 @@ export default function LibraryPage() {
         // notes it belongs to.
         const archivedMatch = await findArchivedMatch(book)
         if (archivedMatch) await restoreBook(archivedMatch.id, book)
-        else await db.books.add(book)
+        else await addBook(book, 'import')
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,

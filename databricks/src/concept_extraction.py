@@ -10,7 +10,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-from pyspark.sql import SparkSession
+from pyspark.sql import SparkSession, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     ArrayType,
@@ -159,10 +159,9 @@ def candidates():
     Assistant text has no branch here at all: it is not excluded downstream, it
     is never a candidate.
 
-    Book memory and book descriptions are named as candidate sources in the plan
-    and are absent here on purpose: the v1 event contract carries no event that
-    delivers either to Bronze, so there is nothing to read. They join when Phase 5
-    completes behavioral coverage, and their evidence weights already exist.
+    Book memory and book descriptions arrive with the Phase 5 events that carry
+    them. Only the latest memory per book is a candidate: a digest is rewritten
+    in place, so older versions describe text that no longer exists.
     """
     highlights = spark.read.table(HIGHLIGHTS_CURRENT)
     included = F.from_json(F.col("privacy_json"), "consentVersion INT, included ARRAY<STRING>")
@@ -213,9 +212,54 @@ def candidates():
         )
     )
 
+    # A digest is rewritten rather than appended to, so only the newest update
+    # for a book describes what the reader currently has.
+    memory_events = (
+        events.filter(F.col("event_type") == "book_memory_updated")
+        .withColumn("privacy", privacy)
+        .filter(F.array_contains(F.col("privacy.included"), "bookMemory"))
+        .withColumn("summary", F.try_variant_get(F.col("payload"), "$.summary", "string"))
+        .filter(F.col("summary").isNotNull() & (F.length(F.trim(F.col("summary"))) > 0))
+    )
+    latest_memory = Window.partitionBy("user_id", "book_id").orderBy(
+        F.col("effective_event_time").desc(), F.col("event_id").desc()
+    )
+    memory = (
+        memory_events.withColumn("rank", F.row_number().over(latest_memory))
+        .filter("rank = 1")
+        .select(
+            "user_id",
+            "book_id",
+            F.lit("book_memory").alias("source_type"),
+            F.concat_ws(":", F.col("book_id"), F.lit("memory")).alias("source_id"),
+            F.col("summary").alias("source_text"),
+            F.col("effective_event_time").alias("source_time"),
+        )
+    )
+
+    descriptions = (
+        events.filter(F.col("event_type") == "book_added")
+        .withColumn("privacy", privacy)
+        .filter(F.array_contains(F.col("privacy.included"), "bookMetadata"))
+        .withColumn(
+            "description", F.try_variant_get(F.col("payload"), "$.description", "string")
+        )
+        .filter(F.col("description").isNotNull() & (F.length(F.trim(F.col("description"))) > 0))
+        .select(
+            "user_id",
+            "book_id",
+            F.lit("book_description").alias("source_type"),
+            F.concat_ws(":", F.col("book_id"), F.lit("description")).alias("source_id"),
+            F.col("description").alias("source_text"),
+            F.col("effective_event_time").alias("source_time"),
+        )
+    )
+
     return (
         passages.unionByName(notes)
         .unionByName(questions)
+        .unionByName(memory)
+        .unionByName(descriptions)
         .withColumn("source_content_hash", F.sha2(F.col("source_text"), 256))
     )
 

@@ -13,6 +13,12 @@ import readingProgressedSchema from '../../contracts/events/v1/payloads/reading-
 import chapterEnteredSchema from '../../contracts/events/v1/payloads/chapter-entered.schema.json'
 import bookCompletedSchema from '../../contracts/events/v1/payloads/book-completed.schema.json'
 import bookReopenedSchema from '../../contracts/events/v1/payloads/book-reopened.schema.json'
+import bookAddedSchema from '../../contracts/events/v1/payloads/book-added.schema.json'
+import bookArchivedSchema from '../../contracts/events/v1/payloads/book-archived.schema.json'
+import bookRestoredSchema from '../../contracts/events/v1/payloads/book-restored.schema.json'
+import bookRemovedSchema from '../../contracts/events/v1/payloads/book-removed.schema.json'
+import bookMemoryUpdatedSchema from '../../contracts/events/v1/payloads/book-memory-updated.schema.json'
+import conversationDeletedSchema from '../../contracts/events/v1/payloads/conversation-deleted.schema.json'
 import consentSchema from '../../contracts/privacy/v1/consent.schema.json'
 import type { MarginaliaEventV1, MarginaliaEventType, SyncConsentV1 } from './types'
 
@@ -23,7 +29,7 @@ const compile = (schema: object) => ajv.compile(schema)
 
 const validateEnvelope = compile(envelopeSchema)
 const validateConsentSchema = compile(consentSchema)
-const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = {
+export const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = {
   privacy_consent_changed: compile(privacyChangedSchema),
   highlight_created: compile(highlightCreatedSchema),
   highlight_updated: compile(highlightUpdatedSchema),
@@ -36,6 +42,12 @@ const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = {
   chapter_entered: compile(chapterEnteredSchema),
   book_completed: compile(bookCompletedSchema),
   book_reopened: compile(bookReopenedSchema),
+  book_added: compile(bookAddedSchema),
+  book_archived: compile(bookArchivedSchema),
+  book_restored: compile(bookRestoredSchema),
+  book_removed: compile(bookRemovedSchema),
+  book_memory_updated: compile(bookMemoryUpdatedSchema),
+  conversation_deleted: compile(conversationDeletedSchema),
 }
 
 export interface ValidationResult {

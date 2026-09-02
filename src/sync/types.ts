@@ -45,6 +45,12 @@ export type MarginaliaEventType =
   | 'chapter_entered'
   | 'book_completed'
   | 'book_reopened'
+  | 'book_added'
+  | 'book_archived'
+  | 'book_restored'
+  | 'book_removed'
+  | 'book_memory_updated'
+  | 'conversation_deleted'
 
 export interface EventEntities {
   bookId?: string
@@ -111,6 +117,25 @@ export interface EventPayloadByType {
     reopenedAt: string
     daysSinceLastOpen: number
   }
+  book_added: {
+    addedAt: string
+    origin: 'import' | 'sample' | 'gutenberg' | 'koreader'
+    title?: string
+    author?: string
+    publisher?: string
+    published?: string
+    language?: string
+    description?: string
+  }
+  book_archived: { archivedAt: string; progress?: number }
+  book_restored: { restoredAt: string; progress?: number }
+  book_removed: {
+    removedAt: string
+    highlightsRemoved?: number
+    conversationsRemoved?: number
+  }
+  book_memory_updated: { updatedAt: string; summary?: string }
+  conversation_deleted: { deletedAt: string; messagesRemoved?: number }
 }
 
 export type MarginaliaEventV1<T extends MarginaliaEventType = MarginaliaEventType> = {

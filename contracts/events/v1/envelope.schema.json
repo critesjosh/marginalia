@@ -58,7 +58,13 @@
         "reading_progressed",
         "chapter_entered",
         "book_completed",
-        "book_reopened"
+        "book_reopened",
+        "book_added",
+        "book_archived",
+        "book_restored",
+        "book_removed",
+        "book_memory_updated",
+        "conversation_deleted"
       ]
     },
     "eventTime": {
@@ -447,58 +453,67 @@
       }
     },
     {
+      "$comment": "Scoped to conversation_started. The consent test used to be the outer condition, so its else-branch forbade a payload title on every other event type as well, which only went unnoticed while no other payload had one.",
       "if": {
         "properties": {
           "eventType": {
             "const": "conversation_started"
-          },
-          "privacy": {
-            "type": "object",
-            "properties": {
-              "included": {
-                "type": "array",
-                "contains": {
-                  "const": "conversationText"
-                }
-              }
-            },
-            "required": [
-              "included"
-            ]
           }
         },
         "required": [
-          "eventType",
-          "privacy"
+          "eventType"
         ]
       },
       "then": {
-        "properties": {
-          "payload": {
-            "type": "object",
-            "required": [
-              "title"
-            ]
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "payload": {
-            "type": "object",
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "title"
-                  ]
-                },
-                {
-                  "required": [
-                    "seedText"
-                  ]
+        "if": {
+          "properties": {
+            "privacy": {
+              "type": "object",
+              "properties": {
+                "included": {
+                  "type": "array",
+                  "contains": {
+                    "const": "conversationText"
+                  }
                 }
+              },
+              "required": [
+                "included"
               ]
+            }
+          },
+          "required": [
+            "privacy"
+          ]
+        },
+        "then": {
+          "properties": {
+            "payload": {
+              "type": "object",
+              "required": [
+                "title"
+              ]
+            }
+          }
+        },
+        "else": {
+          "properties": {
+            "payload": {
+              "type": "object",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "title"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "seedText"
+                    ]
+                  }
+                ]
+              }
             }
           }
         }
@@ -574,6 +589,129 @@
             "type": "object",
             "required": [
               "bookId"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "book_archived",
+              "book_restored",
+              "book_removed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "book_added"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "items": {
+                  "const": "bookMetadata"
+                },
+                "maxItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "book_memory_updated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "items": {
+                  "const": "bookMemory"
+                },
+                "maxItems": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "conversation_deleted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId",
+              "conversationId"
             ]
           },
           "privacy": {

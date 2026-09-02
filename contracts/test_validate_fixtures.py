@@ -14,6 +14,9 @@ HIGHLIGHT_FIXTURE = (
     Path(__file__).resolve().parent / "fixtures" / "highlight-lifecycle-phase-2.jsonl"
 )
 BRONZE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "bronze-phase2.jsonl"
+LIBRARY_FIXTURE = (
+    Path(__file__).resolve().parent / "fixtures" / "library-lifecycle-phase-5.jsonl"
+)
 
 
 class EventContractTest(unittest.TestCase):
@@ -55,6 +58,70 @@ class EventContractTest(unittest.TestCase):
             [valid_event(undisclosed_text), valid_event(missing_consented_text)],
             [False, False],
         )
+
+
+class LibraryFixtureTest(unittest.TestCase):
+    """Every Phase 5 lifecycle event, checked against the same contract the
+    browser and the Worker use."""
+
+    def setUp(self) -> None:
+        self.events = [
+            json.loads(line) for line in LIBRARY_FIXTURE.read_text().splitlines() if line
+        ]
+
+    def test_every_library_fixture_satisfies_the_contract(self) -> None:
+        invalid = [e["eventId"] for e in self.events if not valid_event(e)]
+        self.assertEqual(invalid, [])
+
+    def test_covers_every_new_event_type(self) -> None:
+        self.assertEqual(
+            sorted({e["eventType"] for e in self.events}),
+            [
+                "book_added",
+                "book_archived",
+                "book_memory_updated",
+                "book_removed",
+                "book_restored",
+                "conversation_deleted",
+            ],
+        )
+
+    def test_only_the_two_text_carrying_events_may_include_a_category(self) -> None:
+        # Archiving, restoring, removing, and deleting a conversation are usage.
+        # Nothing about them can carry a title or a word the reader wrote.
+        for event in self.events:
+            included = event["privacy"]["included"]
+            if event["eventType"] not in {"book_added", "book_memory_updated"}:
+                self.assertEqual(included, [], event["eventType"])
+
+    def test_a_title_requires_metadata_consent(self) -> None:
+        # The same event type with and without consent: one carries the title,
+        # the other records only that a book arrived.
+        with_title = next(
+            e for e in self.events if e["eventType"] == "book_added" and e["privacy"]["included"]
+        )
+        without = next(
+            e
+            for e in self.events
+            if e["eventType"] == "book_added" and not e["privacy"]["included"]
+        )
+        self.assertIn("title", with_title["payload"])
+        self.assertNotIn("title", without["payload"])
+        self.assertEqual(with_title["privacy"]["included"], ["bookMetadata"])
+
+    def test_a_summary_requires_memory_consent(self) -> None:
+        with_summary = next(
+            e
+            for e in self.events
+            if e["eventType"] == "book_memory_updated" and e["privacy"]["included"]
+        )
+        without = next(
+            e
+            for e in self.events
+            if e["eventType"] == "book_memory_updated" and not e["privacy"]["included"]
+        )
+        self.assertIn("summary", with_summary["payload"])
+        self.assertNotIn("summary", without["payload"])
 
 
 class ReadingFixtureTest(unittest.TestCase):

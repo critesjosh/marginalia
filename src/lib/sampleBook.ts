@@ -1,4 +1,4 @@
-import { db, getSettings, saveSettings } from '../db/db'
+import { addBook, db, getSettings, saveSettings } from '../db/db'
 import type { Book } from '../db/types'
 import { parseEpubFile } from './epub'
 
@@ -123,13 +123,16 @@ async function seed(sample: SampleBook, addedAt: number): Promise<boolean> {
     if (!response.ok) return false
 
     const book: Book = await parseEpubFile(await response.blob(), sample.filename)
-    await db.books.add({
-      ...book,
-      id: sample.id,
-      addedAt,
-      title: sample.title ?? book.title,
-      author: sample.author ?? book.author,
-    })
+    await addBook(
+      {
+        ...book,
+        id: sample.id,
+        addedAt,
+        title: sample.title ?? book.title,
+        author: sample.author ?? book.author,
+      },
+      'sample',
+    )
     return true
   } catch (err) {
     // A second tab beat us to this row. The book is on the shelf either way,
