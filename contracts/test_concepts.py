@@ -32,7 +32,7 @@ class Canonicalization(unittest.TestCase):
     def test_lowercases_normalizes_and_singularizes(self):
         self.assertEqual(canonicalize("  Value  Judgments "), "value judgment")
         self.assertEqual(canonicalize("GENEALOGIES"), "genealogy")
-        self.assertEqual(canonicalize("moral values."), "moral value")
+        self.assertEqual(canonicalize("moral values."), "morality")
 
     def test_applies_aliases_after_singularizing(self):
         self.assertEqual(canonicalize("Genealogy of Morals"), "genealogy of morality")

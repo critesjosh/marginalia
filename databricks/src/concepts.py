@@ -14,7 +14,7 @@ PROMPT_VERSION = "concept-extraction-v1"
 # Alias edits do not rewrite provenance in place. Bump this instead, so a row
 # records the version that produced its canonical value and an older row stays
 # explicable.
-CANONICALIZATION_VERSION = 1
+CANONICALIZATION_VERSION = 2
 
 MAX_CONCEPTS = 8
 MIN_CONCEPTS = 1
@@ -50,6 +50,8 @@ CONCEPT_ALIASES = {
     "good vs evil": "good and evil",
     "good and evil distinction": "good and evil",
     "origins of moral value": "origin of moral value",
+    "origin of morality": "origin of moral value",
+    "moral value": "morality",
     "the origin of moral value": "origin of moral value",
     "origin of value": "origin of moral value",
 }
@@ -102,16 +104,63 @@ class ResponseInvalid(Exception):
         self.detail = detail
 
 
-def parse_extraction_response(raw: str) -> list[dict]:
+def response_text(content) -> str:
+    """
+    The text part of a model response.
+
+    A reasoning model does not answer with a string. It answers with a list of
+    parts -- its chain of thought, then the actual reply -- and the reply is the
+    last part typed "text". Handling this here rather than at each call site means
+    the pipeline, the evaluation, and the tests all read a response the same way.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        # The parts list often arrives already serialized, so a string may itself
+        # be the list rather than the answer.
+        candidate = content.strip()
+        if candidate.startswith("["):
+            try:
+                decoded = json.loads(candidate)
+            except ValueError:
+                decoded = None
+            if isinstance(decoded, list):
+                return response_text(decoded)
+        text = content
+    elif isinstance(content, list):
+        parts = [
+            part.get("text", "")
+            for part in content
+            if isinstance(part, dict) and part.get("type") == "text"
+        ]
+        # Fall back to any part carrying text, so an unfamiliar part type is not
+        # silently read as an empty answer.
+        if not parts:
+            parts = [part.get("text", "") for part in content if isinstance(part, dict)]
+        text = "\n".join(item for item in parts if item)
+    else:
+        return ""
+
+    # A model told not to use a code fence sometimes uses one anyway.
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.split("\n", 1)[-1] if "\n" in stripped else ""
+        if stripped.rstrip().endswith("```"):
+            stripped = stripped.rstrip()[:-3]
+    return stripped.strip()
+
+
+def parse_extraction_response(raw) -> list[dict]:
     """
     Validates one model response and returns its concepts with canonical labels
     attached. Raises ResponseInvalid with the status to record on failure.
     """
-    if raw is None or not str(raw).strip():
+    text = response_text(raw)
+    if not text:
         raise ResponseInvalid("empty_response")
 
     try:
-        document = json.loads(raw)
+        document = json.loads(text)
     except (ValueError, TypeError) as error:
         raise ResponseInvalid("invalid_json", str(error)[:200]) from error
 

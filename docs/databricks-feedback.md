@@ -8,6 +8,37 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-01: Phase 3 live concept evaluation
+
+- Surface used: `databricks serving-endpoints query` against `databricks-gpt-oss-120b`
+- Goal: meet the Phase 3 acceptance bar of recalling at least four of five reference
+  concepts with at most two unsupported additions.
+- Result: passes at 4/5 recalled, 0 unsupported, about 2.3 seconds per request. Four
+  evaluation runs were needed, and each failure was a real defect rather than noise.
+- Friction: `gpt-oss-120b` is a reasoning model, so `message.content` is not a string. It
+  is a list of parts, chain of thought first and the answer last, and the CLI hands that
+  list back already serialized, so a caller sees a string that is really a list. Any
+  validator written against a plain string fails with a misleading "not an object" error.
+  The `ai_query` path has the same shape, so this would have failed in the pipeline too.
+- Workaround or follow-up: response normalization is handled once, in the shared module,
+  so the job, the evaluation, and the tests all read a response the same way. A serialized
+  parts list and an accidental code fence are both unwrapped there.
+
+### 2026-09-01: Phase 3 plan defect, a reference concept the rules forbid
+
+- Surface used: plan review against live evaluation output
+- Goal: recall `genealogy of morality`, one of the five reference concepts.
+- Result: never recalled, and it should not be. `Concept extraction v1` instructs the
+  model not to return a book's title, and "On the Genealogy of Morality" is the title of
+  the book the evaluation passage comes from. The reference set asks for the one thing the
+  extraction rules forbid.
+- Friction: the acceptance bar is satisfiable without it, at four of five, so the
+  contradiction does not block Phase 3. It would block any attempt to reach five of five,
+  and it will mislead whoever next tunes this prompt.
+- Workaround or follow-up: left as is and recorded. Resolving it means either dropping the
+  concept from the reference set or allowing a work's title when it is also the name of an
+  established idea; that is a plan revision, not an implementation choice.
+
 ### 2026-09-01: Phase 3 extraction, ai_query telemetry limits
 
 - Surface used: `ai_query` in a Lakeflow job task against a pay-per-token chat endpoint

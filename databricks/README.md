@@ -161,6 +161,14 @@ has not changed. It is keyed by the hash of the content it read, so unchanged
 content is never paid for twice, and each run takes at most
 `extraction_batch_limit` candidates.
 
+Run the live concept evaluation by hand when the prompt, the model, or the
+canonicalization version changes. It is deliberately outside `npm test`, which
+has to pass offline and deterministically:
+
+```sh
+python3 databricks/eval/concept_eval.py --endpoint databricks-gpt-oss-120b
+```
+
 Refresh Silver after Bronze independently when debugging transformations:
 
 ```sh

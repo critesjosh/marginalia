@@ -67,14 +67,22 @@ SOURCE_KEY = ["source_type", "source_id", "source_content_hash"]
 SYSTEM_PROMPT = (
     "You extract the intellectual concepts a reader is engaging with.\n"
     "You are given one piece of text that a reader wrote or marked.\n"
-    "Return between 1 and 8 concepts. A concept is a short noun phrase, at most "
-    "80 characters. Prefer the specific over the general.\n"
+    "Return between 1 and 8 concepts.\n"
+    "A concept is an index term: the name of an idea, as it would appear in the index\n"
+    "of a book or as the title of an encyclopedia entry. \"value judgment\", \"free\n"
+    "will\", \"social contract\".\n"
+    "Do not describe what the passage does. \"critique of moral values\" and\n"
+    "\"examination of the origins of X\" are descriptions of the passage, not concepts;\n"
+    "the concepts there are \"moral value\" and \"origin of X\".\n"
+    "Name both the specific ideas the text invokes and the broad subject it belongs\n"
+    "to, when the text genuinely supports both.\n"
+    "Prefer fewer concepts. Return only what a careful reader would list as the\n"
+    "passage's main subjects, not every phrase it contains.\n"
     "Do not return the book's title, its author, or a character's name.\n"
     "Do not invent concepts the text does not support.\n"
     "confidence is your estimate from 0 to 1 that the concept is present.\n"
     "broader is optional: a single more general concept this one sits under.\n"
-    'Respond with JSON only, shaped {"concepts":[{"label":str,"confidence":number,'
-    '"broader":str}]}. No prose, no code fence.'
+    "Respond with JSON only, shaped {\"concepts\":[{\"label\":str,\"confidence\":number,\"broader\":str}]}. No prose, no code fence."
 )
 
 PARSED_SCHEMA = StructType(
