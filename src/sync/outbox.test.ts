@@ -8,6 +8,7 @@ import {
   deliverPendingEvents,
   discardOutboxEvent,
   HELD_RECOVERY_AGE_MS,
+  MAX_CONFIGURATION_ATTEMPTS,
   nextHeadOfLineBatch,
   recoverHeldQuestions,
   releaseHeldEvent,
@@ -402,6 +403,44 @@ describe('head-of-line delivery and coordination', () => {
     expect(await db.eventOutbox.get('event-2')).toMatchObject({
       attempts: 0,
       lastErrorCode: 'blocked_by_prior_event',
+    })
+  })
+
+  it('rejects a permanent upstream configuration failure instead of retrying forever', async () => {
+    // Delivery is head-of-line, so an endlessly retried misconfiguration would
+    // stop sync silently. The reader has to be told.
+    await settings({ syncEnabled: true })
+    await db.syncState.put({ id: 'sync', installationId: crypto.randomUUID(), nextSequence: 2 })
+    await db.eventOutbox.add(row(1, { attempts: MAX_CONFIGURATION_ATTEMPTS - 1 }))
+    const transport: DeliveryTransport = {
+      async send(events) {
+        return [{ eventId: events[0].eventId, status: 'retry', code: 'upstream_configuration' }]
+      },
+    }
+    await deliverPendingEvents(transport, { now: NOW, random: () => 0 })
+
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({
+      status: 'rejected',
+      attempts: MAX_CONFIGURATION_ATTEMPTS,
+      lastErrorCode: 'upstream_configuration',
+    })
+    expect(await db.syncState.get('sync')).toMatchObject({ pausedReason: 'rejected_event' })
+  })
+
+  it('keeps retrying a configuration failure until it has given the operator time', async () => {
+    await settings({ syncEnabled: true })
+    await db.syncState.put({ id: 'sync', installationId: crypto.randomUUID(), nextSequence: 2 })
+    await db.eventOutbox.add(row(1, { attempts: MAX_CONFIGURATION_ATTEMPTS - 2 }))
+    const transport: DeliveryTransport = {
+      async send(events) {
+        return [{ eventId: events[0].eventId, status: 'retry', code: 'upstream_configuration' }]
+      },
+    }
+    await deliverPendingEvents(transport, { now: NOW, random: () => 0 })
+
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({
+      status: 'pending',
+      attempts: MAX_CONFIGURATION_ATTEMPTS - 1,
     })
   })
 

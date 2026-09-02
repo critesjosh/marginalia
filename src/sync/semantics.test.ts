@@ -94,6 +94,24 @@ describe('sessionization reference semantics', () => {
     expect(sessions[0].eventIds).toEqual(['zzz', 'aaa'])
   })
 
+  it('keeps a sub-second-short gap in one session', () => {
+    // Whole-second arithmetic would round this 1,799.2-second gap up to the
+    // 30-minute boundary and split it. The Silver pipeline keeps the fraction
+    // for the same reason.
+    const at = (iso: string, eventId: string): ReadingEvent => ({
+      ...base,
+      eventId,
+      eventType: 'reading_progressed',
+      eventTime: iso,
+    })
+    const sessions = sessionizeReadingEvents([
+      at('2026-09-01T10:00:00.900Z', 'one'),
+      at('2026-09-01T10:30:00.100Z', 'two'),
+    ])
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0].eventIds).toEqual(['one', 'two'])
+  })
+
   it('is deterministic when input arrives late and out of order', () => {
     const events = [
       event('three', 'book_closed', 2),

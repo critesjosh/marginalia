@@ -4,6 +4,15 @@ import type { DeliveryResult, DeliveryTransport, EventOutboxRow } from './types'
 export const MAX_BATCH_EVENTS = 20
 export const HELD_RECOVERY_AGE_MS = 15 * 60_000
 
+/**
+ * A Confluent response that is neither a throttle nor a server fault means the
+ * request or the topic configuration is wrong, and retrying cannot fix it.
+ * Delivery is head-of-line, so retrying forever would silently stop sync for
+ * good. Give the operator time to correct it, then reject into diagnostics so
+ * the reader is actually told.
+ */
+export const MAX_CONFIGURATION_ATTEMPTS = 8
+
 export function nextHeadOfLineBatch(
   rows: readonly EventOutboxRow[],
   now: number,
@@ -81,6 +90,18 @@ export async function deliverPendingEvents(
       }
 
       const attempts = row.attempts + (delivery.code === 'blocked_by_prior_event' ? 0 : 1)
+
+      if (delivery.code === 'upstream_configuration' && attempts >= MAX_CONFIGURATION_ATTEMPTS) {
+        await db.eventOutbox.update(row.eventId, {
+          status: 'rejected',
+          attempts,
+          lastErrorCode: delivery.code,
+        })
+        const state = await db.syncState.get('sync')
+        if (state) await db.syncState.put({ ...state, pausedReason: 'rejected_event' })
+        continue
+      }
+
       await db.eventOutbox.update(row.eventId, {
         attempts,
         lastErrorCode: delivery.code,

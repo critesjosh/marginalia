@@ -74,6 +74,13 @@ def _variant(variant, path: str, data_type: str):
     return F.try_variant_get(variant, path, data_type)
 
 
+def _seconds(column):
+    # Epoch seconds keeping the fraction. `unix_timestamp` truncates to whole
+    # seconds, which would split a session at a 1,799.2-second gap and disagree
+    # with the millisecond arithmetic the browser reference uses.
+    return column.cast("double")
+
+
 def _payload_keys(event_type):
     return (
         F.when(
@@ -559,7 +566,7 @@ def reading_sessions():
         previous_time.isNull()
         | (F.col("event_type") == "book_opened")
         | (previous_type == "book_closed")
-        | ((F.unix_timestamp("effective_event_time") - F.unix_timestamp(previous_time)) >= 1_800)
+        | ((_seconds(F.col("effective_event_time")) - _seconds(previous_time)) >= 1_800)
     )
     numbered = readings.withColumn("session_break", F.when(new_session, 1).otherwise(0)).withColumn(
         "session_number",
@@ -571,11 +578,11 @@ def reading_sessions():
     session_keys = [*stream_keys, "session_number"]
     session_order = Window.partitionBy(*session_keys).orderBy(*order_columns)
     prior_in_session = F.lag("effective_event_time").over(session_order)
-    elapsed = F.unix_timestamp("effective_event_time") - F.unix_timestamp(prior_in_session)
+    elapsed = _seconds(F.col("effective_event_time")) - _seconds(prior_in_session)
     intervals = numbered.withColumn(
         "active_interval_seconds",
         F.when(prior_in_session.isNull(), F.lit(0.0)).otherwise(
-            F.least(F.lit(120.0), F.greatest(F.lit(0.0), elapsed.cast("double")))
+            F.least(F.lit(120.0), F.greatest(F.lit(0.0), elapsed))
         ),
     ).withColumn("first_event_id", F.first("event_id").over(session_order))
 
