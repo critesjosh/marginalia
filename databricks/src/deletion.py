@@ -113,6 +113,17 @@ def _identifier(value: str) -> str:
     return value
 
 
+def _utc(value):
+    """
+    Spark hands back timestamps without a timezone. They are UTC by
+    construction, but Python will not compare a naive datetime with an aware
+    one, so the assumption has to be stated rather than left implicit.
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
 def _quoted(value: str) -> str:
     """A SQL string literal. Error text is arbitrary and often has quotes in it."""
     return "'" + str(value).replace("'", "''") + "'"
@@ -285,9 +296,10 @@ def run_verify():
             # Gone from every queryable layer, but the topic still holds up to
             # its retention window. Until that has passed a replay could put the
             # reader back, so the request is not finished, it is waiting.
-            retention_passed = request["source_retention_until"] is not None and request[
-                "source_retention_until"
-            ] <= datetime.now(timezone.utc)
+            retention_until = _utc(request["source_retention_until"])
+            retention_passed = (
+                retention_until is not None and retention_until <= datetime.now(timezone.utc)
+            )
             if retention_passed:
                 _set_status(
                     request_id,

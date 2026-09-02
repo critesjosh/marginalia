@@ -148,6 +148,16 @@ class DeletionManifest(unittest.TestCase):
         self.assertIn("+ served", DELETION_PY)
         self.assertIn("--synced_tables=", (ROOT / "databricks/resources/deletion.yml").read_text())
 
+    def test_spark_timestamps_are_made_comparable_before_being_compared(self):
+        """
+        Spark returns timestamps without a timezone, and Python refuses to
+        compare a naive datetime with an aware one. The retention check is the
+        one place a raw Spark timestamp meets datetime.now(timezone.utc).
+        """
+        self.assertIn("def _utc(", DELETION_PY)
+        self.assertIn("retention_until = _utc(", DELETION_PY)
+        self.assertNotIn('request["source_retention_until"] <=', DELETION_PY)
+
     def test_a_failed_request_keeps_suppressing_and_gets_retried(self):
         """
         A half-finished purge that stopped suppressing would let the topic
