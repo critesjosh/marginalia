@@ -53,12 +53,31 @@ def make_title_normalizer():
     """
     articles = tuple(ARTICLES)
 
-    def normalize(value):
+    def normalize(value, author=None):
         text = unicodedata.normalize("NFKD", str(value or ""))
         text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
-        # A subtitle is the commonest difference between the same work in two
-        # catalogues, so the part before the colon is what gets compared.
-        text = text.split(":")[0]
+
+        # Series and edition notes ride in brackets: "The Gay Science
+        # (Cambridge Texts in the History of Philosophy)". Every word of that
+        # is a token the real title does not have.
+        text = re.sub(r"\([^)]*\)", " ", text)
+        text = re.sub(r"\[[^\]]*\]", " ", text)
+
+        # Project Gutenberg writes "Title / translator and edition note". The
+        # part after the slash describes the edition, not the work.
+        text = text.split("/")[0]
+
+        # A colon usually separates a title from its subtitle, and the title is
+        # the half that identifies the work. But academic editions invert it,
+        # writing "Author: Title", and taking the first half there throws the
+        # title away and searches for the author instead. So the first half is
+        # dropped when it is the author, and kept otherwise.
+        parts = text.split(":")
+        if len(parts) > 1 and _looks_like(parts[0], author):
+            text = ":".join(parts[1:])
+        else:
+            text = parts[0]
+
         text = re.sub(r"[^a-z0-9 ]+", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
         for article in articles:
@@ -70,9 +89,33 @@ def make_title_normalizer():
     return normalize
 
 
-def normalize_title(title: str) -> str:
+def _looks_like(fragment: str, author) -> bool:
+    """
+    Whether a title fragment is really the author's name.
+
+    Deliberately strict: every word of the fragment has to be part of the
+    author's name. "Nietzsche" against "Friedrich Nietzsche" qualifies; a title
+    that merely mentions them does not, because dropping a real title half is
+    worse than keeping an author prefix.
+    """
+    if not author:
+        return False
+    names = author if isinstance(author, (list, tuple)) else [author]
+    fragment_words = {word for word in re.split(r"[^a-z0-9]+", str(fragment).lower()) if word}
+    if not fragment_words:
+        return False
+    for name in names:
+        folded = unicodedata.normalize("NFKD", str(name or ""))
+        folded = "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
+        name_words = {word for word in re.split(r"[^a-z0-9]+", folded) if word}
+        if name_words and fragment_words <= name_words:
+            return True
+    return False
+
+
+def normalize_title(title: str, author=None) -> str:
     """The same normalization the Spark side uses, never a second copy of it."""
-    return make_title_normalizer()(title)
+    return make_title_normalizer()(title, author)
 
 
 def normalize_author(author: str) -> str:
@@ -151,8 +194,10 @@ def match_confidence(
     author is the check that stops a shared title attaching the wrong work, and
     edition count is a weak tiebreak between otherwise equal candidates.
     """
-    title = _jaccard(_tokens(normalize_title(book.get("title", ""))),
-                     _tokens(normalize_title(candidate.get("title", ""))))
+    title = _jaccard(
+        _tokens(normalize_title(book.get("title", ""), book.get("author"))),
+        _tokens(normalize_title(candidate.get("title", ""), candidate.get("author_name"))),
+    )
     if title == 0.0:
         return 0.0
 

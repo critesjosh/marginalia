@@ -19,6 +19,7 @@ GOLD = spark.conf.get("marginalia.gold_schema")
 
 INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
 RESEARCH = f"{CATALOG}.{SILVER}.research_works"
+BOOK_CANDIDATES = f"{CATALOG}.{SILVER}.public_book_candidates"
 SILVER_EVENTS = f"{CATALOG}.{SILVER}.events"
 
 FRONTIER = f"{CATALOG}.{GOLD}.intellectual_frontier"
@@ -37,14 +38,22 @@ def _clamp(column):
     return F.least(F.lit(1.0), F.greatest(F.lit(0.0), column))
 
 
-def normalized_title(column):
+def normalized_title(column, author=None):
     """
-    The same shape public_matching.normalize_title produces: lowercased, the
-    subtitle dropped, punctuation flattened, a leading article removed. Kept in
-    step with it deliberately, so what counts as "already owned" here is what
-    counted as a match there.
+    The same shape public_matching.normalize_title produces, and the same
+    function, so what counts as "already owned" here is what counted as a match
+    there.
+
+    The author is passed because it decides a real case: an academic edition
+    writes "Author: Title", and without knowing the author the half before the
+    colon looks like the title. A reader's own copy of The Gay Science would
+    normalize to "nietzsche" and never match a candidate called "The Gay
+    Science", which is how a reader gets recommended the book they are reading.
     """
-    return F.udf(make_title_normalizer(), "string")(column)
+    normalize = make_title_normalizer()
+    if author is None:
+        return F.udf(lambda value: normalize(value), "string")(column)
+    return F.udf(lambda value, name: normalize(value, name), "string")(column, author)
 
 
 def canonical_topic(column):
@@ -163,7 +172,28 @@ def intellectual_frontier():
 def recommendation_candidates():
     interests = spark.read.table(INTEREST)
     frontier = spark.read.table(FRONTIER)
-    works = current_research_works()
+
+    # Candidates are books from Open Library, not works from OpenAlex.
+    #
+    # OpenAlex indexes research output. Asked what a reader should read next it
+    # answers with papers, and it did: a single-cell genomics article scored
+    # against an interest in "artist", and a record of secondary literature
+    # standing in for Thus Spoke Zarathustra with a scholar in the author
+    # field. Its topics are still what the frontier is built from, because
+    # adjacency between subjects is exactly what it knows.
+    #
+    # This is also what the plan asked for before Phase 6 followed the wrong
+    # source and changed it: the popularity prior is an edition count again.
+    latest_candidate = Window.partitionBy("concept_id", "work_key").orderBy(
+        F.col("retrieved_at").desc(), F.col("request_id").desc()
+    )
+    books = (
+        spark.read.table(BOOK_CANDIDATES)
+        .filter(F.col("work_key").isNotNull() & F.col("title").isNotNull())
+        .withColumn("_recency", F.row_number().over(latest_candidate))
+        .filter(F.col("_recency") == 1)
+        .drop("_recency")
+    )
 
     events = spark.read.table(SILVER_EVENTS)
 
@@ -176,7 +206,12 @@ def recommendation_candidates():
         events.filter(F.col("event_type") == "book_added")
         .withColumn("title", F.try_variant_get(F.col("payload"), "$.title", "string"))
         .filter(F.col("title").isNotNull())
-        .select("user_id", "book_id", normalized_title(F.col("title")).alias("owned_title"))
+        .withColumn("author", F.try_variant_get(F.col("payload"), "$.author", "string"))
+        .select(
+            "user_id",
+            "book_id",
+            normalized_title(F.col("title"), F.col("author")).alias("owned_title"),
+        )
     )
     deleted_books = events.filter(F.col("event_type") == "book_deleted").select(
         "user_id", "book_id"
@@ -198,19 +233,13 @@ def recommendation_candidates():
         .distinct()
     )
 
-    # Generators must be their own projection in Spark: nesting explode inside
-    # lower/trim is rejected during Lakeflow analysis.
-    topics = works.withColumn(
-        "topic", F.explode(F.from_json(F.col("topics"), "array<string>"))
-    ).withColumn("topic", canonical_topic(F.col("topic")))
-
     by_interest = (
-        interests.join(topics, interests.concept_id == topics.concept_id)
+        interests.join(books, interests.concept_id == books.concept_id)
         .select(
             interests.user_id,
-            F.col("work_id").alias("candidate_id"),
+            F.col("work_key").alias("candidate_id"),
             F.col("request_id"),
-            F.coalesce(F.col("cited_by_count"), F.lit(0)).alias("cited_by_count"),
+            F.coalesce(F.col("edition_count"), F.lit(0)).alias("edition_count"),
             interests.concept_id,
             interests.interest_score,
         )
@@ -218,21 +247,21 @@ def recommendation_candidates():
 
     interest_scored = by_interest.groupBy("user_id", "candidate_id").agg(
         F.avg("interest_score").alias("concept_interest_match"),
-        F.max("cited_by_count").alias("cited_by_count"),
+        F.max("edition_count").alias("edition_count"),
         F.slice(F.sort_array(F.array_distinct(F.collect_list("concept_id"))), 1, 5).alias("matched_concepts"),
         F.slice(F.sort_array(F.array_distinct(F.collect_list("request_id"))), 1, 3).alias("source_request_ids"),
     )
-    metadata_recency = Window.partitionBy("work_id").orderBy(
+    metadata_recency = Window.partitionBy("work_key").orderBy(
         F.col("retrieved_at").desc(), F.col("request_id").desc(), F.col("concept_id")
     )
     candidate_metadata = (
-        works.withColumn("_metadata_recency", F.row_number().over(metadata_recency))
+        books.withColumn("_metadata_recency", F.row_number().over(metadata_recency))
         .filter(F.col("_metadata_recency") == 1)
         .select(
-            F.col("work_id").alias("candidate_id"),
+            F.col("work_key").alias("candidate_id"),
             F.col("title").alias("candidate_title"),
-            "authors",
-            "publication_year",
+            F.col("authors").alias("candidate_authors"),
+            F.col("first_publish_year").alias("publication_year"),
         )
     )
     interest_scored = interest_scored.join(candidate_metadata, ["candidate_id"])
@@ -241,9 +270,12 @@ def recommendation_candidates():
     # is measured against that candidate's own topics. Joining the reader's
     # established concepts to the frontier could never match: the frontier is
     # defined as the concepts they have no direct evidence for.
-    frontier_topics = topics.select(
-        F.col("work_id").alias("candidate_id"), F.col("topic")
-    ).distinct()
+    frontier_topics = (
+        books.withColumn("topic", F.explode(F.col("subjects")))
+        .withColumn("topic", canonical_topic(F.col("topic")))
+        .select(F.col("work_key").alias("candidate_id"), F.col("topic"))
+        .distinct()
+    )
     coverage = (
         frontier.select(
             "user_id", F.col("candidate_concept").alias("topic"), "frontier_score"
@@ -273,10 +305,11 @@ def recommendation_candidates():
         .distinct()
     )
 
+    # Open Library names the book's own author, so an author the reader is
+    # already reading is now visible here. Under OpenAlex this component could
+    # not work at all: its author field holds the scholar who wrote about the
+    # book, so every Nietzsche recommendation looked like a new author.
     with_authors = scored.withColumn(
-        "candidate_authors",
-        F.from_json(F.col("authors"), "array<string>"),
-    ).withColumn(
         "first_author", F.lower(F.trim(F.element_at(F.col("candidate_authors"), 1)))
     )
 
@@ -304,12 +337,20 @@ def recommendation_candidates():
         )
         / 3.0,
     ).withColumn(
+        # Editions, not citations. A work reprinted many times is one many
+        # readers have wanted; a paper cited many times is one many
+        # researchers have used, which says nothing about reading it.
         "popularity_prior",
-        _clamp(F.log1p(F.col("cited_by_count")) / F.log1p(F.lit(1000.0))),
+        _clamp(F.log1p(F.col("edition_count")) / F.log1p(F.lit(100.0))),
     )
 
     final = (
-        complete.withColumn("normalized_title", normalized_title(F.col("candidate_title")))
+        complete.withColumn(
+            "normalized_title",
+            # A candidate's authors are an array; the normalizer takes the
+            # whole list and asks whether any of them explains a colon prefix.
+            normalized_title(F.col("candidate_title"), F.col("candidate_authors")),
+        )
         .join(
             owned_titles,
             (complete.user_id == owned_titles.user_id)

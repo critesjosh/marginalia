@@ -20,6 +20,8 @@ DELETION_PY = (ROOT / "databricks/src/deletion.py").read_text()
 SILVER_PY = (ROOT / "databricks/src/events_silver.py").read_text()
 SERVING_YML = (ROOT / "databricks/resources/serving.yml").read_text()
 SYNC_PY = (ROOT / "databricks/src/serving_sync.py").read_text()
+FRONTIER_PY = (ROOT / "databricks/src/frontier.py").read_text()
+SOURCES_PY = (ROOT / "databricks/src/public_sources.py").read_text()
 EXTRACTION_PY = (ROOT / "databricks/src/concept_extraction.py").read_text()
 GOLD_PY = (ROOT / "databricks/src/gold_profiles.py").read_text()
 
@@ -246,6 +248,52 @@ class RuntimeDependencies(unittest.TestCase):
         """
         requirements = (ROOT / "databricks/src/app/requirements.txt").read_text()
         self.assertIn(self.SDK_PIN, requirements)
+
+
+class TheTwoPublicSources(unittest.TestCase):
+    """
+    OpenAlex and Open Library answer different questions, and using one for
+    both produced recommendations that were research papers: a single-cell
+    genomics article scored against an interest in "artist", and a scholar in
+    the author field of Thus Spoke Zarathustra.
+    """
+
+    def _function(self, name: str) -> str:
+        body = FRONTIER_PY[FRONTIER_PY.index(f"def {name}") :]
+        end = body.find("\n@dp.")
+        return body if end == -1 else body[:end]
+
+    def test_the_frontier_is_built_from_research_works(self):
+        """Adjacency between subjects is what OpenAlex actually knows."""
+        frontier = self._function("intellectual_frontier")
+        self.assertIn("current_research_works()", frontier)
+        self.assertIn("cited_by_count", frontier)
+
+    def test_recommendations_are_built_from_books(self):
+        recommendations = self._function("recommendation_candidates")
+        self.assertIn("BOOK_CANDIDATES", recommendations)
+        self.assertNotIn("current_research_works()", recommendations)
+        self.assertNotIn("cited_by_count", recommendations)
+
+    def test_the_popularity_prior_counts_editions_not_citations(self):
+        """
+        A work reprinted many times is one many readers wanted. A paper cited
+        many times is one many researchers used, which is a different claim.
+        """
+        recommendations = self._function("recommendation_candidates")
+        self.assertIn("edition_count", recommendations)
+
+    def test_book_candidates_are_fetched_from_open_library(self):
+        self.assertIn("openlibrary.org/search.json", SOURCES_PY)
+        self.assertIn("public_book_candidates", SOURCES_PY)
+
+    def test_the_run_summary_does_not_overstate_what_matched(self):
+        """
+        It counted every book it examined, including the ones that matched
+        nothing, and called them matched.
+        """
+        self.assertIn("books_examined", SOURCES_PY)
+        self.assertNotIn("books_matched", SOURCES_PY)
 
 
 class SyncedTableStates(unittest.TestCase):

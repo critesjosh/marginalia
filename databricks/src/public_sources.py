@@ -56,6 +56,7 @@ INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
 RAW = f"{CATALOG}.{BRONZE}.public_sources_raw"
 MATCHES = f"{CATALOG}.{SILVER}.book_work_matches"
 RESEARCH = f"{CATALOG}.{SILVER}.research_works"
+BOOK_CANDIDATES = f"{CATALOG}.{SILVER}.public_book_candidates"
 REQUEST_SUBJECTS = f"{CATALOG}.{SILVER}.public_request_subjects"
 
 USER_AGENT = f"Marginalia/0.1 ({CONTACT})"
@@ -116,6 +117,23 @@ def ensure_tables():
           request_id STRING,
           retrieved_at TIMESTAMP NOT NULL,
           source_license STRING NOT NULL
+        ) USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {BOOK_CANDIDATES} (
+          concept_id STRING NOT NULL,
+          work_key STRING NOT NULL,
+          title STRING,
+          authors ARRAY<STRING>,
+          first_publish_year INT,
+          edition_count INT,
+          subjects ARRAY<STRING>,
+          language ARRAY<STRING>,
+          request_id STRING NOT NULL,
+          retrieved_at TIMESTAMP NOT NULL,
+          parser_version STRING NOT NULL
         ) USING DELTA
         """
     )
@@ -522,17 +540,130 @@ def enrich_concepts() -> int:
     return len(rows)
 
 
+def find_books() -> int:
+    """
+    Books a reader might read next, asked of the catalogue that has books.
+
+    OpenAlex indexes research output, so asking it for reading recommendations
+    returns papers: a single-cell genomics article scored against an interest
+    in "artist". It remains the right source for the frontier, which is about
+    what topics sit next to each other. It is the wrong source for what to read
+    next, and Open Library is the right one, having books, editions, and the
+    authors who actually wrote them.
+
+    Asked about the reader's own concepts, so a candidate arrives already
+    attached to the interest that produced it.
+    """
+    if not spark.catalog.tableExists(INTEREST):
+        return 0
+
+    wanted = spark.read.table(INTEREST).groupBy("concept_id").agg(
+        F.max("interest_score").alias("strongest_interest"),
+        F.sort_array(F.collect_set("user_id")).alias("user_ids"),
+    )
+    # Same attempt-based eligibility as the research enrichment: a successful
+    # empty answer still consumes its window, a failure retries sooner.
+    attempts = (
+        spark.read.table(REQUEST_SUBJECTS)
+        .filter(F.col("concept_id").isNotNull())
+        .join(spark.read.table(RAW).filter(F.col("source") == "openlibrary_subject"), ["request_id"])
+    )
+    recent_success = attempts.filter(
+        F.col("body").isNotNull()
+        & F.col("error").isNull()
+        & (F.col("retrieved_at") >= F.current_timestamp() - F.expr(f"INTERVAL {ENRICHMENT_TTL_DAYS} DAYS"))
+    ).select("concept_id")
+    recent_failure = attempts.filter(
+        F.col("error").isNotNull()
+        & (F.col("retrieved_at") >= F.current_timestamp() - F.expr(f"INTERVAL {FAILED_REQUEST_RETRY_HOURS} HOURS"))
+    ).select("concept_id")
+    wanted = wanted.join(recent_success.union(recent_failure).distinct(), ["concept_id"], "left_anti")
+
+    concepts = (
+        wanted.orderBy(F.col("strongest_interest").desc(), "concept_id")
+        .limit(BATCH_LIMIT)
+        .collect()
+    )
+    if not concepts:
+        return 0
+
+    raw_records, rows, subjects = [], [], []
+    now = datetime.now(timezone.utc)
+    for row in concepts:
+        concept = row["concept_id"]
+        query = urllib.parse.urlencode(
+            {
+                "q": concept,
+                "limit": "10",
+                "fields": "key,title,author_name,first_publish_year,edition_count,subject,language",
+            }
+        )
+        record = fetch("openlibrary_subject", f"https://openlibrary.org/search.json?{query}")
+        raw_records.append(record)
+        subjects.extend(
+            {
+                "request_id": record["request_id"],
+                "user_id": user_id,
+                "book_id": None,
+                "concept_id": concept,
+                "linked_at": now,
+            }
+            for user_id in row["user_ids"]
+        )
+        if not record["body"]:
+            if record["http_status"] == 429:
+                break
+            continue
+        try:
+            docs = json.loads(record["body"]).get("docs", []) or []
+        except ValueError:
+            continue
+        for doc in docs:
+            work_key = doc.get("key")
+            if not work_key or not doc.get("title"):
+                continue
+            rows.append(
+                (
+                    concept,
+                    work_key,
+                    doc.get("title"),
+                    doc.get("author_name") or [],
+                    doc.get("first_publish_year"),
+                    doc.get("edition_count"),
+                    (doc.get("subject") or [])[:25],
+                    doc.get("language") or [],
+                    record["request_id"],
+                    now,
+                    PARSER_VERSION,
+                )
+            )
+
+    _write_raw(raw_records)
+    _write_subjects(subjects)
+    if rows:
+        spark.createDataFrame(
+            rows,
+            "concept_id STRING, work_key STRING, title STRING, authors ARRAY<STRING>, "
+            "first_publish_year INT, edition_count INT, subjects ARRAY<STRING>, "
+            "language ARRAY<STRING>, request_id STRING, retrieved_at TIMESTAMP, "
+            "parser_version STRING",
+        ).write.mode("append").saveAsTable(BOOK_CANDIDATES)
+    return len(rows)
+
+
 def run():
     ensure_tables()
     matched = match_books()
     enriched = enrich_concepts()
     # Counts and versions only. No title and no reader text reaches a log.
+    books = find_books()
     print(
         json.dumps(
             {
                 "matcher_version": MATCHER_VERSION,
+                "book_candidates": books,
                 "parser_version": PARSER_VERSION,
-                "books_matched": matched,
+                "books_examined": matched,
                 "research_works": enriched,
             }
         )

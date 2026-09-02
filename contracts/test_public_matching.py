@@ -79,6 +79,56 @@ class Normalization(unittest.TestCase):
         }
         self.assertGreaterEqual(match_confidence(book, candidate), MATCH_ACCEPT)
 
+    def test_a_gutenberg_edition_note_is_not_part_of_the_title(self):
+        """
+        Project Gutenberg writes "Title / translator and edition note". Both
+        of these are real titles for the same work, from a reader's library and
+        from Open Library, and they have to normalize to the same string or the
+        reader's own book is invisible to the matcher.
+        """
+        self.assertEqual(
+            normalize_title(
+                "Oedipus King of Thebes / Translated into English Rhyming Verse "
+                "with Explanatory Notes",
+                "Sophocles",
+            ),
+            normalize_title("Oedipus, King of Thebes"),
+        )
+
+    def test_an_academic_edition_puts_the_author_before_the_colon(self):
+        """
+        "Author: Title (Series)" inverts the usual order, so taking the half
+        before the colon searches a catalogue for the author's name as though
+        it were a book. This one really did come back unmatched.
+        """
+        self.assertEqual(
+            normalize_title(
+                "Nietzsche: The Gay Science (Cambridge Texts in the History of Philosophy)",
+                "Friedrich Nietzsche",
+            ),
+            normalize_title("The Gay Science"),
+        )
+
+    def test_a_real_subtitle_is_still_dropped(self):
+        """The author rule must not cost us the subtitle rule it sits beside."""
+        self.assertEqual(
+            normalize_title("Moby Dick: or, The Whale", "Herman Melville"), "moby dick"
+        )
+
+    def test_a_title_is_not_mistaken_for_its_author(self):
+        """
+        Only a fragment made entirely of the author's own name counts. Dropping
+        a real half of a title is worse than keeping an author prefix.
+        """
+        self.assertEqual(
+            normalize_title("Nietzsche and Philosophy", "Gilles Deleuze"),
+            "nietzsche and philosophy",
+        )
+        self.assertEqual(
+            normalize_title("Nietzsche: A Very Short Introduction", None),
+            "nietzsche",
+        )
+
     def test_spark_title_closure_matches_the_local_normalizer(self):
         normalize_for_spark = make_title_normalizer()
         titles = ["The Čapek Reader", "Émile: or On Education", "A Wizard of Earthsea"]
