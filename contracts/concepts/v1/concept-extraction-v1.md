@@ -20,7 +20,9 @@ Rules:
 - Return between 1 and 8 concepts.
 - A concept is a short noun phrase, at most 80 characters. Prefer the specific
   over the general: "genealogy of morality" over "philosophy".
-- Do not return the book's title, its author, or a character's name as a concept.
+- Do not return a book's title, its author, or a character's name, unless the
+  title is also the established name of an idea in its own right ("the social
+  contract", "genealogy of morality"). Judge the idea, not the cover.
 - Do not invent concepts the text does not support. Fewer, well-supported
   concepts are better than a long speculative list.
 - `confidence` is your own estimate from 0 to 1 that the concept is genuinely

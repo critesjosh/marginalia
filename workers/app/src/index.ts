@@ -1,5 +1,6 @@
 import { handleRelayRequest } from '../../../shared/relay.ts'
 import { EVENTS_PATH, handleEventBatchRequest } from './events.ts'
+import { INTELLIGENCE_PREFIX, handleIntelligenceRequest } from './intelligence.ts'
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; " +
@@ -43,6 +44,10 @@ export default {
 
       if (url.pathname === EVENTS_PATH) {
         return await handleEventBatchRequest(request, env)
+      }
+
+      if (url.pathname.startsWith(INTELLIGENCE_PREFIX)) {
+        return await handleIntelligenceRequest(request, env)
       }
 
       if (url.pathname.startsWith('/api/')) {

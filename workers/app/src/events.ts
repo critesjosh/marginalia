@@ -46,7 +46,7 @@ async function sha256(value: string): Promise<ArrayBuffer> {
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
 }
 
-function digestFromHex(value: string): Uint8Array | undefined {
+export function digestFromHex(value: string): Uint8Array | undefined {
   if (!/^[0-9a-f]{64}$/i.test(value)) return undefined
   const bytes = new Uint8Array(32)
   for (let index = 0; index < bytes.length; index += 1) {
@@ -56,7 +56,7 @@ function digestFromHex(value: string): Uint8Array | undefined {
 }
 
 /** Compares fixed-length digests with the runtime's constant-time primitive. */
-async function tokenMatches(value: string, expectedHex: string): Promise<boolean> {
+export async function tokenMatches(value: string, expectedHex: string): Promise<boolean> {
   const expected = digestFromHex(expectedHex)
   if (!expected) return false
   const presented = await sha256(value)
@@ -73,7 +73,7 @@ async function tokenMatches(value: string, expectedHex: string): Promise<boolean
   return difference === 0
 }
 
-function bearerToken(request: Request): string | undefined {
+export function bearerToken(request: Request): string | undefined {
   const header = request.headers.get('Authorization') ?? ''
   const match = /^Bearer (.+)$/.exec(header.trim())
   return match?.[1]
@@ -108,9 +108,18 @@ async function boundedText(request: Request, limit: number): Promise<string | un
  * before it asks Databricks to purge, so another tab still holding the token
  * cannot repopulate what is being deleted.
  */
-async function syncDisabled(env: EventsEnv, userId: string): Promise<boolean> {
+export function syncControlKey(userId: string): string {
+  return `sync-state:${userId}`
+}
+
+export const SYNC_DISABLED = 'disabled'
+
+export async function syncDisabled(
+  env: { SYNC_CONTROL?: KVNamespace },
+  userId: string,
+): Promise<boolean> {
   if (!env.SYNC_CONTROL) return false
-  return (await env.SYNC_CONTROL.get(`sync-state:${userId}`)) === 'disabled'
+  return (await env.SYNC_CONTROL.get(syncControlKey(userId))) === SYNC_DISABLED
 }
 
 function validationResults(events: readonly unknown[]): {

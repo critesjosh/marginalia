@@ -35,9 +35,25 @@ data, or other secrets.
 - Friction: the acceptance bar is satisfiable without it, at four of five, so the
   contradiction does not block Phase 3. It would block any attempt to reach five of five,
   and it will mislead whoever next tunes this prompt.
-- Workaround or follow-up: left as is and recorded. Resolving it means either dropping the
-  concept from the reference set or allowing a work's title when it is also the name of an
-  established idea; that is a plan revision, not an implementation choice.
+- Workaround or follow-up: resolved by decision on 2026-09-01. A title may be returned when
+  it is also the established name of an idea in its own right, judged as an idea rather than
+  as a cover. The concept is still not recalled from this passage, which never uses the
+  word genealogy, but that is now a property of the passage rather than a rule forbidding
+  the answer it asks for.
+
+### 2026-09-01: gpt-oss-120b emits a number as an English word
+
+- Surface used: `databricks serving-endpoints query` against `databricks-gpt-oss-120b`
+- Goal: run the live concept evaluation after a prompt change.
+- Result: the response contained `"confidence": 0. nine`, a decoding glitch producing an
+  English word inside a JSON number. The validator rejected it as `invalid_json` and the
+  next identical request succeeded.
+- Friction: temperature 0 does not make this endpoint deterministic, and a malformed
+  number is indistinguishable from a malformed prompt at the call site. A pipeline that
+  treated a parse failure as terminal would discard perfectly good candidates.
+- Workaround or follow-up: none needed. This is exactly what the three-attempt retry and
+  the `invalid_json` status exist for, and it is a useful confirmation that they are not
+  theoretical.
 
 ### 2026-09-01: Phase 3 extraction, ai_query telemetry limits
 
