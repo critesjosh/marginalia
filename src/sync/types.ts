@@ -48,7 +48,9 @@ export type MarginaliaEventType =
   | 'book_added'
   | 'book_archived'
   | 'book_restored'
-  | 'book_removed'
+  | 'book_deleted'
+  | 'assistant_response_received'
+  | 'conversation_resumed'
   | 'book_memory_updated'
   | 'conversation_deleted'
 
@@ -129,12 +131,26 @@ export interface EventPayloadByType {
   }
   book_archived: { archivedAt: string; progress?: number }
   book_restored: { restoredAt: string; progress?: number }
-  book_removed: {
+  book_deleted: {
     removedAt: string
     highlightsRemoved?: number
     conversationsRemoved?: number
   }
-  book_memory_updated: { updatedAt: string; summary?: string }
+  assistant_response_received: {
+    receivedAt: string
+    succeeded: boolean
+    latencyMs?: number
+    model?: string
+    failureCode?: string
+    content?: string
+  }
+  conversation_resumed: {
+    resumedAt: string
+    messageCount?: number
+    chapter?: string
+    progress?: number
+  }
+  book_memory_updated: { updatedAt: string; summary?: string; cleared?: boolean }
   conversation_deleted: { deletedAt: string; messagesRemoved?: number }
 }
 

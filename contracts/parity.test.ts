@@ -17,6 +17,7 @@ const fixtureFiles = [
   'reading-sessions-phase-2.jsonl',
   'highlight-lifecycle-phase-2.jsonl',
   'library-lifecycle-phase-5.jsonl',
+  'coverage-phase-5.jsonl',
 ]
 const fixtures = fixtureFiles.flatMap((file) =>
   readFileSync(join(root, 'contracts/fixtures', file), 'utf8')
@@ -53,6 +54,16 @@ describe('the generated validators', () => {
       readFileSync(join(root, 'contracts/events/v1/envelope.schema.json'), 'utf8'),
     ) as { properties: { eventType: { enum: string[] } } }
     expect([...envelope.properties.eventType.enum].sort()).toEqual(declared)
+  })
+
+  it('have a fixture for every event type the manifest lists', () => {
+    // Registry coverage alone let four event types ship with no fixture at all,
+    // so a broken payload schema for any of them passed the whole suite.
+    const manifest = JSON.parse(
+      readFileSync(join(root, 'contracts/events/v1/payloads.json'), 'utf8'),
+    ) as { payloads: Record<string, string> }
+    const covered = new Set(fixtures.map((event) => event.eventType as string))
+    expect(Object.keys(manifest.payloads).filter((type) => !covered.has(type))).toEqual([])
   })
 
   it('agree with the browser-side Ajv validators on every fixture', () => {

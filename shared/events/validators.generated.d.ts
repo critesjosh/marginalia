@@ -31,6 +31,8 @@ export declare const validate_book_reopened: StandaloneValidator
 export declare const validate_book_added: StandaloneValidator
 export declare const validate_book_archived: StandaloneValidator
 export declare const validate_book_restored: StandaloneValidator
-export declare const validate_book_removed: StandaloneValidator
 export declare const validate_book_memory_updated: StandaloneValidator
 export declare const validate_conversation_deleted: StandaloneValidator
+export declare const validate_book_deleted: StandaloneValidator
+export declare const validate_assistant_response_received: StandaloneValidator
+export declare const validate_conversation_resumed: StandaloneValidator

@@ -70,7 +70,7 @@ describe('library lifecycle events', () => {
 
     await deleteBook('book-1')
     const removal = (await queued()).at(-1)!
-    expect(removal.eventType).toBe('book_removed')
+    expect(removal.eventType).toBe('book_deleted')
     expect(removal.payload.payload).toMatchObject({ highlightsRemoved: 2, conversationsRemoved: 1 })
   })
 

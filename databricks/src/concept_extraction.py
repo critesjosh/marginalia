@@ -213,20 +213,23 @@ def candidates():
     )
 
     # A digest is rewritten rather than appended to, so only the newest update
-    # for a book describes what the reader currently has.
-    memory_events = (
-        events.filter(F.col("event_type") == "book_memory_updated")
-        .withColumn("privacy", privacy)
-        .filter(F.array_contains(F.col("privacy.included"), "bookMemory"))
-        .withColumn("summary", F.try_variant_get(F.col("payload"), "$.summary", "string"))
-        .filter(F.col("summary").isNotNull() & (F.length(F.trim(F.col("summary"))) > 0))
-    )
+    # for a book describes what the reader currently has. The window ranks every
+    # update, consented or not, and the filters come after: ranking the consented
+    # ones only would let an older shared digest outlive the redaction or the
+    # clearing that replaced it.
     latest_memory = Window.partitionBy("user_id", "book_id").orderBy(
         F.col("effective_event_time").desc(), F.col("event_id").desc()
     )
     memory = (
-        memory_events.withColumn("rank", F.row_number().over(latest_memory))
+        events.filter(F.col("event_type") == "book_memory_updated")
+        .withColumn("rank", F.row_number().over(latest_memory))
         .filter("rank = 1")
+        .withColumn("privacy", privacy)
+        .withColumn("summary", F.try_variant_get(F.col("payload"), "$.summary", "string"))
+        .withColumn("cleared", F.try_variant_get(F.col("payload"), "$.cleared", "boolean"))
+        .filter(~F.coalesce(F.col("cleared"), F.lit(False)))
+        .filter(F.array_contains(F.col("privacy.included"), "bookMemory"))
+        .filter(F.col("summary").isNotNull() & (F.length(F.trim(F.col("summary"))) > 0))
         .select(
             "user_id",
             "book_id",
@@ -237,8 +240,13 @@ def candidates():
         )
     )
 
+    latest_added = Window.partitionBy("user_id", "book_id").orderBy(
+        F.col("effective_event_time").desc(), F.col("event_id").desc()
+    )
     descriptions = (
         events.filter(F.col("event_type") == "book_added")
+        .withColumn("rank", F.row_number().over(latest_added))
+        .filter("rank = 1")
         .withColumn("privacy", privacy)
         .filter(F.array_contains(F.col("privacy.included"), "bookMetadata"))
         .withColumn(
@@ -255,11 +263,21 @@ def candidates():
         )
     )
 
+    # A book the reader deleted takes its description and its digest with it.
+    # Highlights and questions need no such rule: deleting a book deletes them,
+    # so they simply stop appearing in Silver.
+    deleted_books = (
+        events.filter(F.col("event_type") == "book_deleted")
+        .select("user_id", "book_id")
+        .distinct()
+    )
+
     return (
         passages.unionByName(notes)
         .unionByName(questions)
         .unionByName(memory)
         .unionByName(descriptions)
+        .join(deleted_books, ["user_id", "book_id"], "left_anti")
         .withColumn("source_content_hash", F.sha2(F.col("source_text"), 256))
     )
 

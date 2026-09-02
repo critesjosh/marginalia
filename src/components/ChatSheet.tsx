@@ -11,7 +11,7 @@ import {
   stageQuestion,
   type StagedQuestion,
 } from '../sync/operations'
-import { InferenceError, streamChat, targetFor } from '../lib/inference'
+import { HOSTED_MODEL_LABEL, InferenceError, streamChat, targetFor } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { THEMES } from '../lib/themes'
@@ -155,6 +155,7 @@ export default function ChatSheet({
       if (!book) throw new Error('This book is no longer in your library.')
 
       let acc = ''
+      const startedAt = Date.now()
       const reply = await streamChat({
         target,
         signal: controller.signal,
@@ -174,7 +175,13 @@ export default function ChatSheet({
           createdAt: Date.now(),
         }
         : undefined
-      await finalizeQuestion(stagedQuestion.eventId, conversationId, assistantMessage)
+      await finalizeQuestion(stagedQuestion.eventId, conversationId, assistantMessage, {
+        bookId: conversation.bookId,
+        succeeded: Boolean(assistantMessage),
+        latencyMs: Date.now() - startedAt,
+        // The hosted route's model is the relay's business, not the browser's.
+        model: target.provider === 'openai' ? target.model : HOSTED_MODEL_LABEL,
+      })
       if (assistantMessage) {
         void updateBookMemory(conversation.bookId, conversationId)
       }

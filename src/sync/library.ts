@@ -86,13 +86,13 @@ export async function recordBookRestored(
   })
 }
 
-export async function recordBookRemoved(
+export async function recordBookDeleted(
   bookId: string,
   counts: { highlightsRemoved: number; conversationsRemoved: number },
   at = Date.now(),
 ): Promise<void> {
   await enqueueEvent({
-    eventType: 'book_removed',
+    eventType: 'book_deleted',
     eventTime: at,
     entities: { bookId },
     content: () => ({ payload: { removedAt: timestamp(at), ...counts }, included: [] }),
@@ -127,5 +127,64 @@ export async function recordBookMemoryUpdated(
       consent.shareBookMemory
         ? { payload: { updatedAt: timestamp(at), summary }, included: ['bookMemory'] }
         : { payload: { updatedAt: timestamp(at) }, included: [] },
+  })
+}
+
+/**
+ * A digest the reader emptied. `cleared` is what makes this different from an
+ * update whose text simply was not consented: without it the cloud cannot tell
+ * "no summary shared" from "no summary any more", and would keep using the one
+ * it already had for good.
+ */
+export async function recordBookMemoryCleared(
+  bookId: string,
+  at = Date.now(),
+): Promise<void> {
+  await enqueueEvent({
+    eventType: 'book_memory_updated',
+    eventTime: at,
+    entities: { bookId },
+    content: () => ({ payload: { updatedAt: timestamp(at), cleared: true }, included: [] }),
+  })
+}
+
+export async function recordAssistantResponse(
+  entities: { bookId: string; conversationId: string; messageId: string },
+  outcome: {
+    succeeded: boolean
+    latencyMs?: number
+    model?: string
+    failureCode?: string
+    content?: string
+  },
+  at = Date.now(),
+): Promise<void> {
+  const { content, ...metrics } = outcome
+  await enqueueEvent({
+    eventType: 'assistant_response_received',
+    eventTime: at,
+    entities,
+    // Latency, model, and whether it worked are usage. The answer itself is
+    // assistant text and needs its own consent.
+    content: (consent) =>
+      consent.shareAssistantText && content
+        ? {
+            payload: { receivedAt: timestamp(at), ...metrics, content },
+            included: ['assistantText'],
+          }
+        : { payload: { receivedAt: timestamp(at), ...metrics }, included: [] },
+  })
+}
+
+export async function recordConversationResumed(
+  entities: { bookId: string; conversationId: string },
+  messageCount: number,
+  at = Date.now(),
+): Promise<void> {
+  await enqueueEvent({
+    eventType: 'conversation_resumed',
+    eventTime: at,
+    entities,
+    content: () => ({ payload: { resumedAt: timestamp(at), messageCount }, included: [] }),
   })
 }

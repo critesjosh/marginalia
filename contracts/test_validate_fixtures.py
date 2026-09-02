@@ -17,6 +17,7 @@ BRONZE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "bronze-phase2.j
 LIBRARY_FIXTURE = (
     Path(__file__).resolve().parent / "fixtures" / "library-lifecycle-phase-5.jsonl"
 )
+COVERAGE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "coverage-phase-5.jsonl"
 
 
 class EventContractTest(unittest.TestCase):
@@ -60,6 +61,36 @@ class EventContractTest(unittest.TestCase):
         )
 
 
+class CoverageFixtureTest(unittest.TestCase):
+    """The event types no other fixture happened to exercise."""
+
+    def setUp(self) -> None:
+        self.events = [
+            json.loads(line) for line in COVERAGE_FIXTURE.read_text().splitlines() if line
+        ]
+
+    def test_every_coverage_fixture_satisfies_the_contract(self) -> None:
+        invalid = [e["eventId"] for e in self.events if not valid_event(e)]
+        self.assertEqual(invalid, [])
+
+    def test_assistant_content_requires_its_own_consent(self) -> None:
+        shared = next(
+            e
+            for e in self.events
+            if e["eventType"] == "assistant_response_received" and e["privacy"]["included"]
+        )
+        withheld = next(
+            e
+            for e in self.events
+            if e["eventType"] == "assistant_response_received"
+            and not e["privacy"]["included"]
+        )
+        self.assertIn("content", shared["payload"])
+        self.assertNotIn("content", withheld["payload"])
+        # Latency and outcome are usage and survive either way.
+        self.assertIn("latencyMs", withheld["payload"])
+
+
 class LibraryFixtureTest(unittest.TestCase):
     """Every Phase 5 lifecycle event, checked against the same contract the
     browser and the Worker use."""
@@ -79,8 +110,8 @@ class LibraryFixtureTest(unittest.TestCase):
             [
                 "book_added",
                 "book_archived",
+                "book_deleted",
                 "book_memory_updated",
-                "book_removed",
                 "book_restored",
                 "conversation_deleted",
             ],

@@ -16,8 +16,10 @@
     "book_added": "book-added.schema.json",
     "book_archived": "book-archived.schema.json",
     "book_restored": "book-restored.schema.json",
-    "book_removed": "book-removed.schema.json",
     "book_memory_updated": "book-memory-updated.schema.json",
-    "conversation_deleted": "conversation-deleted.schema.json"
+    "conversation_deleted": "conversation-deleted.schema.json",
+    "book_deleted": "book-deleted.schema.json",
+    "assistant_response_received": "assistant-response-received.schema.json",
+    "conversation_resumed": "conversation-resumed.schema.json"
   }
 }

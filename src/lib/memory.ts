@@ -3,7 +3,7 @@ import type { Message } from '../db/types'
 import { normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
-import { recordBookMemoryUpdated } from '../sync/library'
+import { recordBookMemoryCleared, recordBookMemoryUpdated } from '../sync/library'
 
 /** Fold a conversation into the book's digest after this many new messages. */
 const MESSAGES_PER_UPDATE = 4
@@ -39,11 +39,21 @@ export async function getBookMemory(bookId: string): Promise<string | undefined>
  */
 export async function saveBookMemory(bookId: string, summary: string): Promise<void> {
   const normalized = normalizeSummary(summary)
+  const at = Date.now()
   if (!normalized) {
-    await db.bookMemory.delete(bookId)
+    // Clearing is a change like any other, and it has to be recorded in the
+    // same transaction. Deleting it silently would leave the cloud using a
+    // digest the reader has emptied.
+    await db.transaction(
+      'rw',
+      [db.bookMemory, db.settings, db.syncState, db.eventOutbox],
+      async () => {
+        await db.bookMemory.delete(bookId)
+        await recordBookMemoryCleared(bookId, at)
+      },
+    )
     return
   }
-  const at = Date.now()
   await db.transaction(
     'rw',
     [db.bookMemory, db.settings, db.syncState, db.eventOutbox],

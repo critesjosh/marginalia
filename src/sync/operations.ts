@@ -2,6 +2,7 @@ import { db } from '../db/db'
 import type { Conversation, Highlight, Message } from '../db/types'
 import type { PrivacyCategory, SyncConsentV1 } from './types'
 import { enqueueEvent } from './outbox'
+import { recordAssistantResponse } from './library'
 
 const EVENT_TABLES = [db.settings, db.syncState, db.eventOutbox] as const
 
@@ -160,15 +161,24 @@ export async function commitQuestion(eventId: string | undefined, now = Date.now
   await db.eventOutbox.update(eventId, { status: 'pending', nextAttemptAt: now })
 }
 
+export interface AssistantOutcome {
+  bookId: string
+  succeeded: boolean
+  latencyMs?: number
+  model?: string
+  failureCode?: string
+}
+
 export async function finalizeQuestion(
   eventId: string | undefined,
   conversationId: string,
   assistantMessage?: Message,
+  outcome?: AssistantOutcome,
   now = Date.now(),
 ): Promise<void> {
   await db.transaction(
     'rw',
-    [db.messages, db.conversations, db.eventOutbox],
+    [db.messages, db.conversations, db.eventOutbox, db.settings, db.syncState],
     async () => {
       if (assistantMessage) {
         await db.messages.add(assistantMessage)
@@ -176,6 +186,25 @@ export async function finalizeQuestion(
       }
       if (eventId) {
         await db.eventOutbox.update(eventId, { status: 'pending', nextAttemptAt: now })
+      }
+      // The answer lands with the turn that produced it. Its latency and model
+      // are usage; its words are assistant text and need their own consent.
+      if (outcome) {
+        await recordAssistantResponse(
+          {
+            bookId: outcome.bookId,
+            conversationId,
+            messageId: assistantMessage?.id ?? conversationId,
+          },
+          {
+            succeeded: outcome.succeeded,
+            latencyMs: outcome.latencyMs,
+            model: outcome.model,
+            failureCode: outcome.failureCode,
+            content: assistantMessage?.content,
+          },
+          now,
+        )
       }
     },
   )

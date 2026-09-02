@@ -4,7 +4,7 @@ import { fingerprint } from '../lib/fingerprint'
 import {
   recordBookAdded,
   recordBookArchived,
-  recordBookRemoved,
+  recordBookDeleted,
   recordBookRestored,
   recordConversationDeleted,
 } from '../sync/library'
@@ -162,7 +162,7 @@ export async function deleteBook(bookId: string): Promise<void> {
       await db.books.delete(bookId)
       // Counted before the deletes, queued inside the same transaction: the
       // record of what was removed cannot survive a rollback of the removal.
-      await recordBookRemoved(bookId, {
+      await recordBookDeleted(bookId, {
         highlightsRemoved,
         conversationsRemoved: conversationIds.length,
       })

@@ -4,9 +4,21 @@
   "title": "book_memory_updated payload",
   "type": "object",
   "additionalProperties": false,
-  "required": ["updatedAt"],
+  "required": [
+    "updatedAt"
+  ],
   "properties": {
-    "updatedAt": { "type": "string", "format": "date-time" },
-    "summary": { "type": "string", "maxLength": 20000 }
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "cleared": {
+      "type": "boolean",
+      "description": "The reader emptied the digest. The cloud must stop using the previous one."
+    }
   }
 }

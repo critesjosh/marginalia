@@ -251,6 +251,7 @@ describe('atomic product events', () => {
         content: 'Because.',
         createdAt: NOW + 2,
       },
+      undefined,
       NOW + 2,
     )
     expect(await db.messages.get('message-answer')).toMatchObject({ content: 'Because.' })
