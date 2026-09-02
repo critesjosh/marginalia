@@ -10,6 +10,7 @@ import KoreaderImport from '../components/KoreaderImport'
 import { updateSyncPreferences } from '../sync/preferences'
 import { discardOutboxEvent, releaseHeldEvent, retryRejectedEvent } from '../sync/delivery'
 import { deliverNow } from '../sync/scheduler'
+import { readDeletionStatus, requestCloudDeletion } from '../sync/insights'
 import type { SyncPreferenceKey, SyncState } from '../sync/types'
 
 const PAUSE_EXPLANATION: Record<NonNullable<SyncState['pausedReason']>, string> = {
@@ -55,6 +56,40 @@ export default function SettingsPage() {
   )
   const syncState = useLiveQuery(() => db.syncState.get('sync'), [])
   const [delivering, setDelivering] = useState(false)
+  const [confirmingDeletion, setConfirmingDeletion] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deletionMessage, setDeletionMessage] = useState<string>()
+  const [deletionStatus, setDeletionStatus] = useState<string>()
+
+  const activeDeletion = syncState?.activeDeletionRequestId
+  useEffect(() => {
+    if (!activeDeletion) return
+    let cancelled = false
+    void readDeletionStatus(activeDeletion).then((result) => {
+      if (!cancelled) setDeletionStatus(result?.status)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeDeletion])
+
+  async function startDeletion() {
+    setDeleting(true)
+    setDeletionMessage(undefined)
+    try {
+      const { submitted } = await requestCloudDeletion()
+      // Local state is gone either way. Only the asking can fail, and it is
+      // retried with the same reference rather than starting again.
+      setDeletionMessage(
+        submitted
+          ? 'Requested. Sync is off on this device and the queue is empty.'
+          : 'Sync is off on this device and the queue is empty, but the request did not reach the server. Retry when you are online.',
+      )
+    } finally {
+      setDeleting(false)
+      setConfirmingDeletion(false)
+    }
+  }
 
   const settings = stored ?? DEFAULT_SETTINGS
 
@@ -531,6 +566,51 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
+
+            <div className="mt-6 rounded-lg border border-red-900/60 p-3">
+              <h3 className="text-sm font-medium text-red-200">Delete my cloud data</h3>
+              <p className="mt-1 text-sm text-stone-400">
+                Turns sync off on this device, empties the queue and the cached insights, and
+                asks the cloud to erase everything it holds for you. Your books, highlights, and
+                conversations stay on this device. Other devices stop syncing too, and every
+                device needs a new sync token afterwards.
+              </p>
+              {syncState?.activeDeletionRequestId ? (
+                <p className="mt-2 break-all text-xs text-stone-400">
+                  Requested. Reference {syncState.activeDeletionRequestId}
+                  {deletionStatus ? ` · ${deletionStatus}` : ''}
+                </p>
+              ) : null}
+              <div className="mt-2 flex gap-2">
+                {confirmingDeletion ? (
+                  <>
+                    <button
+                      onClick={() => void startDeletion()}
+                      disabled={deleting}
+                      className="rounded border border-red-800 bg-red-950 px-2 py-1 text-xs text-red-100 disabled:opacity-50"
+                    >
+                      {deleting ? 'Requesting…' : 'Yes, delete everything in the cloud'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmingDeletion(false)}
+                      className="rounded border border-stone-700 px-2 py-1 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmingDeletion(true)}
+                    className="rounded border border-red-900 px-2 py-1 text-xs text-red-200"
+                  >
+                    {syncState?.activeDeletionRequestId ? 'Retry deletion request' : 'Delete my cloud data'}
+                  </button>
+                )}
+              </div>
+              {deletionMessage && (
+                <p className="mt-2 text-xs text-stone-400">{deletionMessage}</p>
+              )}
+            </div>
         </section>
 
         <section>
