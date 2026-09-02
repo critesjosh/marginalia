@@ -12,6 +12,7 @@
   ],
   "words": [
     "anchorless",
+    "authorships",
     "autoregressive",
     "backgrounded",
     "behaviour",
@@ -31,6 +32,7 @@
     "colours",
     "confirmbox",
     "cooldown",
+    "Cormen",
     "crengine",
     "CUDA",
     "DBFS",
@@ -52,6 +54,7 @@
     "fengari",
     "figcaption",
     "Firstword",
+    "Genealogie",
     "getfield",
     "getglobal",
     "getpeercertificate",
@@ -73,6 +76,7 @@
     "iterancestors",
     "İstanbul",
     "jaas",
+    "jaccard",
     "jsdom",
     "kafkashaded",
     "kbps",
@@ -112,6 +116,7 @@
     "münchen",
     "nbsp",
     "neighbour",
+    "neighbours",
     "newstate",
     "ngettext",
     "Nietzsche",
@@ -206,6 +211,7 @@
     "widgetcontainer",
     "Workbox",
     "xpointer",
-    "xpointers"
+    "xpointers",
+    "Émile"
   ]
 }

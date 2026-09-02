@@ -35,6 +35,15 @@ variables:
       a literal because the plan's original choice is not served in every region;
       changing it is a recorded decision, not an edit in passing.
     default: databricks-gpt-oss-120b
+  public_contact:
+    description: >-
+      Contact address sent to Open Library and OpenAlex in the User-Agent and the
+      mailto parameter. Both providers ask callers to identify themselves and
+      rate limit anonymous traffic harder. Not a secret, and not a credential.
+    default: marginalia@example.invalid
+  public_batch_limit:
+    description: Most public-source requests one run will make, per provider.
+    default: "25"
   extraction_batch_limit:
     description: >-
       Most candidates one extraction run will pay for. The next run takes the

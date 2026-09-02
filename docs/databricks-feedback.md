@@ -8,6 +8,27 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 6 preflight, public sources
+
+- Surface used: Open Library search API, OpenAlex works API
+- Goal: clear the Phase 6 preflight before building public-data ingestion.
+- Result: both reachable and returning the fields the plan wants. Open Library answered a
+  title-and-author search with work keys, authors, first publish year, and edition counts.
+  OpenAlex answered a title search with work ids, publication years, cited-by counts, and
+  topics. Both publish their data as CC0, and the licence is recorded on every stored row
+  rather than assumed by the code.
+- Friction: two things worth knowing. Reachability was verified from the development
+  machine, not from serverless compute, which is what the preflight actually asks for;
+  the first job run is what will confirm workspace egress, and every request records its
+  HTTP status and error so a failure is a visible row rather than an absence. And OpenAlex
+  now returns credit-based rate-limit headers, `x-ratelimit-limit-usd: 0.1` with
+  `x-ratelimit-onetime-remaining: 0`, which reads as a metered allowance rather than the
+  purely polite pool the plan assumed.
+- Workaround or follow-up: requests are spaced by a configurable interval, batches are
+  bounded per run, both providers are told who is calling, and enrichment stays targeted at
+  concepts a reader already has rather than mirroring anything. Watch the OpenAlex credit
+  headers on the first real runs before raising the batch limit.
+
 ### 2026-09-02: Phases 2 through 4 deployed and run end to end
 
 - Surface used: Databricks CLI (bundle deploy and run), Lakeflow pipelines, jobs, SQL warehouse

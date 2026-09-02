@@ -12,12 +12,15 @@ databricks.yml                   bundle, variables, dev and prod targets
 resources/catalog.yml            the bronze/silver/gold/ops schemas
 resources/events_ingestion.yml   triggered pipeline and its 15-minute schedule
 resources/events_silver.yml      parsing, deduplication, state, and sessions
-resources/concepts_gold.yml      engagement and interest profiles
+resources/concepts_gold.yml      engagement, interest, and frontier profiles
 src/events_ingestion.py          Kafka source that writes events_raw
 src/events_silver.py             Bronze quarantine and Silver materialized views
 src/concepts.py                  canonicalization, response validation, scoring
 src/concept_extraction.py        incremental extraction job, keyed by content hash
 src/gold_profiles.py             book_engagement and reader_interest_profile
+src/public_matching.py           work matching and the Phase 6 score formulas
+src/public_sources.py            Open Library matching, targeted OpenAlex enrichment
+src/frontier.py                  intellectual_frontier and recommendation_candidates
 ```
 
 Nothing in this directory names a workspace, a credential, or a private resource
@@ -160,6 +163,22 @@ recomputed when its source changes and would call the model again for text that
 has not changed. It is keyed by the hash of the content it read, so unchanged
 content is never paid for twice, and each run takes at most
 `extraction_batch_limit` candidates.
+
+Public sources are asked about a book only when its reader shared metadata,
+and asked about a concept only when that reader already has interest in it.
+Nothing is mirrored. Every response lands in `public_sources_raw` with its URL,
+status, retrieval time, parser version, and licence, so a parser change is
+re-run from what was already fetched rather than by asking again. A failed
+request is a row too: an outage has to be visible rather than look like an
+absence of results.
+
+`public_contact` is sent to both providers, which ask callers to identify
+themselves and rate limit anonymous traffic harder. It is not a credential.
+Set it to a real address before running against production.
+
+An ambiguous match attaches nothing. Two candidate works that title and author
+cannot tell apart stay unresolved with their candidates recorded, because a
+wrong work quietly poisons every recommendation built on top of it.
 
 Run the live concept evaluation by hand when the prompt, the model, or the
 canonicalization version changes. It is deliberately outside `npm test`, which

@@ -52,6 +52,27 @@ resources:
             - task_key: extract_concepts
           pipeline_task:
             pipeline_id: ${resources.pipelines.gold_profiles.id}
+        # Public sources come after the profiles, because what it asks Open
+        # Library and OpenAlex about is decided by what the profiles say the
+        # reader is interested in.
+        - task_key: public_sources
+          depends_on:
+            - task_key: build_gold
+          spark_python_task:
+            python_file: ../src/public_sources.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --bronze_schema=${resources.schemas.bronze.name}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --public_contact=${var.public_contact}
+              - --public_batch_limit=${var.public_batch_limit}
+          environment_key: concepts
+        - task_key: build_frontier
+          depends_on:
+            - task_key: public_sources
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.frontier_gold.id}
       environments:
         - environment_key: concepts
           spec:
