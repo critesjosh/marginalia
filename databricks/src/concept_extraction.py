@@ -298,8 +298,11 @@ def run():
     )
 
     # failOnError => false so one refused or truncated response is recorded
-    # against its own candidate rather than failing every other one with it. The
-    # struct it returns is (response, errorMessage), not (result, ...).
+    # against its own candidate rather than failing every other one with it.
+    #
+    # The struct is (result, errorMessage). The published reference says
+    # (response, errorMessage); this runtime disagrees and fails analysis with
+    # FIELD_NOT_FOUND if you believe it. Verified against a real run, not a doc.
     answered = prompted.withColumn(
         "answer",
         F.expr(
@@ -309,7 +312,7 @@ def run():
     )
 
     parsed = (
-        answered.withColumn("raw_response", F.col("answer.response").cast("string"))
+        answered.withColumn("raw_response", F.col("answer.result").cast("string"))
         .withColumn("upstream_error", F.col("answer.errorMessage").cast("string"))
         .withColumn("parsed", validate_response(F.col("raw_response")))
         .select(

@@ -8,6 +8,24 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phases 2 through 4 deployed and run end to end
+
+- Surface used: Databricks CLI (bundle deploy and run), Lakeflow pipelines, jobs, SQL warehouse
+- Goal: deploy the bundle to dev and run ingest, Silver, extraction, and Gold end to end.
+- Result: all four tasks succeeded. Silver holds 28 events, 2 current highlights, 6 reading
+  sessions, 1 conflict, and 6 quarantined rows. Extraction read 5 candidates and wrote 14
+  valid concepts in 33.9 seconds. Gold built both profiles, correctly keyed one row per
+  reader and concept and per reader and book, with interest normalized within each reader.
+  A second run found 0 pending candidates and called the model zero times, which is the
+  incrementality criterion holding against real data rather than a fixture.
+- Friction: `ai_query` with `failOnError => false` returns a struct whose fields are
+  `result` and `errorMessage`. The published reference says `response` and `errorMessage`.
+  Believing the documentation costs a full job failure with `FIELD_NOT_FOUND`, and it is
+  an analysis-time error, so nothing is written and no partial progress survives.
+- Workaround or follow-up: the field name is now taken from an observed run rather than
+  from the reference, with a comment saying so. Anyone reading the docs and "correcting"
+  this code will break the job.
+
 ### 2026-09-01: Phase 3 live concept evaluation
 
 - Surface used: `databricks serving-endpoints query` against `databricks-gpt-oss-120b`
