@@ -8,6 +8,25 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 4 acceptance from a real reading session
+
+- Surface used: deployed Cloudflare Worker, Confluent, Lakeflow pipelines, jobs, Lakebase, Databricks App
+- Goal: close the Phase 4 acceptance list against a real browser rather than fixtures.
+- Result: a highlight made at 14:04:15Z was readable through the same-origin Worker at 14:15:11Z, inside the 35-minute objective. All fifteen events from the session reached Silver with nothing quarantined. Extraction ran on text it had never seen and returned usable concepts for it. Deletion removed one reader from every layer including the serving copies and left the other intact.
+- Friction: the freshness figure excludes the schedule wait, because Bronze ingestion was triggered by hand 85 seconds after the highlight; an unattended run adds up to the 15-minute interval. Enabling seven consent categories emitted seven separate `privacy_consent_changed` events in five seconds, one per click, each stamping its own consent version.
+- Workaround or follow-up: quote the freshness objective as a range that includes the schedule interval, not the triggered figure. Batch a multi-category consent change into one patch.
+
+<!-- cspell:ignore databrick socrate descarte hobbe keyne borge athen -->
+
+### 2026-09-02: canonicalization mangles proper nouns
+
+- Surface used: concept extraction over a live reading session
+- Goal: record a defect that fixtures could not surface.
+- Result: `_singularize` strips a trailing `s` from any word over three characters that does not end in `ss`, `us`, `is`, `ics`, or `ous`. Those guards protect mass nouns but not names, so `Databricks` became `databrick`, and `Socrates`, `Descartes`, `Hobbes`, `Keynes`, `Borges`, and `Athens` become `socrate`, `descarte`, `hobbe`, `keyne`, `borge`, and `athen`. That the spell
+checker rejects every one of them is the shortest statement of the problem. The mangled form is the stable concept id used for interest matching, frontier adjacency, and OpenAlex queries, so it searches for a word nobody wrote. `databrick` reached third place in a live interest profile.
+- Friction: the Nietzsche fixtures contain no proper noun ending in `s`, so the whole concept suite passes. `canonicalize` lowercases before singularizing, so the capitalization that would identify a name is gone by the time the decision is made.
+- Workaround or follow-up: decide singularization before folding case, or cross-check the raw label against the model's broader concept. Either way it needs its own cases for names, mass nouns, and real plurals.
+
 ### 2026-09-02: Phase 4 deployment
 
 - Surface used: Databricks CLI, Automation Bundles, Lakebase, synced tables, Databricks Apps, SQL warehouse, Postgres
