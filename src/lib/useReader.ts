@@ -332,6 +332,15 @@ export function useReader(
     }
 
     rendition.on('relocated', handler)
+
+    // epub.js relocates once inside display(), which is awaited before the
+    // rendition reaches state, so this effect always attaches one relocation
+    // late. Replaying the current location opens the session: without it a book
+    // that is opened and left without a page turn reports nothing at all.
+    if (!latestReading.current) {
+      handler(rendition.currentLocation() as unknown as Parameters<typeof handler>[0])
+    }
+
     return () => {
       rendition.off('relocated', handler)
     }
