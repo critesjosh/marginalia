@@ -28,14 +28,16 @@ resources:
       name: ${var.lakebase_catalog}.${var.lakebase_schema}.reader_interest_profile
       spec:
         source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile
-        # The plan's documented key. Change Data Feed on the Gold source is what
-        # makes a sync incremental rather than a full copy each time.
+        # The plan's documented key.
         primary_key_columns:
           - user_id
           - concept_id
-        # Triggered, after the Gold job. Continuous would hold compute open for
-        # a table that changes once every fifteen minutes at most.
-        scheduling_policy: TRIGGERED
+        # Snapshot, not triggered. Triggered reads the source's change feed, and
+        # a materialized view cannot publish one, so a triggered sync fails
+        # outright rather than degrading. A snapshot re-copies the table on each
+        # run, which for one reader's profile costs nothing worth optimizing.
+        # Continuous is not an option for the same reason.
+        scheduling_policy: SNAPSHOT
         create_database_objects_if_missing: true
         new_pipeline_spec:
           storage_catalog: ${var.catalog}
@@ -48,22 +50,11 @@ resources:
         primary_key_columns:
           - user_id
           - book_id
-        scheduling_policy: TRIGGERED
+        scheduling_policy: SNAPSHOT
         create_database_objects_if_missing: true
         new_pipeline_spec:
           storage_catalog: ${var.catalog}
           storage_schema: ${resources.schemas.ops.name}
-
-  # Small, serverless, and asleep almost always. The App needs it only to record
-  # and read deletion requests, which happen a handful of times in a prototype's
-  # life; the acceptance queries in the README use the same warehouse.
-  sql_warehouses:
-    ops_warehouse:
-      name: ${var.ops_warehouse}
-      cluster_size: 2X-Small
-      enable_serverless_compute: true
-      auto_stop_mins: 10
-      max_num_clusters: 1
 
   apps:
     intelligence:
@@ -82,7 +73,7 @@ resources:
         - name: ops-warehouse
           description: Used only to create and read deletion requests.
           sql_warehouse:
-            id: ${resources.sql_warehouses.ops_warehouse.id}
+            id: ${var.ops_warehouse_id}
             permission: CAN_USE
         # Run, not manage. The App starts a deletion the moment a reader asks
         # for one; waiting for the nightly sweep would leave them watching a
@@ -99,7 +90,7 @@ resources:
           - name: MARGINALIA_PG_SCHEMA
             value: ${var.lakebase_schema}
           - name: MARGINALIA_WAREHOUSE_HTTP_PATH
-            value: /sql/1.0/warehouses/${resources.sql_warehouses.ops_warehouse.id}
+            value: /sql/1.0/warehouses/${var.ops_warehouse_id}
           - name: MARGINALIA_DELETION_TABLE
             value: ${var.catalog}.${resources.schemas.ops.name}.deletion_requests
           - name: MARGINALIA_DELETION_JOB_ID

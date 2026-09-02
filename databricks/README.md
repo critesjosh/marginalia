@@ -225,24 +225,23 @@ referenced here by name.
    synced tables are read-only copies, and the App has no reason to write to
    one.
 
-8. Create the deletion request table, once, before the first reader can ask for
-   a deletion. The job owns that schema and creates it on its first run, so
-   running it against a request id that matches nothing does exactly that and
-   deletes nothing:
-
-   ```sh
-   databricks bundle run cloud_deletion -t dev --params request_id=bootstrap
-   ```
-
-   Without this the App's first deletion request has no table to write to.
-   Every later request creates nothing and starts the job itself.
+No bootstrap step is needed for the deletion request table. The job owns it and
+creates it on its first run, and the App creates it too, because the first
+request is written before any run has happened. Both definitions are identical
+and a contract test keeps them that way.
 
 ## Deploying
 
 ```sh
 databricks bundle validate -t dev
-databricks bundle deploy -t dev
+databricks bundle deploy -t dev \
+  --var="app_caller_service_principal=<application-id>" \
+  --var="ops_warehouse_id=<warehouse-id>"
 ```
+
+The warehouse is referenced rather than created. A workspace already has one, an
+account on free usage is capped at one, and a warehouse outlives any single
+bundle.
 
 `dev` deploys into the `marginalia_dev` catalog, `prod` into `marginalia`.
 
@@ -306,8 +305,11 @@ reader_interest_profile   (user_id, concept_id)
 book_engagement           (user_id, book_id)
 ```
 
-Both Gold sources publish Change Data Feed, which is what makes a sync send the
-rows that changed instead of the whole table. `sync_serving` is the last task of
+Both are snapshot syncs. A triggered sync reads the source's change feed, and a
+materialized view cannot publish one: it accepts `delta.enableChangeDataFeed`
+and ignores it, and the sync then fails outright rather than degrading. A
+snapshot re-copies the table each run, which for one reader's profile costs
+nothing worth optimizing. `sync_serving` is the last task of
 the 15-minute job rather than a schedule of its own: a Gold table that has been
 recomputed but not synced is not yet something a reader can see, and the
 freshness objective is measured to the browser.

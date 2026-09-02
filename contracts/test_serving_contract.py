@@ -156,6 +156,21 @@ class DeletionManifest(unittest.TestCase):
         active = re.search(r"ACTIVE_STATUSES = \((.*?)\)", DELETION_PY, re.S)
         self.assertIn("failed", active.group(1))
 
+    def test_the_two_definitions_of_the_request_table_agree(self):
+        """
+        The job owns this table and the App creates it, because the first
+        request is written before any run has happened. Two definitions of one
+        table drift unless something compares them.
+        """
+        def columns(source: str) -> list[str]:
+            body = re.search(
+                r"CREATE TABLE IF NOT EXISTS \{?\w*\}?[^(]*\((.*?)\) USING DELTA", source, re.S
+            )
+            assert body
+            return re.findall(r"^\s*(\w+) ", body.group(1), re.M)
+
+        self.assertEqual(columns(APP_PY), columns(DELETION_PY))
+
     def test_the_app_starts_the_job_rather_than_only_recording_it(self):
         self.assertIn("workspace.jobs.run_now", APP_PY)
         self.assertIn("MARGINALIA_DELETION_JOB_ID", SERVING_YML)
@@ -184,11 +199,19 @@ class ServingResources(unittest.TestCase):
         engagement = SERVING_YML.index("book_engagement:")
         self.assertIn("- concept_id", SERVING_YML[interest:engagement])
         self.assertIn("- book_id", SERVING_YML[engagement:])
-        self.assertEqual(SERVING_YML.count("scheduling_policy: TRIGGERED"), 2)
 
-    def test_both_synced_sources_publish_change_data_feed(self):
-        """A synced table over a source without CDF re-copies the whole table."""
-        self.assertEqual(GOLD_PY.count('"delta.enableChangeDataFeed": "true"'), 2)
+    def test_the_sync_policy_matches_what_a_materialized_view_can_offer(self):
+        """
+        A materialized view accepts delta.enableChangeDataFeed and does not
+        honour it, and a TRIGGERED or CONTINUOUS sync reads that feed. The live
+        failure was SYNCED_TABLE_USER_ERROR.SOURCE_READ_ERROR, not a fallback,
+        so the Gold sources must not claim a feed and the policy must be one
+        that does not need it.
+        """
+        self.assertNotIn('"delta.enableChangeDataFeed"', GOLD_PY)
+        self.assertEqual(SERVING_YML.count("scheduling_policy: SNAPSHOT"), 2)
+        for unavailable in ("TRIGGERED", "CONTINUOUS"):
+            self.assertNotIn(f"scheduling_policy: {unavailable}", SERVING_YML)
 
     def test_the_instance_retention_window_is_one_the_api_accepts(self):
         """Valid values are 2 to 35 days; bundle validation does not enforce it."""

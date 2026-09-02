@@ -71,11 +71,13 @@ variables:
   lakebase_schema:
     description: Postgres schema holding the synced read-only copies of Gold.
     default: marginalia_gold
-  ops_warehouse:
+  ops_warehouse_id:
     description: >-
-      Small serverless warehouse the App uses to record and read deletion
-      requests, and the README's acceptance queries use by hand.
-    default: marginalia-ops
+      Existing SQL warehouse the App uses to record and read deletion requests,
+      and the README's acceptance queries use by hand. Referenced rather than
+      created: a workspace already has one, an account on free usage is capped
+      at one, and a warehouse is not something this bundle should own.
+    default: ""
   app_name:
     description: Databricks App serving Gold to the Cloudflare Worker.
     default: marginalia-intelligence
@@ -112,7 +114,6 @@ targets:
       app_name: marginalia-intelligence-dev
       lakebase_instance: marginalia-lakebase-dev
       lakebase_catalog: marginalia_serving_dev
-      ops_warehouse: marginalia-ops-dev
 
   prod:
     mode: production

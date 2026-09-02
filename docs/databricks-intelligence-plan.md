@@ -761,8 +761,11 @@ marginalia_gold.book_engagement
   primary key: (user_id, book_id)
 ```
 
-Delta Change Data Feed is enabled on both sources. Lakebase uses Triggered sync after a
-successful Gold job. Synced Postgres tables are treated as read-only; indexes may be
+Both Gold sources are materialized views, which cannot publish Delta Change Data Feed:
+the table property is accepted and ignored, and a sync that reads the feed fails rather
+than degrading. Lakebase therefore uses Snapshot sync after a successful Gold job, which
+re-copies each table. For one reader's profile that is cheaper than the machinery an
+incremental sync would need. Synced Postgres tables are treated as read-only; indexes may be
 added for `user_id`, but the application never updates analytical rows in place.
 
 The Databricks App API exposes:

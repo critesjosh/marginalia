@@ -206,6 +206,25 @@ class DeletionRequestBody(BaseModel):
     requestId: str
 
 
+# Kept identical to databricks/src/deletion.py, which is the owner of this
+# schema. Two definitions of one table is a drift risk, so a contract test
+# compares the columns rather than trusting that they were kept in step.
+REQUESTS_DDL = """
+CREATE TABLE IF NOT EXISTS {table} (
+  request_id STRING NOT NULL,
+  user_id STRING NOT NULL,
+  status STRING NOT NULL,
+  manifest_version STRING,
+  requested_at TIMESTAMP NOT NULL,
+  started_at TIMESTAMP,
+  purged_at TIMESTAMP,
+  completed_at TIMESTAMP,
+  source_retention_until TIMESTAMP,
+  error STRING
+) USING DELTA
+"""
+
+
 def warehouse():
     config = Config()
     return dbsql.connect(
@@ -239,6 +258,11 @@ def create_deletion_request(
 
     retention_until = datetime.now(timezone.utc) + timedelta(days=SOURCE_RETENTION_DAYS)
     with warehouse() as connection_, connection_.cursor() as cursor:
+        # The deletion job owns this table and creates it on its first run, but
+        # the first request is written before any run has happened. Creating it
+        # here removes that ordering entirely: idempotent, and identical to the
+        # job's own definition, which a contract test holds it to.
+        cursor.execute(REQUESTS_DDL.format(table=OPS_TABLE))
         # Idempotent by request id. The browser owns that id and retries with
         # the same one, so a retry after a timeout must find its own request
         # rather than open a second deletion of the same reader.

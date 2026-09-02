@@ -8,6 +8,14 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 4 deployment
+
+- Surface used: Databricks CLI, Automation Bundles, Lakebase, synced tables, Databricks Apps, SQL warehouse, Postgres
+- Goal: provision the Phase 4 serving loop and run its acceptance checks against a live workspace.
+- Result: the Lakebase instance, database catalog, synced tables, App, and deletion jobs deployed. Both synced tables reached `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE` once switched to snapshot sync, carrying 14 interest rows and 2 engagement rows, queryable by their documented primary keys. The App started and serves on its workspace URL.
+- Friction: a triggered sync over a materialized view fails with `SYNCED_TABLE_USER_ERROR.SOURCE_READ_ERROR`, because `CHANGE DATA FEED` is not supported on materialized views: the table property is accepted at creation and silently ignored. Free usage caps a workspace at one SQL warehouse. The first deploy created the database catalog and then failed creating synced tables against it with `CATALOG_DOES_NOT_EXIST`, an ordering race inside one deploy. Deleting a synced table in Unity Catalog leaves its Postgres destination table, so recreating fails `ALREADY_EXISTS`. Unity Catalog grants do not imply Postgres grants: `has_table_privilege` for the App's role was false until schema `USAGE` and table `SELECT` were granted inside the database. The `psql` client the CLI's `databricks psql` shells out to is a separate install.
+- Workaround or follow-up: use snapshot sync for any materialized-view source, and do not claim Change Data Feed on one. Reference an existing warehouse rather than creating one. Re-run a first deploy that races on its own catalog. Drop the Postgres destination table before recreating a synced table. Grant the App's Postgres role explicitly, including default privileges so a later synced table is not invisible to it.
+
 ### 2026-09-02: Phase 4 serving review
 
 - Surface used: Databricks CLI bundle schema, Lakebase and Databricks Apps documentation

@@ -44,10 +44,13 @@ def _saturating_log(column, ceiling: float):
     return F.least(F.lit(1.0), F.log1p(F.greatest(F.lit(0.0), column)) / F.log1p(F.lit(ceiling)))
 
 
+# No delta.enableChangeDataFeed here. A materialized view accepts the property
+# and does not honour it: CHANGE DATA FEED is not a supported operation on one,
+# and a synced table that tried to read the feed failed rather than fell back.
+# The serving copies take full snapshots instead, which is why they can.
 @dp.materialized_view(
     name=BOOK_ENGAGEMENT,
     comment="Engagement per reader and book, with every component the score is built from.",
-    table_properties={"delta.enableChangeDataFeed": "true"},
 )
 def book_engagement():
     sessions = (
@@ -116,7 +119,6 @@ def book_engagement():
 @dp.materialized_view(
     name=READER_INTEREST,
     comment="Interest per reader and concept, with the evidence and sources behind it.",
-    table_properties={"delta.enableChangeDataFeed": "true"},
 )
 def reader_interest_profile():
     weights = F.create_map(
