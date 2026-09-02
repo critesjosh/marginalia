@@ -64,7 +64,15 @@ SELECT
   (SELECT coalesce(sum(questions), 0) FROM {gold}.book_engagement WHERE user_id = :user) AS questions,
   (SELECT count(*) FROM {gold}.intellectual_frontier WHERE user_id = :user) AS frontier,
   (SELECT count(*) FROM {gold}.recommendation_candidates WHERE user_id = :user) AS recommendations,
-  (SELECT max(computed_at) FROM {gold}.reader_interest_profile WHERE user_id = :user) AS computed_at
+  -- The oldest of the sources, not the newest. Every number above comes from
+  -- a different table, and labelling them all with the freshest would let a
+  -- stale frontier sit under a timestamp earned by the profile.
+  least(
+    (SELECT max(computed_at) FROM {gold}.reader_interest_profile WHERE user_id = :user),
+    (SELECT max(computed_at) FROM {gold}.book_engagement WHERE user_id = :user),
+    coalesce((SELECT max(computed_at) FROM {gold}.intellectual_frontier WHERE user_id = :user), current_timestamp()),
+    coalesce((SELECT max(computed_at) FROM {gold}.recommendation_candidates WHERE user_id = :user), current_timestamp())
+  ) AS computed_at
 """
 
 READING = """
@@ -85,28 +93,28 @@ WHERE user_id = :user
 ORDER BY interest_score DESC, concept_id
 """
 
-# The evidence behind the profile, by source rather than by concept. This is
-# what makes an interest score checkable: a number nobody can trace is a number
-# nobody should believe.
+# The evidence behind the profile, from a Gold projection rather than from
+# concept_extractions itself. That table holds raw_response, the model's whole
+# answer to a prompt built from the reader's highlights and questions, which
+# validation checks the shape of rather than the content of. Reading the
+# projection means this app is never granted the table, so the boundary is a
+# grant rather than a promise about which columns get selected.
 CONCEPTS = """
-SELECT canonical_concept, source_type, count(*) AS extractions,
-       count(DISTINCT source_id) AS sources, count(DISTINCT book_id) AS books,
-       round(avg(confidence), 3) AS mean_confidence,
-       max(extracted_at) AS computed_at
-FROM {silver}.concept_extractions
-WHERE user_id = :user AND validation_status = 'valid'
-GROUP BY canonical_concept, source_type
-ORDER BY extractions DESC, canonical_concept
+SELECT concept_id, source_type, extractions, sources, books,
+       mean_confidence, last_extracted_at, computed_at
+FROM {gold}.concept_evidence
+WHERE user_id = :user
+ORDER BY extractions DESC, concept_id
 """
 
 # Why extraction rejected what it rejected. An empty profile with no explanation
-# is indistinguishable from a reader who highlighted nothing.
+# is indistinguishable from a reader who highlighted nothing. Counts only:
+# validation_detail quotes the response that failed.
 EXTRACTION_HEALTH = """
-SELECT validation_status, count(*) AS rows_, max(extracted_at) AS computed_at
-FROM {silver}.concept_extractions
+SELECT validation_status, extractions, last_extracted_at, computed_at
+FROM {gold}.extraction_health
 WHERE user_id = :user
-GROUP BY validation_status
-ORDER BY rows_ DESC
+ORDER BY extractions DESC
 """
 
 FRONTIER = """
@@ -129,15 +137,24 @@ ORDER BY recommendation_score DESC, candidate_id
 """
 
 # Reading sessions, for the shape of attention over time rather than its total.
+#
+# reading_sessions records when reading happened and not when the table was
+# last recomputed, so there is no honest computed_at to report here. It carries
+# none rather than aliasing the latest activity into that column, which would
+# claim a stale view was current whenever the reader last read.
 SESSIONS = """
 SELECT to_date(started_at) AS day, count(*) AS sessions,
        round(sum(active_seconds) / 60.0, 1) AS active_minutes,
-       max(started_at) AS computed_at
+       max(ended_at) AS latest_activity
 FROM {silver}.reading_sessions
 WHERE user_id = :user
 GROUP BY to_date(started_at)
 ORDER BY day
 """
+
+# Statements with no source timestamp of their own, named rather than inferred,
+# so the test that every other statement carries one still means something.
+WITHOUT_SOURCE_TIMESTAMP = {"sessions"}
 
 STATEMENTS = {
     "overview": OVERVIEW,
@@ -158,7 +175,8 @@ PERMITTED_TABLES = {
     "reader_interest_profile",
     "intellectual_frontier",
     "recommendation_candidates",
-    "concept_extractions",
+    "concept_evidence",
+    "extraction_health",
     "reading_sessions",
 }
 
@@ -166,6 +184,11 @@ PERMITTED_TABLES = {
 # the list a test checks the statements against, so the boundary is enforced by
 # something other than everyone remembering it.
 FORBIDDEN_TABLES = {
+    # Holds raw_response: the model's entire answer to a prompt built from the
+    # reader's own text, checked for shape and not for content. Reading it is
+    # reading their words at one remove, so the Observatory reads the
+    # concept_evidence projection instead and is never granted this.
+    "concept_extractions",
     "events_raw",
     "ingestion_quarantine",
     "events",

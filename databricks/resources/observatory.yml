@@ -45,6 +45,12 @@ resources:
       display_name: ${var.dashboard_name}
       file_path: ../dashboards/marginalia.lvdash.json
       warehouse_id: ${var.ops_warehouse_id}
+      # The dashboard file gets no bundle substitution, so its queries name
+      # tables unqualified and these resolve them per target. A namespace
+      # written into the file would have made the dev dashboard read
+      # production.
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.gold.name}
       parent_path: ${workspace.file_path}/dashboards
 
   # Genie answers structured questions over Gold and nothing else. Its
@@ -95,7 +101,7 @@ resources:
                 - "\n"
                 - "FRESHNESS. Every table carries computed_at. When asked how current something is, report computed_at from the data. Never report the current time: it is always available and always wrong as an answer to that question.\n"
                 - "\n"
-                - "WHAT YOU CANNOT SEE. You have no access to any table holding the reader's own words: not highlight text, not notes, not conversations, not questions, not assistant replies, not book memory, and not the raw provider responses. This is a grant, not a guideline, so such a query will fail. If asked for any of that, say plainly that you cannot see it. Do not return an empty result: an empty result reads as the reader having none, which is a different and false claim.\n"
+                - "WHAT YOU MUST NOT READ. Your data sources are the four Gold tables above and nothing else. Never query, join to, or describe any table holding the reader's own words: not highlight text, not notes, not conversations, not questions, not assistant replies, not book memory, not raw provider responses, and not concept_extractions, whose raw_response column is a model's whole answer to a prompt built from that text. If asked for any of it, say plainly that you will not read it. Do not return an empty result: an empty result reads as the reader having none, which is a different and false claim.\n"
                 - "\n"
                 - "EVIDENCE. reader_interest_profile carries evidence_count, distinct_books, and top_source_ids; intellectual_frontier carries established_concepts, supporting_works, and supporting_work_ids; recommendation_candidates carries matched_concepts and explanation. Prefer returning these over describing them. Never invent a confidence, a citation, or a reason that is not in a column.\n"
                 - "\n"
@@ -117,68 +123,3 @@ resources:
             - id: 34b7a36272e7eb11c17e11372659caa2
               question:
                 - "When was my interest profile last computed?"
-        benchmarks:
-          questions:
-            - id: f5798b8758980f63d5e748883dcfe9d7
-              question:
-                - "What are my five strongest interests?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT concept_id, interest_score FROM ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile ORDER BY interest_score DESC, concept_id LIMIT 5"
-            - id: 76891dee74aa82859e4104ec3277ddb8
-              question:
-                - "How many distinct concepts are in my interest profile?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT count(DISTINCT concept_id) AS concepts FROM ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile"
-            - id: f7bab417b4f2ab743beca2083796dec6
-              question:
-                - "Which book am I most engaged with?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT book_id, engagement_score FROM ${var.catalog}.${resources.schemas.gold.name}.book_engagement ORDER BY engagement_score DESC, book_id LIMIT 1"
-            - id: aa3351cd3a5da31143097f647c06def7
-              question:
-                - "How many highlights and questions do I have per book?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT book_id, current_highlights, questions FROM ${var.catalog}.${resources.schemas.gold.name}.book_engagement ORDER BY book_id"
-            - id: 38390b5823091e498e25d1b9fef52ec3
-              question:
-                - "What concepts are at the edge of what I have read?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT candidate_concept, frontier_score FROM ${var.catalog}.${resources.schemas.gold.name}.intellectual_frontier ORDER BY frontier_score DESC, candidate_concept LIMIT 5"
-            - id: a66f919dc1d00440afbd51039700fe5a
-              question:
-                - "What books are recommended to me and why?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT candidate_title, recommendation_score, explanation FROM ${var.catalog}.${resources.schemas.gold.name}.recommendation_candidates ORDER BY recommendation_score DESC, candidate_id LIMIT 5"
-            - id: f8cb64e40a6568da7c4926d64b27394a
-              question:
-                - "What score versions produced my current profile?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT DISTINCT score_version FROM ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile ORDER BY score_version"
-            - id: 9796488edcc4989c236b861070da979a
-              question:
-                - "When was my interest profile last computed?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT max(computed_at) AS computed_at FROM ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile"
-            - id: 64284f3cf39c92ee57529959e8e3991e
-              question:
-                - "How much evidence supports my strongest concept?"
-              answer:
-                - format: SQL
-                  content:
-                    - "SELECT concept_id, evidence_count, distinct_books FROM ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile ORDER BY interest_score DESC, concept_id LIMIT 1"

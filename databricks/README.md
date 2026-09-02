@@ -394,15 +394,24 @@ its own product surface, and the plan says to stop rather than replace one.
 
 ## What the Observatory cannot read
 
-Its service principal has `SELECT` on the Gold schema, and on exactly two Silver
-tables by name: `concept_extractions` and `reading_sessions`. Not the Silver
-schema. So `highlights_current`, `events`, and everything else holding the
-reader's own words are unreachable, and a query that reached for one would fail
-at the grant rather than succeed quietly.
+Its service principal has `SELECT` on the Gold schema and on `reading_sessions`
+by name. Not the Silver schema, and not `concept_extractions`.
 
-Genie's boundary is the same and enforced the same way: its data sources are the
-four Gold tables, so its instruction that it cannot see a reader's words is
-backed by not being able to.
+`concept_extractions` is excluded deliberately, and it is the one that looks
+safe. It holds `raw_response`: the model's entire answer to a prompt built from
+highlight passages, notes, and questions, validated for shape rather than
+content, so it can quote them back. A grant on it is a grant on the reader's
+words at one remove. The Observatory reads `marginalia_gold.concept_evidence`
+instead, a projection carrying counts and no model output, so the boundary is a
+grant rather than a promise about which columns a query happens to select.
+
+Genie is pointed at the four Gold tables and instructed not to read anything
+else. Be clear about what that is and is not: data sources are not an access
+boundary. Genie runs under an identity that may hold Unity Catalog access of its
+own, so a reader who owns these schemas can reach past the list if they try.
+Real isolation needs row filters or per-reader views, which this phase does not
+build. The same is true of the dashboard, whose datasets are not filtered by
+reader.
 
 ```sh
 databricks apps get marginalia-observatory-dev   # read the service principal id

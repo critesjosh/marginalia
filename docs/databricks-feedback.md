@@ -8,6 +8,14 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 7 review, two claims that were stronger than the enforcement
+
+- Surface used: Databricks Apps, AI/BI dashboards, Genie, Unity Catalog grants
+- Goal: record what a second reading found in the Observatory, the dashboard, and the Genie space.
+- Result: two claims did not hold. The Observatory was granted `SELECT` on `concept_extractions`, which holds `raw_response`, the model's whole answer to a prompt built from the reader's highlights and questions; validation checks its shape, not its content, so it can quote them back. Granting it made "no table holding the reader's own words" false even though the query selected only labels. Fixed by projecting `marginalia_gold.concept_evidence` and `extraction_health` in the Gold pipeline and granting those instead. Separately the dashboard's dataset parameters named the production namespace, so a dev dashboard would have queried production; fixed with `dataset_catalog` and `dataset_schema` on the bundle resource, which do get target substitution.
+- Friction: a Genie space's data-source list is not an access boundary. Genie runs under an identity that can hold Unity Catalog access of its own, so a reader who owns these schemas can reach past the list, and the instructions cannot prevent it. Neither the dashboard nor Genie filters by reader; `trusted_user_id` scopes the Observatory only. Both are latent rather than active in a single-reader deployment, and both become real the moment a second reader exists. The evaluation questions had also been installed as Genie benchmarks, which handed it the exact SQL for every question it was to be measured on.
+- Workaround or follow-up: real per-reader isolation needs Unity Catalog row filters or per-reader views over Gold, for the dashboard and Genie alike. Not built in this phase and not claimed. The benchmarks were removed so the question set evaluates rather than instructs; comparing Genie's own answers against the fixed set still has to be done by hand.
+
 ### 2026-09-02: Phase 4 acceptance from a real reading session
 
 - Surface used: deployed Cloudflare Worker, Confluent, Lakeflow pipelines, jobs, Lakebase, Databricks App

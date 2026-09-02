@@ -20,6 +20,8 @@ READING_SESSIONS = f"{CATALOG}.{SILVER}.reading_sessions"
 EXTRACTIONS = f"{CATALOG}.{SILVER}.concept_extractions"
 SOURCE_STATE = f"{CATALOG}.{SILVER}.concept_source_state"
 
+CONCEPT_EVIDENCE = f"{CATALOG}.{GOLD}.concept_evidence"
+EXTRACTION_HEALTH = f"{CATALOG}.{GOLD}.extraction_health"
 BOOK_ENGAGEMENT = f"{CATALOG}.{GOLD}.book_engagement"
 READER_INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
 
@@ -207,5 +209,77 @@ def reader_interest_profile():
             .otherwise(F.lit(0.0)),
         )
         .withColumn("score_version", F.lit(INTEREST_VERSION))
+        .withColumn("computed_at", F.current_timestamp())
+    )
+
+
+@dp.materialized_view(
+    name=CONCEPT_EVIDENCE,
+    comment=(
+        "How much evidence stands behind each concept, and from what kind of "
+        "source. A projection: it exists so a reader-facing surface can show "
+        "the evidence without being granted the table that holds the model's "
+        "raw answer."
+    ),
+)
+def concept_evidence():
+    """
+    The counts behind the profile, carrying no raw model output.
+
+    concept_extractions holds raw_response, raw_concept, and broader_concept.
+    raw_response is the model's whole answer to a prompt built from the
+    reader's highlights, notes and questions, and validation checks its shape
+    rather than its content, so it can quote them back. A grant on that table
+    is a grant on the reader's words at one remove. This view is what gets
+    granted instead.
+
+    Joined to the source state for the same reason the profile is: an
+    extraction whose source has been edited or deleted stops counting, so the
+    evidence shown here is the evidence the current profile was built from
+    rather than everything ever extracted.
+    """
+    current = spark.read.table(SOURCE_STATE).select(
+        "source_type", "source_id", "source_content_hash"
+    )
+    valid = (
+        spark.read.table(EXTRACTIONS)
+        .filter(F.col("validation_status") == "valid")
+        .filter(F.col("canonical_concept").isNotNull())
+        .join(current, ["source_type", "source_id", "source_content_hash"])
+    )
+    latest = Window.partitionBy("source_type", "source_id", "source_content_hash")
+    evidence = valid.withColumn("latest_at", F.max("extracted_at").over(latest)).filter(
+        F.col("extracted_at") == F.col("latest_at")
+    )
+    return (
+        evidence.groupBy("user_id", F.col("canonical_concept").alias("concept_id"), "source_type")
+        .agg(
+            F.count("*").alias("extractions"),
+            F.countDistinct("source_id").alias("sources"),
+            F.countDistinct("book_id").alias("books"),
+            F.round(F.avg("confidence"), 3).alias("mean_confidence"),
+            F.max("extracted_at").alias("last_extracted_at"),
+        )
+        .withColumn("computed_at", F.current_timestamp())
+    )
+
+
+@dp.materialized_view(
+    name=EXTRACTION_HEALTH,
+    comment="Extraction outcomes per reader, so an empty profile can be explained.",
+)
+def extraction_health():
+    """
+    Counts by outcome and nothing else. validation_detail is deliberately
+    absent: it quotes the response that failed, which is the model's words
+    about the reader's words.
+    """
+    return (
+        spark.read.table(EXTRACTIONS)
+        .groupBy("user_id", "validation_status")
+        .agg(
+            F.count("*").alias("extractions"),
+            F.max("extracted_at").alias("last_extracted_at"),
+        )
         .withColumn("computed_at", F.current_timestamp())
     )

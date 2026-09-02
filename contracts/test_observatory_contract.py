@@ -21,6 +21,7 @@ from queries import (  # noqa: E402
     FORBIDDEN_TABLES,
     PERMITTED_TABLES,
     STATEMENTS,
+    WITHOUT_SOURCE_TIMESTAMP,
     Result,
 )
 
@@ -82,7 +83,23 @@ class SourceTimestamps(unittest.TestCase):
 
     def test_every_statement_returns_a_source_timestamp(self):
         for name, statement in STATEMENTS.items():
+            if name in WITHOUT_SOURCE_TIMESTAMP:
+                continue
             self.assertIn("computed_at", statement, f"{name} returns no source timestamp")
+
+    def test_a_statement_without_one_says_so_rather_than_inventing_one(self):
+        """
+        reading_sessions records when reading happened, not when it was
+        recomputed. Aliasing the latest activity into computed_at would make a
+        stale view look current every time the reader read something.
+        """
+        for name in WITHOUT_SOURCE_TIMESTAMP:
+            self.assertNotIn("AS computed_at", STATEMENTS[name])
+        self.assertTrue(WITHOUT_SOURCE_TIMESTAMP < set(STATEMENTS))
+
+    def test_the_overview_reports_its_oldest_source_not_its_newest(self):
+        """Six numbers from four tables under one timestamp must be the oldest."""
+        self.assertIn("least(", STATEMENTS["overview"])
 
     def test_freshness_never_reports_the_time_it_was_asked(self):
         """
@@ -140,8 +157,17 @@ class GenieInstructions(unittest.TestCase):
     def test_the_instructions_require_refusal_rather_than_an_empty_result(self):
         """An empty result claims the reader has none. That is a false claim."""
         instructions = GENIE["instructions"]
-        self.assertIn("cannot see", instructions)
+        self.assertIn("will not read it", instructions)
         self.assertIn("empty result", instructions)
+
+    def test_the_instructions_name_concept_extractions_as_off_limits(self):
+        """
+        Its raw_response column is a model's whole answer to a prompt built
+        from the reader's text, so it is their words at one remove and the
+        easiest table to reach for while believing the boundary held.
+        """
+        self.assertIn("concept_extractions", GENIE["instructions"])
+        self.assertIn("raw_response", GENIE["instructions"])
 
     def test_the_instructions_require_the_source_timestamp_for_freshness(self):
         instructions = GENIE["instructions"]
@@ -202,22 +228,28 @@ class TheDeployedSpaceMatchesItsSources(unittest.TestCase):
         first = GENIE["instructions"].split("\n")[0]
         self.assertIn(json.dumps(first + "\n"), OBSERVATORY_YML)
 
-    def test_every_answerable_question_is_a_deployed_benchmark(self):
+    def test_no_expected_answer_is_deployed_into_the_space(self):
+        """
+        The evaluation SQL was installed as Genie benchmarks, which handed it
+        the exact answer to every question it was then measured on. An
+        evaluation whose answers ship with the thing being evaluated measures
+        recall of its own configuration.
+        """
+        self.assertNotIn("benchmarks:", OBSERVATORY_YML)
         for question in QUESTIONS["questions"]:
-            if question.get("expected_behavior") == "refuse":
-                continue
-            self.assertIn(json.dumps(question["question"]), OBSERVATORY_YML, question["id"])
-
-    def test_the_refusal_question_is_not_deployed_as_a_benchmark(self):
-        """It has no correct SQL, so a benchmark answer for it would be a lie."""
-        for question in QUESTIONS["questions"]:
-            if question.get("expected_behavior") == "refuse":
-                self.assertNotIn(json.dumps(question["question"]), OBSERVATORY_YML)
+            sql = question.get("expected_sql")
+            if sql:
+                self.assertNotIn(json.dumps(sql), OBSERVATORY_YML, question["id"])
 
     def test_the_space_reads_only_gold(self):
         """
-        The data sources are the grant in practice: a table absent here is one
-        Genie cannot reach, whatever its instructions say.
+        Data sources are what Genie is pointed at, and they must be Gold only.
+
+        They are not, on their own, an access boundary: Genie runs queries
+        under an identity that may hold Unity Catalog access of its own, so a
+        reader who owns these schemas can still reach past this list. Real
+        isolation needs row filters or per-reader views, which this phase does
+        not build. Recorded in the feedback log rather than implied here.
         """
         identifiers = re.findall(r"- identifier: [^\n]*\.(\w+)$", OBSERVATORY_YML, re.M)
         self.assertTrue(identifiers)

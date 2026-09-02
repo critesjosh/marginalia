@@ -6,18 +6,8 @@
       "queryLines": [
         "SELECT concept_id, interest_score, evidence_count, distinct_books,\n",
         "       score_version, computed_at\n",
-        "FROM IDENTIFIER(:gold_schema || '.reader_interest_profile')\n",
+        "FROM reader_interest_profile\n",
         "ORDER BY interest_score DESC"
-      ],
-      "parameters": [
-        {
-          "displayName": "gold_schema",
-          "keyword": "gold_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": { "dataType": "STRING", "values": [{ "value": "marginalia.marginalia_gold" }] }
-          }
-        }
       ]
     },
     {
@@ -26,18 +16,8 @@
       "queryLines": [
         "SELECT book_id, engagement_score, active_minutes, session_count,\n",
         "       current_highlights, questions, completed, computed_at\n",
-        "FROM IDENTIFIER(:gold_schema || '.book_engagement')\n",
+        "FROM book_engagement\n",
         "ORDER BY engagement_score DESC"
-      ],
-      "parameters": [
-        {
-          "displayName": "gold_schema",
-          "keyword": "gold_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": { "dataType": "STRING", "values": [{ "value": "marginalia.marginalia_gold" }] }
-          }
-        }
       ]
     },
     {
@@ -46,18 +26,8 @@
       "queryLines": [
         "SELECT candidate_concept, frontier_score, neighbour_count,\n",
         "       supporting_work_count, computed_at\n",
-        "FROM IDENTIFIER(:gold_schema || '.intellectual_frontier')\n",
+        "FROM intellectual_frontier\n",
         "ORDER BY frontier_score DESC"
-      ],
-      "parameters": [
-        {
-          "displayName": "gold_schema",
-          "keyword": "gold_schema",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": { "dataType": "STRING", "values": [{ "value": "marginalia.marginalia_gold" }] }
-          }
-        }
       ]
     }
   ],
@@ -75,8 +45,14 @@
                 "query": {
                   "datasetName": "interests",
                   "fields": [
-                    { "name": "concept_id", "expression": "`concept_id`" },
-                    { "name": "interest_score", "expression": "`interest_score`" }
+                    {
+                      "name": "concept_id",
+                      "expression": "`concept_id`"
+                    },
+                    {
+                      "name": "interest_score",
+                      "expression": "`interest_score`"
+                    }
                   ],
                   "disaggregated": true
                 }
@@ -86,8 +62,20 @@
               "version": 3,
               "widgetType": "bar",
               "encodings": {
-                "x": { "fieldName": "concept_id", "scale": { "type": "categorical" }, "displayName": "Concept" },
-                "y": { "fieldName": "interest_score", "scale": { "type": "quantitative" }, "displayName": "Interest" }
+                "x": {
+                  "fieldName": "concept_id",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Concept"
+                },
+                "y": {
+                  "fieldName": "interest_score",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Interest"
+                }
               },
               "frame": {
                 "title": "Interest by concept, normalized within this reader",
@@ -97,7 +85,12 @@
               }
             }
           },
-          "position": { "x": 0, "y": 0, "width": 6, "height": 6 }
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 6
+          }
         },
         {
           "widget": {
@@ -108,11 +101,26 @@
                 "query": {
                   "datasetName": "engagement",
                   "fields": [
-                    { "name": "book_id", "expression": "`book_id`" },
-                    { "name": "engagement_score", "expression": "`engagement_score`" },
-                    { "name": "current_highlights", "expression": "`current_highlights`" },
-                    { "name": "questions", "expression": "`questions`" },
-                    { "name": "computed_at", "expression": "`computed_at`" }
+                    {
+                      "name": "book_id",
+                      "expression": "`book_id`"
+                    },
+                    {
+                      "name": "engagement_score",
+                      "expression": "`engagement_score`"
+                    },
+                    {
+                      "name": "current_highlights",
+                      "expression": "`current_highlights`"
+                    },
+                    {
+                      "name": "questions",
+                      "expression": "`questions`"
+                    },
+                    {
+                      "name": "computed_at",
+                      "expression": "`computed_at`"
+                    }
                   ],
                   "disaggregated": true
                 }
@@ -123,11 +131,26 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  { "fieldName": "book_id", "displayName": "Book" },
-                  { "fieldName": "engagement_score", "displayName": "Engagement" },
-                  { "fieldName": "current_highlights", "displayName": "Highlights" },
-                  { "fieldName": "questions", "displayName": "Questions" },
-                  { "fieldName": "computed_at", "displayName": "Source computed at" }
+                  {
+                    "fieldName": "book_id",
+                    "displayName": "Book"
+                  },
+                  {
+                    "fieldName": "engagement_score",
+                    "displayName": "Engagement"
+                  },
+                  {
+                    "fieldName": "current_highlights",
+                    "displayName": "Highlights"
+                  },
+                  {
+                    "fieldName": "questions",
+                    "displayName": "Questions"
+                  },
+                  {
+                    "fieldName": "computed_at",
+                    "displayName": "Source computed at"
+                  }
                 ]
               },
               "frame": {
@@ -136,7 +159,12 @@
               }
             }
           },
-          "position": { "x": 6, "y": 0, "width": 6, "height": 6 }
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 6,
+            "height": 6
+          }
         },
         {
           "widget": {
@@ -147,10 +175,22 @@
                 "query": {
                   "datasetName": "frontier",
                   "fields": [
-                    { "name": "candidate_concept", "expression": "`candidate_concept`" },
-                    { "name": "frontier_score", "expression": "`frontier_score`" },
-                    { "name": "supporting_work_count", "expression": "`supporting_work_count`" },
-                    { "name": "computed_at", "expression": "`computed_at`" }
+                    {
+                      "name": "candidate_concept",
+                      "expression": "`candidate_concept`"
+                    },
+                    {
+                      "name": "frontier_score",
+                      "expression": "`frontier_score`"
+                    },
+                    {
+                      "name": "supporting_work_count",
+                      "expression": "`supporting_work_count`"
+                    },
+                    {
+                      "name": "computed_at",
+                      "expression": "`computed_at`"
+                    }
                   ],
                   "disaggregated": true
                 }
@@ -161,10 +201,22 @@
               "widgetType": "table",
               "encodings": {
                 "columns": [
-                  { "fieldName": "candidate_concept", "displayName": "Adjacent concept" },
-                  { "fieldName": "frontier_score", "displayName": "Frontier score" },
-                  { "fieldName": "supporting_work_count", "displayName": "Supporting works" },
-                  { "fieldName": "computed_at", "displayName": "Source computed at" }
+                  {
+                    "fieldName": "candidate_concept",
+                    "displayName": "Adjacent concept"
+                  },
+                  {
+                    "fieldName": "frontier_score",
+                    "displayName": "Frontier score"
+                  },
+                  {
+                    "fieldName": "supporting_work_count",
+                    "displayName": "Supporting works"
+                  },
+                  {
+                    "fieldName": "computed_at",
+                    "displayName": "Source computed at"
+                  }
                 ]
               },
               "frame": {
@@ -175,9 +227,15 @@
               }
             }
           },
-          "position": { "x": 0, "y": 6, "width": 12, "height": 6 }
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 12,
+            "height": 6
+          }
         }
-      ]
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
     }
   ]
 }
