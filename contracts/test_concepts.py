@@ -102,6 +102,14 @@ class InvalidResponses(unittest.TestCase):
                     {"invalid_json", "schema_invalid", "empty_response"},
                 )
 
+    def test_an_overlong_broader_concept_is_rejected(self):
+        raw = json.dumps(
+            {"concepts": [{"label": "morality", "confidence": 0.5, "broader": "x" * 81}]}
+        )
+        with self.assertRaises(ResponseInvalid) as caught:
+            parse_extraction_response(raw)
+        self.assertEqual(caught.exception.status, "schema_invalid")
+
     def test_third_failure_is_terminal(self):
         self.assertEqual(next_validation_status(1), "retry")
         self.assertEqual(next_validation_status(MAX_EXTRACTION_ATTEMPTS - 1), "retry")

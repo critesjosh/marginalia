@@ -18,6 +18,7 @@ SILVER_EVENTS = f"{CATALOG}.{SILVER}.events"
 HIGHLIGHTS_CURRENT = f"{CATALOG}.{SILVER}.highlights_current"
 READING_SESSIONS = f"{CATALOG}.{SILVER}.reading_sessions"
 EXTRACTIONS = f"{CATALOG}.{SILVER}.concept_extractions"
+SOURCE_STATE = f"{CATALOG}.{SILVER}.concept_source_state"
 
 BOOK_ENGAGEMENT = f"{CATALOG}.{GOLD}.book_engagement"
 READER_INTEREST = f"{CATALOG}.{GOLD}.reader_interest_profile"
@@ -122,38 +123,41 @@ def reader_interest_profile():
         *[item for pair in EVIDENCE_WEIGHTS.items() for item in (F.lit(pair[0]), F.lit(pair[1]))]
     )
 
-    evidence = (
+    # What the reader's sources currently are and currently say, written by the
+    # extraction job from Silver. Joining to it is what makes changed and deleted
+    # content update evidence: a deleted highlight leaves no row, and changed text
+    # carries a new hash, so the old concepts stop counting immediately rather
+    # than waiting for a successful re-extraction that may never come.
+    current = spark.read.table(SOURCE_STATE).select(
+        "source_type", "source_id", "source_content_hash"
+    )
+
+    valid = (
         spark.read.table(EXTRACTIONS)
         .filter(F.col("validation_status") == "valid")
         .filter(F.col("canonical_concept").isNotNull())
-        # A source whose text has since changed or been deleted has a new hash,
-        # and its old rows must stop counting. Keep only the extraction for the
-        # hash the source currently has.
-        .withColumn(
-            "recency",
-            F.row_number().over(
-                Window.partitionBy("source_type", "source_id").orderBy(
-                    F.col("extracted_at").desc()
-                )
-            ),
-        )
+        .join(current, ["source_type", "source_id", "source_content_hash"])
     )
-    current_hash = (
-        evidence.filter("recency = 1")
-        .select("source_type", "source_id", F.col("source_content_hash").alias("current_hash"))
-        .distinct()
+
+    # One source contributes one extraction. Re-running the same content under a
+    # new model, prompt, or canonicalization version writes a second valid set,
+    # and counting both would double the source and repeat it in top_source_ids.
+    latest = Window.partitionBy("source_type", "source_id", "source_content_hash")
+    evidence = valid.withColumn("latest_at", F.max("extracted_at").over(latest)).filter(
+        F.col("extracted_at") == F.col("latest_at")
     )
 
     contributions = (
-        evidence.join(current_hash, ["source_type", "source_id"])
-        .filter(F.col("source_content_hash") == F.col("current_hash"))
-        .withColumn("weight", F.coalesce(weights[F.col("source_type")], F.lit(0.0)))
+        evidence.withColumn("weight", F.coalesce(weights[F.col("source_type")], F.lit(0.0)))
         .withColumn(
             "age_days",
             F.greatest(
                 F.lit(0.0),
                 (
-                    F.col("extracted_at").cast("double")
+                    # Aged against now, not against when it happened to be
+                    # extracted. Decaying from extraction time would freeze a
+                    # source at full weight forever once it had been read.
+                    F.current_timestamp().cast("double")
                     - F.coalesce(F.col("source_time"), F.col("extracted_at")).cast("double")
                 )
                 / 86_400.0,

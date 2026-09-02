@@ -151,8 +151,11 @@ def parse_extraction_response(raw: str) -> list[dict]:
             raise ResponseInvalid("schema_invalid", "confidence out of range")
 
         broader = item.get("broader")
-        if broader is not None and (not isinstance(broader, str) or not broader.strip()):
-            raise ResponseInvalid("schema_invalid", "broader is not a label")
+        if broader is not None:
+            if not isinstance(broader, str) or not broader.strip():
+                raise ResponseInvalid("schema_invalid", "broader is not a label")
+            if len(broader) > MAX_LABEL_CHARS:
+                raise ResponseInvalid("schema_invalid", "broader too long")
 
         canonical = canonicalize(label)
         if not canonical:

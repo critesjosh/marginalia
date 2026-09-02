@@ -8,6 +8,23 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-01: Phase 3 extraction, ai_query telemetry limits
+
+- Surface used: `ai_query` in a Lakeflow job task against a pay-per-token chat endpoint
+- Goal: record model, prompt version, latency, and cost per extraction, as Phase 3 requires.
+- Result: partially met. Model endpoint, prompt version, canonicalization version, run
+  latency, candidate count, and per-row response size are recorded in
+  `concept_extraction_runs` and `concept_extractions`.
+- Friction: `ai_query` returns only the parsed response and, with `failOnError => false`,
+  an error message. It exposes no token counts and no per-row latency, so per-row cost
+  cannot be attributed from SQL at all. Its return struct is `(response, errorMessage)`,
+  which is easy to mistake for a field named `result`; selecting the wrong name fails at
+  analysis time rather than returning null, so the whole job writes nothing.
+- Workaround or follow-up: wall-clock latency is recorded per run and response size per
+  row as the only honest cost signal available, rather than an invented estimate. Revisit
+  if `ai_query` gains usage reporting, or move extraction to a Python client that reads the
+  usage block from the serving response directly.
+
 ### 2026-09-01: Phase 3 preflight, concept model unavailable
 
 - Surface used: Databricks CLI (`serving-endpoints list`, `serving-endpoints get`)

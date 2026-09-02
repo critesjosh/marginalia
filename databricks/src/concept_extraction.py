@@ -8,6 +8,7 @@
 import json
 import sys
 import uuid
+from datetime import datetime, timezone
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -55,6 +56,13 @@ BATCH_LIMIT = int(_argument("extraction_batch_limit", "200"))
 SILVER_EVENTS = f"{CATALOG}.{SILVER}.events"
 HIGHLIGHTS_CURRENT = f"{CATALOG}.{SILVER}.highlights_current"
 EXTRACTIONS = f"{CATALOG}.{SILVER}.concept_extractions"
+# What currently exists and what it currently says. Gold joins to this instead
+# of inferring the present from past extractions.
+SOURCE_STATE = f"{CATALOG}.{SILVER}.concept_source_state"
+STAGING = f"{CATALOG}.{SILVER}._concept_extraction_staging"
+RUNS = f"{CATALOG}.{SILVER}.concept_extraction_runs"
+
+SOURCE_KEY = ["source_type", "source_id", "source_content_hash"]
 
 SYSTEM_PROMPT = (
     "You extract the intellectual concepts a reader is engaging with.\n"
@@ -126,6 +134,7 @@ def ensure_tables():
           validation_status STRING NOT NULL,
           validation_detail STRING,
           attempts INT NOT NULL,
+          response_chars INT,
           run_id STRING NOT NULL
         )
         USING DELTA
@@ -139,6 +148,11 @@ def candidates():
     Only consented text, and only text the reader themself produced or marked.
     Assistant text has no branch here at all: it is not excluded downstream, it
     is never a candidate.
+
+    Book memory and book descriptions are named as candidate sources in the plan
+    and are absent here on purpose: the v1 event contract carries no event that
+    delivers either to Bronze, so there is nothing to read. They join when Phase 5
+    completes behavioral coverage, and their evidence weights already exist.
     """
     highlights = spark.read.table(HIGHLIGHTS_CURRENT)
     included = F.from_json(F.col("privacy_json"), "consentVersion INT, included ARRAY<STRING>")
@@ -200,50 +214,66 @@ def pending(all_candidates):
     """
     A candidate is pending when nothing has been recorded for this exact content
     under this exact model, prompt, and canonicalization version, and it has not
-    already exhausted its attempts. Changing any of those four is what makes a
-    manual retry possible without a special code path.
+    exhausted its attempts under that same combination. Changing any of the three
+    is what makes a retry possible without a special code path, so every query
+    below is scoped by all three rather than by content alone.
     """
     try:
-        seen = spark.read.table(EXTRACTIONS)
+        seen = _recorded()
     except Exception:
         return all_candidates.limit(BATCH_LIMIT)
 
-    key = ["source_type", "source_id", "source_content_hash"]
     settled = (
-        seen.filter(
-            (F.col("model_endpoint") == MODEL_ENDPOINT)
-            & (F.col("prompt_version") == PROMPT_VERSION)
-            & (
-                F.col("canonicalization_version").eqNullSafe(CANONICALIZATION_VERSION)
-                | (F.col("validation_status") != "valid")
-            )
-        )
-        .groupBy(*key)
+        seen.groupBy(*SOURCE_KEY)
         .agg(
             F.max(F.col("validation_status") == "valid").alias("succeeded"),
             F.max("attempts").alias("attempts"),
         )
         .filter(F.col("succeeded") | (F.col("attempts") >= MAX_EXTRACTION_ATTEMPTS))
-        .select(*key)
+        .select(*SOURCE_KEY)
     )
-    return all_candidates.join(settled, key, "left_anti").limit(BATCH_LIMIT)
+    return all_candidates.join(settled, SOURCE_KEY, "left_anti").limit(BATCH_LIMIT)
+
+
+def _recorded():
+    """
+    Rows this model, prompt, and canonicalization version produced. A failure
+    records the canonicalization version that judged it, so bumping the version
+    genuinely reopens a permanent failure instead of leaving it stuck behind a
+    null.
+    """
+    return spark.read.table(EXTRACTIONS).filter(
+        (F.col("model_endpoint") == MODEL_ENDPOINT)
+        & (F.col("prompt_version") == PROMPT_VERSION)
+        & (F.col("canonicalization_version") == CANONICALIZATION_VERSION)
+    )
 
 
 def previous_attempts(batch):
     try:
-        seen = spark.read.table(EXTRACTIONS)
+        counted = _recorded().groupBy(*SOURCE_KEY).agg(F.max("attempts").alias("previous_attempts"))
     except Exception:
         return batch.withColumn("previous_attempts", F.lit(0))
-
-    key = ["source_type", "source_id", "source_content_hash"]
-    counted = seen.groupBy(*key).agg(F.max("attempts").alias("previous_attempts"))
-    return batch.join(counted, key, "left").fillna({"previous_attempts": 0})
+    return batch.join(counted, SOURCE_KEY, "left").fillna({"previous_attempts": 0})
 
 
 def run():
     ensure_tables()
-    batch = previous_attempts(pending(candidates()))
+    started = datetime.now(timezone.utc)
+    all_candidates = candidates()
+
+    # The set of sources that currently exist, with the content they currently
+    # hold. Gold reads this rather than inferring the current state from past
+    # extractions: a deleted highlight leaves no row here, and changed text has a
+    # different hash, so stale evidence stops counting even when the new text has
+    # not been extracted yet or failed permanently.
+    all_candidates.select(
+        "user_id", "book_id", "source_type", "source_id", "source_content_hash", "source_time"
+    ).write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(SOURCE_STATE)
+
+    batch = previous_attempts(pending(all_candidates))
     if batch.isEmpty():
+        _record_run(started, str(uuid.uuid4()), 0)
         print("no pending extraction candidates")
         return
 
@@ -258,18 +288,40 @@ def run():
     )
 
     # failOnError => false so one refused or truncated response is recorded
-    # against its own candidate rather than failing every other one with it.
+    # against its own candidate rather than failing every other one with it. The
+    # struct it returns is (response, errorMessage), not (result, ...).
     answered = prompted.withColumn(
-        "response",
+        "answer",
         F.expr(
             f"ai_query('{MODEL_ENDPOINT}', request, failOnError => false, "
             "modelParameters => named_struct('temperature', 0.0))"
         ),
     )
 
-    parsed = answered.withColumn(
-        "raw_response", F.col("response.result").cast("string")
-    ).withColumn("parsed", validate_response(F.col("raw_response")))
+    parsed = (
+        answered.withColumn("raw_response", F.col("answer.response").cast("string"))
+        .withColumn("upstream_error", F.col("answer.errorMessage").cast("string"))
+        .withColumn("parsed", validate_response(F.col("raw_response")))
+        .select(
+            "user_id",
+            "book_id",
+            *SOURCE_KEY,
+            "source_time",
+            "previous_attempts",
+            "raw_response",
+            "upstream_error",
+            "parsed",
+            # ai_query reports no token counts, so the response size is the only
+            # per-row cost signal available. See the feedback log.
+            F.length(F.col("raw_response")).alias("response_chars"),
+        )
+    )
+
+    # Materialized before it is branched. `valid` and `failed` both read it, and
+    # an unmaterialized frame would run the ai_query lineage once per branch:
+    # paying twice, and writing rows from two different answers.
+    parsed.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(STAGING)
+    staged = spark.read.table(STAGING)
 
     now = F.current_timestamp()
     common = [
@@ -281,61 +333,95 @@ def run():
         "source_time",
         F.lit(MODEL_ENDPOINT).alias("model_endpoint"),
         F.lit(PROMPT_VERSION).alias("prompt_version"),
+        F.lit(CANONICALIZATION_VERSION).alias("canonicalization_version"),
+    ]
+    trailer = [
+        now.alias("extracted_at"),
+        # The response is the provenance for a concept now attached to a reader.
+        # It is model output about consented text, held under the same consent,
+        # and never logged.
+        F.col("raw_response"),
+        (F.col("previous_attempts") + 1).alias("attempts"),
+        F.col("response_chars"),
+        F.lit(run_id).alias("run_id"),
     ]
 
     valid = (
-        parsed.filter(F.col("parsed.validation_status") == "valid")
+        staged.filter(F.col("parsed.validation_status") == "valid")
         .withColumn("concept", F.explode("parsed.concepts"))
         .select(
             *common,
-            F.col("concept.canonicalization_version").alias("canonicalization_version"),
             F.col("concept.raw_concept").alias("raw_concept"),
             F.col("concept.canonical_concept").alias("canonical_concept"),
             F.col("concept.broader_concept").alias("broader_concept"),
             F.col("concept.confidence").alias("confidence"),
-            now.alias("extracted_at"),
-            # The response is the provenance for a concept now attached to a
-            # reader. It is model output about consented text, held under the
-            # same consent, and never logged.
-            F.col("raw_response"),
             F.lit("valid").alias("validation_status"),
             F.lit(None).cast("string").alias("validation_detail"),
-            (F.col("previous_attempts") + 1).alias("attempts"),
-            F.lit(run_id).alias("run_id"),
+            *trailer,
         )
     )
 
-    failed = parsed.filter(F.col("parsed.validation_status") != "valid").select(
+    failed = staged.filter(F.col("parsed.validation_status") != "valid").select(
         *common,
-        F.lit(None).cast("int").alias("canonicalization_version"),
         F.lit(None).cast("string").alias("raw_concept"),
         F.lit(None).cast("string").alias("canonical_concept"),
         F.lit(None).cast("string").alias("broader_concept"),
         F.lit(None).cast("double").alias("confidence"),
-        now.alias("extracted_at"),
-        F.col("raw_response"),
         F.when(
             (F.col("previous_attempts") + 1) >= MAX_EXTRACTION_ATTEMPTS,
             F.lit("permanent_failure"),
         )
         .otherwise(F.col("parsed.validation_status"))
         .alias("validation_status"),
-        F.col("parsed.validation_detail").alias("validation_detail"),
-        (F.col("previous_attempts") + 1).alias("attempts"),
-        F.lit(run_id).alias("run_id"),
+        F.coalesce(F.col("parsed.validation_detail"), F.col("upstream_error")).alias(
+            "validation_detail"
+        ),
+        *trailer,
     )
 
     valid.unionByName(failed).write.mode("append").saveAsTable(EXTRACTIONS)
+    _record_run(started, run_id, staged.count())
 
-    # Read the run back rather than recomputing the frame: every reference to it
-    # would call the model again.
-    summary = (
-        spark.read.table(EXTRACTIONS)
-        .filter(F.col("run_id") == run_id)
-        .groupBy("validation_status")
-        .count()
-        .collect()
-    )
+
+def _record_run(started, run_id, candidate_count):
+    """
+    Run-level telemetry. ai_query exposes no per-row token count or latency, so
+    wall-clock latency and response size are what can honestly be recorded; the
+    limitation is noted in the feedback log rather than papered over with an
+    invented cost estimate.
+    """
+    finished = datetime.now(timezone.utc)
+    try:
+        by_status = {
+            row["validation_status"]: row["count"]
+            for row in spark.read.table(EXTRACTIONS)
+            .filter(F.col("run_id") == run_id)
+            .groupBy("validation_status")
+            .count()
+            .collect()
+        }
+    except Exception:
+        by_status = {}
+
+    spark.createDataFrame(
+        [
+            (
+                run_id,
+                MODEL_ENDPOINT,
+                PROMPT_VERSION,
+                CANONICALIZATION_VERSION,
+                started,
+                finished,
+                int((finished - started).total_seconds() * 1000),
+                int(candidate_count),
+                json.dumps(by_status),
+            )
+        ],
+        "run_id STRING, model_endpoint STRING, prompt_version STRING, "
+        "canonicalization_version INT, started_at TIMESTAMP, finished_at TIMESTAMP, "
+        "latency_ms BIGINT, candidate_count INT, rows_by_status STRING",
+    ).write.mode("append").saveAsTable(RUNS)
+
     # Counts only. No raw text and no concept label reaches a log.
     print(
         json.dumps(
@@ -344,7 +430,9 @@ def run():
                 "model_endpoint": MODEL_ENDPOINT,
                 "prompt_version": PROMPT_VERSION,
                 "canonicalization_version": CANONICALIZATION_VERSION,
-                "rows_by_status": {row["validation_status"]: row["count"] for row in summary},
+                "latency_ms": int((finished - started).total_seconds() * 1000),
+                "candidate_count": int(candidate_count),
+                "rows_by_status": by_status,
             }
         )
     )
