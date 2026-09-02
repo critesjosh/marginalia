@@ -13,14 +13,22 @@ spark = SparkSession.getActiveSession()
 CATALOG = spark.conf.get("marginalia.catalog")
 BRONZE_SCHEMA = spark.conf.get("marginalia.bronze_schema")
 SILVER_SCHEMA = spark.conf.get("marginalia.silver_schema")
+OPS_SCHEMA = spark.conf.get("marginalia.ops_schema")
 
 BRONZE_EVENTS = f"{CATALOG}.{BRONZE_SCHEMA}.events_raw"
+DELETION_REQUESTS = f"{CATALOG}.{OPS_SCHEMA}.deletion_requests"
 QUARANTINE = f"{CATALOG}.{BRONZE_SCHEMA}.ingestion_quarantine"
 SILVER_EVENTS = f"{CATALOG}.{SILVER_SCHEMA}.events"
 EVENT_CONFLICTS = f"{CATALOG}.{SILVER_SCHEMA}.event_conflicts"
 HIGHLIGHT_HISTORY = f"{CATALOG}.{SILVER_SCHEMA}.highlight_history"
 HIGHLIGHTS_CURRENT = f"{CATALOG}.{SILVER_SCHEMA}.highlights_current"
 READING_SESSIONS = f"{CATALOG}.{SILVER_SCHEMA}.reading_sessions"
+
+# A deletion in these states has already removed the reader from Bronze. The
+# topic can still replay them for as long as it retains their records, so every
+# derived table has to keep refusing those rows until the window has passed.
+# Suppressing at the parse step is what makes that one rule instead of six.
+DELETING_STATUSES = ["accepted", "running", "purging_source"]
 
 UUID_V4 = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 EVENT_TYPES = [
@@ -184,9 +192,27 @@ def _payload_keys(event_type):
     )
 
 
+def _without_deleted_readers(frame):
+    """
+    Rows belonging to a reader with a deletion in flight, dropped before
+    anything is derived from them. The table may not exist yet: a workspace can
+    run this pipeline before its first deletion request is ever made, and that
+    is not a reason to fail the run.
+    """
+    if not spark.catalog.tableExists(DELETION_REQUESTS):
+        return frame
+    deleting = (
+        spark.read.table(DELETION_REQUESTS)
+        .filter(F.col("status").isin(DELETING_STATUSES))
+        .select("user_id")
+        .distinct()
+    )
+    return frame.join(deleting, ["user_id"], "left_anti")
+
+
 @dp.temporary_view(name="parsed_event_records")
 def parsed_event_records():
-    raw = spark.read.table(BRONZE_EVENTS)
+    raw = _without_deleted_readers(spark.read.table(BRONZE_EVENTS))
     variant = F.try_parse_json("raw_value")
     variant_schema = F.schema_of_variant(variant)
     schema_version = _variant(variant, "$.schemaVersion", "int")

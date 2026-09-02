@@ -53,6 +53,44 @@ variables:
   public_failed_retry_hours:
     description: Hours before retrying a failed public-source request.
     default: "6"
+  lakebase_instance:
+    description: Lakebase database instance backing the serving copies of Gold.
+    default: marginalia-lakebase
+  lakebase_capacity:
+    description: >-
+      Capacity units for the Lakebase instance. The smallest size serves one
+      reader's profile comfortably; raising it is a cost decision, not a
+      correctness one.
+    default: CU_1
+  lakebase_catalog:
+    description: Unity Catalog catalog registering the Lakebase database.
+    default: marginalia_serving
+  lakebase_database:
+    description: Postgres database inside the Lakebase instance.
+    default: marginalia
+  lakebase_schema:
+    description: Postgres schema holding the synced read-only copies of Gold.
+    default: marginalia_gold
+  ops_warehouse:
+    description: >-
+      Small serverless warehouse the App uses to record and read deletion
+      requests, and the README's acceptance queries use by hand.
+    default: marginalia-ops
+  app_name:
+    description: Databricks App serving Gold to the Cloudflare Worker.
+    default: marginalia-intelligence
+  app_caller_service_principal:
+    description: >-
+      Application id of the Cloudflare Worker's service principal, the only
+      caller the App will answer. Supplied at deploy because it names private
+      infrastructure. An App deployed without it refuses every request.
+    default: ""
+  source_retention_days:
+    description: >-
+      Days the Kafka topic retains delivered records. A deletion stays in
+      purging_source until this has passed, because a replay inside the window
+      could otherwise restore the reader.
+    default: "7"
   extraction_batch_limit:
     description: >-
       Most candidates one extraction run will pay for. The next run takes the
@@ -68,6 +106,13 @@ targets:
     default: true
     variables:
       catalog: marginalia_dev
+      # Development mode prefixes jobs, pipelines, and warehouses on its own.
+      # Apps, Lakebase instances, and database catalogs it does not, so they are
+      # named apart here for the same reason the catalog is.
+      app_name: marginalia-intelligence-dev
+      lakebase_instance: marginalia-lakebase-dev
+      lakebase_catalog: marginalia_serving_dev
+      ops_warehouse: marginalia-ops-dev
 
   prod:
     mode: production

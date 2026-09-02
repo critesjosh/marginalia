@@ -76,6 +76,18 @@ resources:
             - task_key: public_sources
           pipeline_task:
             pipeline_id: ${resources.pipelines.frontier_gold.id}
+        # Serving is the last step of the loop, not a separate schedule. A Gold
+        # table that has been recomputed but not synced is not yet something the
+        # browser can read, and the freshness objective is measured to the
+        # browser, not to Gold.
+        - task_key: sync_serving
+          depends_on:
+            - task_key: build_gold
+          spark_python_task:
+            python_file: ../src/serving_sync.py
+            parameters:
+              - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name}
+          environment_key: concepts
       environments:
         - environment_key: concepts
           spec:

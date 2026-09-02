@@ -1,0 +1,99 @@
+resources:
+  # Lakebase. The browser never reaches this, and neither does anything else in
+  # the workspace: it exists so a per-reader lookup is a millisecond index seek
+  # rather than a warehouse query, and its tables are read-only copies of Gold.
+  database_instances:
+    lakebase:
+      name: ${var.lakebase_instance}
+      capacity: ${var.lakebase_capacity}
+      # Nothing here is a source of truth. Everything can be resynced from Gold,
+      # so paying to keep a long recovery window would be paying twice.
+      retention_window_in_days: 1
+
+  # Registers the Postgres database as a Unity Catalog catalog, which is what
+  # lets a synced table be named and governed like any other table.
+  database_catalogs:
+    serving:
+      name: ${var.lakebase_catalog}
+      database_instance_name: ${resources.database_instances.lakebase.name}
+      database_name: ${var.lakebase_database}
+      create_database_if_not_exists: true
+
+  synced_database_tables:
+    reader_interest_profile:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.reader_interest_profile
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile
+        # The plan's documented key. Change Data Feed on the Gold source is what
+        # makes a sync incremental rather than a full copy each time.
+        primary_key_columns:
+          - user_id
+          - concept_id
+        # Triggered, after the Gold job. Continuous would hold compute open for
+        # a table that changes once every fifteen minutes at most.
+        scheduling_policy: TRIGGERED
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+    book_engagement:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.book_engagement
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.book_engagement
+        primary_key_columns:
+          - user_id
+          - book_id
+        scheduling_policy: TRIGGERED
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+  # Small, serverless, and asleep almost always. The App needs it only to record
+  # and read deletion requests, which happen a handful of times in a prototype's
+  # life; the acceptance queries in the README use the same warehouse.
+  sql_warehouses:
+    ops_warehouse:
+      name: ${var.ops_warehouse}
+      cluster_size: 2X-Small
+      enable_serverless_compute: true
+      auto_stop_mins: 10
+      max_num_clusters: 1
+
+  apps:
+    intelligence:
+      name: ${var.app_name}
+      description: >-
+        Serves one reader's Gold profiles to the Cloudflare Worker, and records
+        cloud deletion requests. No UI, four routes, no other caller.
+      source_code_path: ../src/app
+      resources:
+        - name: serving-database
+          description: The synced read-only copies of Gold this app answers from.
+          database:
+            instance_name: ${resources.database_instances.lakebase.name}
+            database_name: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: ops-warehouse
+          description: Used only to create and read deletion requests.
+          sql_warehouse:
+            id: ${resources.sql_warehouses.ops_warehouse.id}
+            permission: CAN_USE
+      config:
+        env:
+          - name: MARGINALIA_LAKEBASE_INSTANCE
+            value: ${resources.database_instances.lakebase.name}
+          - name: MARGINALIA_PG_SCHEMA
+            value: ${var.lakebase_schema}
+          - name: MARGINALIA_WAREHOUSE_HTTP_PATH
+            value: /sql/1.0/warehouses/${resources.sql_warehouses.ops_warehouse.id}
+          - name: MARGINALIA_DELETION_TABLE
+            value: ${var.catalog}.${resources.schemas.ops.name}.deletion_requests
+          # The one identity allowed to ask about a reader. Supplied at deploy
+          # rather than committed: it names private infrastructure, and an app
+          # that starts without it refuses every request rather than serving one.
+          - name: MARGINALIA_TRUSTED_CALLER
+            value: ${var.app_caller_service_principal}
+          - name: MARGINALIA_SOURCE_RETENTION_DAYS
+            value: ${var.source_retention_days}

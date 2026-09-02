@@ -4,13 +4,8 @@ Declarative Automation Bundle for the Databricks side of
 [the intelligence plan](../docs/databricks-intelligence-plan.md). Phase 1 covers
 authenticated ingress to Bronze; Phase 2 adds deterministic Silver identity,
 highlights, and reading sessions; Phase 3 adds extraction and the first Gold
-profiles; Phase 6 adds targeted public sources, frontier, and recommendations.
-
-Phase 4 is only represented here by the Gold tables its eventual serving loop
-will read. This bundle does not yet define Lakebase, synced tables, or a
-Databricks App. The Worker proxy and PWA Insights UI therefore do not constitute
-Phase 4 acceptance by themselves; see the implementation-status table in the
-plan.
+profiles; Phase 4 adds the serving loop, Lakebase, the App, and cloud deletion;
+Phase 6 adds targeted public sources, frontier, and recommendations.
 
 ## What is here
 
@@ -20,6 +15,8 @@ resources/catalog.yml            the bronze/silver/gold/ops schemas
 resources/events_ingestion.yml   triggered pipeline and its 15-minute schedule
 resources/events_silver.yml      parsing, deduplication, state, and sessions
 resources/concepts_gold.yml      engagement, interest, and frontier profiles
+resources/serving.yml            Lakebase, synced tables, warehouse, and the App
+resources/deletion.yml           the cloud deletion job and the replay purge
 src/events_ingestion.py          Kafka source that writes events_raw
 src/events_silver.py             Bronze quarantine and Silver materialized views
 src/concepts.py                  canonicalization, response validation, scoring
@@ -28,7 +25,15 @@ src/gold_profiles.py             book_engagement and reader_interest_profile
 src/public_matching.py           work matching and the Phase 6 score formulas
 src/public_sources.py            Open Library matching, targeted OpenAlex enrichment
 src/frontier.py                  intellectual_frontier and recommendation_candidates
+src/serving_sync.py              triggers the Lakebase synced tables and waits
+src/deletion.py                  cloud deletion, its manifest, and verification
+src/app/                         the Databricks App the Cloudflare Worker calls
 ```
+
+The App is the only thing outside the workspace that can read a reader's
+profile. It has four routes, no UI, and no second caller: the Worker
+authenticates as one service principal, and the App refuses every request when
+it has not been told which one that is.
 
 `public_sources.py` also maintains `public_request_subjects`, the user-to-request
 index used for cache eligibility and eventual cloud deletion of raw provider
@@ -148,6 +153,58 @@ referenced here by name.
    }'
    ```
 
+6. Create the service principal the Cloudflare Worker authenticates as, and give
+   it an OAuth secret. This is the only identity the App will answer, and it
+   holds nothing else in the workspace.
+
+   ```sh
+   databricks service-principals create --display-name marginalia-worker
+   databricks service-principal-secrets create <service-principal-id>
+   ```
+
+   Its application id becomes the `app_caller_service_principal` bundle variable
+   and the App's `MARGINALIA_TRUSTED_CALLER`. The client id and secret become
+   Worker secrets, alongside the App URL and the workspace token endpoint:
+
+   ```sh
+   wrangler secret put DATABRICKS_APP_URL
+   wrangler secret put DATABRICKS_OAUTH_TOKEN_URL
+   wrangler secret put DATABRICKS_CLIENT_ID
+   wrangler secret put DATABRICKS_CLIENT_SECRET
+   ```
+
+   The token endpoint is `https://<workspace-host>/oidc/v1/token`. None of these
+   four values is committed, and none reaches the browser.
+
+7. Grant, after the first deploy of the App. Both grants need identities that do
+   not exist until their resources do: the App gets its own service principal
+   when it is created, and the caller's `CAN USE` cannot precede the App.
+
+   ```sh
+   # Only CAN_USE. The caller may invoke the App and manage nothing.
+   databricks apps set-permissions marginalia-intelligence-dev --json '{
+     "access_control_list": [{
+       "service_principal_name": "<caller-application-id>",
+       "permission_level": "CAN_USE"
+     }]
+   }'
+   ```
+
+   The App's own service principal needs to read the deletion request table and
+   nothing else in Unity Catalog. Everything it serves to the browser comes from
+   Postgres, not from the catalog:
+
+   ```sql
+   GRANT USE CATALOG ON CATALOG marginalia_dev TO `<app-service-principal>`;
+   GRANT USE SCHEMA ON SCHEMA marginalia_dev.dev_<you>_marginalia_ops TO `<app-service-principal>`;
+   GRANT SELECT, MODIFY ON TABLE marginalia_dev.dev_<you>_marginalia_ops.deletion_requests
+     TO `<app-service-principal>`;
+   ```
+
+   No grant on Bronze, Silver, or Gold. An App that could read Gold directly
+   would be an App whose blast radius is every reader's text rather than one
+   reader's scores.
+
 ## Deploying
 
 ```sh
@@ -205,6 +262,108 @@ has to pass offline and deterministically:
 ```sh
 python3 databricks/eval/concept_eval.py --endpoint databricks-gpt-oss-120b
 ```
+
+## The serving loop
+
+Gold is recomputed in the workspace; the browser reads a copy of it. Between the
+two sit two triggered Lakebase synced tables, keyed exactly as the plan
+documents:
+
+```text
+reader_interest_profile   (user_id, concept_id)
+book_engagement           (user_id, book_id)
+```
+
+Both Gold sources publish Change Data Feed, which is what makes a sync send the
+rows that changed instead of the whole table. `sync_serving` is the last task of
+the 15-minute job rather than a schedule of its own: a Gold table that has been
+recomputed but not synced is not yet something a reader can see, and the
+freshness objective is measured to the browser.
+
+`serving_sync.py` waits for the sync to settle and fails on a timeout. A task
+that returned early would let the deletion job verify absence against a copy
+that still held the reader.
+
+The App reads Postgres, never Gold. It authenticates to Lakebase with a
+short-lived OAuth token, cached until shortly before it expires, and it answers
+only the caller named in `MARGINALIA_TRUSTED_CALLER`. Deploy it with the caller's
+application id:
+
+```sh
+databricks bundle deploy -t dev --var="app_caller_service_principal=<application-id>"
+databricks bundle run intelligence -t dev
+```
+
+Deployed without that variable the App starts and refuses every request with
+`caller_not_configured`. That is deliberate. An App that served a profile
+because nobody had said who was allowed to read it would be the exact failure
+the check exists to prevent.
+
+## Cloud deletion
+
+`marginalia-cloud-deletion` takes a request id and runs in two halves with the
+pipeline refreshes in between:
+
+```text
+purge              delete the reader from every directly written table
+recompute_*        full-refresh Silver, Gold, and frontier
+sync_serving       push the recomputed rows into Lakebase and wait
+verify             count the reader in every manifest table, then record
+```
+
+The manifest is versioned (`deletion_manifest_v1`) and splits into tables that
+are deleted from and materialized views that are recomputed. A table the
+deployment never created is recorded as absent rather than counted as empty,
+because "0 rows" would imply it had been checked.
+
+Bronze is never full-refreshed. It is a streaming table over a topic that
+retains seven days, so a full refresh would re-ingest the reader the purge just
+removed. Instead the Silver parse step drops rows for any reader with a deletion
+in flight, and `marginalia-deletion-replay-purge` sweeps nightly until the
+retention window has passed. Until then the request stays `purging_source`,
+which the App reports to the browser as still running: the reader is gone from
+every queryable layer, and the source can no longer be replayed only once the
+window closes.
+
+Run one by hand:
+
+```sh
+databricks bundle run cloud_deletion -t dev --params request_id=<uuid>
+```
+
+## Phase 4 acceptance
+
+Each of these is a line in the plan's acceptance list, and each is checked
+against the deployment rather than against the code.
+
+```sh
+# An interest profile is queryable by its documented primary key.
+databricks api post /api/2.0/sql/statements --json '{
+  "warehouse_id": "<ops-warehouse-id>",
+  "statement": "SELECT count(*) FROM marginalia_serving_dev.marginalia_gold.reader_interest_profile WHERE user_id = :user AND concept_id = :concept",
+  "wait_timeout": "50s"
+}'
+
+# An unauthorized service principal cannot read it: expect 403 untrusted_caller.
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $OTHER_SP_TOKEN" \
+  "$APP_URL/api/v1/users/$USER_ID/interest-profile"
+
+# An invalid sync token cannot reach the Worker: expect 401 invalid_token.
+curl -s -H 'Authorization: Bearer wrong' \
+  https://<worker-host>/api/intelligence/v1/interest-profile
+```
+
+The 35-minute freshness run is one event timed end to end. Emit a fixture
+highlight from an opted-in browser, note its `eventTime`, and wait for it to
+appear in Insights. Bronze is at most 15 minutes behind, the rest of the job is
+one pass, and the sync is the last task, so a run that exceeds 35 minutes is a
+finding rather than variance. Record the result in
+[the feedback log](../docs/databricks-feedback.md).
+
+For deletion, ask from Settings and then check every layer named in the manifest,
+the synced tables, and the Worker's own `SYNC_CONTROL`. The request should read
+`purging_source` immediately and `completed` only after the topic's retention
+window has elapsed.
 
 Refresh Silver after Bronze independently when debugging transformations:
 

@@ -916,7 +916,7 @@ into the next phase.
 | 1 | Complete | Authenticated ingress and triggered Bronze ingestion were deployed and exercised. |
 | 2 | Complete | Silver deduplication, quarantine, highlights, and sessions were deployed and exercised. |
 | 3 | Complete | Incremental extraction and Gold profiles ran against live data; the evaluation passed at 4/5 recall and 0 unsupported additions. |
-| 4 | Local half implemented and reviewed; external half not implemented | Worker endpoints, cached Insights, and deletion UX are tested. Lakebase, synced tables, the Databricks App API/resource binding, least-privilege grants, and the full 35-minute serving-loop acceptance run remain. The feedback entry titled "Phases 2 through 4 deployed and run end to end" verifies the Databricks path through Gold, not these missing serving resources. |
+| 4 | Implemented; live acceptance not yet run | Worker endpoints, cached Insights, and deletion UX were already tested. Lakebase, the two triggered synced tables, the Databricks App and its resource binding, the serving-sync task, the deletion job with its versioned manifest, in-flight deletion suppression in Silver, and the documented least-privilege grants now exist and pass `databricks bundle validate` on both targets. What remains is live: deploying the App with a caller service principal, the grants that can only follow it, and the 35-minute freshness and deletion acceptance runs in the README. |
 | 5 | Complete | Behavioral event contracts and atomic PWA instrumentation landed; existing KOReader handoff remains offline and idempotent. |
 | 6 | Complete | Public-source ingestion, matching, frontier, and heuristic recommendations passed local tests, bundle validation, selected-compute egress, a cache/TTL rerun, live materialization, and SQL checks for keys, provenance, score reproduction, direct-interest exclusion, and deletion linkage. The client-side dismissal emitter remains Phase 9 work, so dismissed exclusion is contract- and transformation-tested here but not yet a live UI loop. |
 | 7-11 | Not started | Later phases retain the preflight and sequencing gates below. |
@@ -1170,9 +1170,10 @@ after the read surface is stable.
 
 ## First end-to-end vertical slice
 
-The target first slice spans Phases 0–4 and has no hidden Phase 6 dependency. Its data path
-through Gold has run successfully, but the slice is not complete until Phase 4's Lakebase,
-Databricks App, and full browser-serving acceptance work above is delivered:
+The first slice spans Phases 0–4 and has no hidden Phase 6 dependency. Its data path
+through Gold has run successfully and every stage below is now deployed by the bundle. The
+slice is complete once the App is deployed with its caller service principal and the
+freshness and deletion acceptance runs pass:
 
 ```text
 Nietzsche highlight
