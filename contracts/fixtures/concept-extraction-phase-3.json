@@ -1,0 +1,27 @@
+{
+  "evaluation": {
+    "source_type": "highlight_passage",
+    "source_id": "30000000-0000-4000-8000-000000000001",
+    "book": "On the Genealogy of Morality",
+    "note": "Public domain. Used for both the deterministic fixed-response test and the live evaluation.",
+    "text": "Let us articulate this new demand: we need a critique of moral values, the value of these values should itself, for once, be examined -- and so we need to know about the conditions and circumstances under which the values grew up, developed and changed.",
+    "reference_concepts": [
+      "morality",
+      "genealogy of morality",
+      "value judgment",
+      "good and evil",
+      "origin of moral values"
+    ],
+    "live_minimum_recall": 4,
+    "live_maximum_unsupported": 2
+  },
+  "fixed_response": "{\"concepts\":[{\"label\":\"Morality\",\"confidence\":0.95,\"broader\":\"moral philosophy\"},{\"label\":\"Genealogy of Morals\",\"confidence\":0.92,\"broader\":\"morality\"},{\"label\":\"value judgments\",\"confidence\":0.88},{\"label\":\"good and evil\",\"confidence\":0.71,\"broader\":\"morality\"},{\"label\":\"origins of moral values\",\"confidence\":0.83}]}",
+  "invalid_responses": [
+    { "name": "prose instead of json", "raw": "Here are the concepts: morality, genealogy." },
+    { "name": "empty concept list", "raw": "{\"concepts\":[]}" },
+    { "name": "confidence out of range", "raw": "{\"concepts\":[{\"label\":\"morality\",\"confidence\":1.4}]}" },
+    { "name": "unknown field", "raw": "{\"concepts\":[{\"label\":\"morality\",\"confidence\":0.5,\"why\":\"because\"}]}" },
+    { "name": "nine concepts", "raw": "{\"concepts\":[{\"label\":\"a\",\"confidence\":0.5},{\"label\":\"b\",\"confidence\":0.5},{\"label\":\"c\",\"confidence\":0.5},{\"label\":\"d\",\"confidence\":0.5},{\"label\":\"e\",\"confidence\":0.5},{\"label\":\"f\",\"confidence\":0.5},{\"label\":\"g\",\"confidence\":0.5},{\"label\":\"h\",\"confidence\":0.5},{\"label\":\"i\",\"confidence\":0.5}]}" },
+    { "name": "boolean confidence", "raw": "{\"concepts\":[{\"label\":\"morality\",\"confidence\":true}]}" }
+  ]
+}

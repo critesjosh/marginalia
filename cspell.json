@@ -141,6 +141,7 @@
     "pushvalue",
     "pyspark",
     "quartz",
+    "qwen",
     "rapidjson",
     "readwise",
     "reauthentication",

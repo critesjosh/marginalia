@@ -54,7 +54,7 @@ These choices remove implementation branches from the first `/goal` runs.
 | Infrastructure definition | Declarative Automation Bundles checked into this repository | UI-only configuration |
 | Transform cadence | Triggered every 15 minutes in the personal prototype | Continuous Gold computation |
 | Lakebase serving sync | Triggered after a successful Gold update | Continuous sync |
-| Concept model | Databricks pay-per-token endpoint `databricks-gpt-5-6-luna` | A later evaluated cheaper or open model |
+| Concept model | Databricks pay-per-token endpoint `databricks-gpt-oss-120b` | A later evaluated cheaper or open model |
 | Initial client | PWA | KOReader live delivery after the PWA contract is stable |
 | Tenancy | One trusted personal user | Multi-user sign-in and row isolation |
 
@@ -81,6 +81,14 @@ review and plan revision. At minimum, revise the locked decisions, architecture 
 Worker and Databricks trust boundaries, ordering guarantees, retention and deletion
 semantics, Phase 1 deliverables and acceptance criteria, observability, and failure
 fixtures before implementation resumes.
+
+The concept model changed from `databricks-gpt-5-6-luna` on 2026-09-01. The Phase 3
+preflight found that the target workspace does not serve a luna endpoint in its region,
+and the plan requires stopping rather than substituting silently. `databricks-gpt-oss-120b`
+was chosen from what the workspace does serve: it is the strongest reasoning model
+available there, its 128K context holds a book's worth of highlights in one request, and
+its adjustable reasoning effort is the cost lever. The endpoint is a bundle variable, so a
+later evaluation can move it without touching extraction code.
 
 Current references for the choices above:
 
@@ -119,7 +127,7 @@ Spark Declarative Pipelines and scheduled jobs
     |
     +--> marginalia_silver.events, sessions, highlights, questions, books
     |
-    +--> incremental concept extraction through databricks-gpt-5-6-luna
+    +--> incremental concept extraction through databricks-gpt-oss-120b
     |
     +--> marginalia_gold.book_engagement, reader_interest_profile,
          intellectual_frontier, recommendation_candidates
@@ -648,7 +656,7 @@ engagement_score_v1 =
 Only new or changed consented highlight text, notes, user questions, book memory, and
 book descriptions are candidates. Assistant text and surrounding context are excluded.
 
-The extraction job calls `databricks-gpt-5-6-luna` with prompt version
+The extraction job calls `databricks-gpt-oss-120b` with prompt version
 `concept-extraction-v1`, temperature 0, and a JSON-only schema. It requests 1–8 concise
 concept labels, an optional broader concept, and confidence from 0 to 1. Results record:
 
@@ -970,7 +978,7 @@ Acceptance:
 
 Preflight:
 
-- verify the workspace exposes `databricks-gpt-5-6-luna` in its region;
+- verify the workspace exposes `databricks-gpt-oss-120b` in its region;
 - verify the job service principal can query the endpoint and write the extraction and
   Gold tables; and
 - run one non-private synthetic request through the JSON validator. Stop rather than

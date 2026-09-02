@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/concepts/v1/extraction-response.schema.json",
+  "title": "concept-extraction-v1 response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["concepts"],
+  "properties": {
+    "concepts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["label", "confidence"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "broader": { "type": "string", "minLength": 1, "maxLength": 80 }
+        }
+      }
+    }
+  }
+}

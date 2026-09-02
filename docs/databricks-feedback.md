@@ -8,6 +8,21 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-01: Phase 3 preflight, concept model unavailable
+
+- Surface used: Databricks CLI (`serving-endpoints list`, `serving-endpoints get`)
+- Goal: clear the Phase 3 preflight gate before building concept extraction.
+- Result: the gate failed. The workspace exposes eleven serving endpoints and
+  `databricks-gpt-5-6-luna` is not among them; a direct get returns "Endpoint with name
+  'databricks-gpt-5-6-luna' does not exist." Phase 3 stopped without substituting a model,
+  as the plan requires.
+- Friction: the locked plan names a pay-per-token endpoint that this workspace and region
+  do not serve, and the CLI reports absence the same way for an endpoint that is
+  unavailable regionally and one that was never provisioned, so the two cannot be told
+  apart from the client.
+- Workaround or follow-up: the concept model was changed to `databricks-gpt-oss-120b`
+  and the locked decision revised in the plan.
+
 ### 2026-09-01: Phase 2 deployment and synthetic acceptance run
 
 - Surface used: Databricks CLI (bundles, pipelines, filesystem), Unity Catalog volume,
