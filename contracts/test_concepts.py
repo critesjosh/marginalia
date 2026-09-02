@@ -62,9 +62,63 @@ class Canonicalization(unittest.TestCase):
         self.assertEqual(canonicalize("   "), "")
         self.assertEqual(canonicalize(None), "")
 
+    def test_a_name_is_not_a_plural(self):
+        """
+        The model writes concepts in sentence case, capitalising exactly the
+        proper nouns, so a capitalized final word is a name. Stripping its s
+        coins a word nobody wrote and then makes it the concept id: the thing
+        interest matching keys on and the thing sent to OpenAlex to search for.
+
+        A live session produced "Databricks" and stored "databrick", which
+        reached third place in a reader's interest profile. The Nietzsche
+        fixtures contain no proper noun ending in s, which is why nothing here
+        caught it before.
+        """
+        for name in ("Databricks", "Socrates", "Descartes", "Hobbes", "Keynes", "Athens"):
+            self.assertEqual(canonicalize(name), name.lower())
+
+    def test_a_plural_is_still_a_plural(self):
+        """The guard must not cost us the singularization it protects."""
+        self.assertEqual(canonicalize("value judgments"), "value judgment")
+        self.assertEqual(canonicalize("memories"), "memory")
+        self.assertEqual(canonicalize("churches"), "church")
+        self.assertEqual(canonicalize("boxes"), "box")
+
+    def test_capitalization_inside_a_phrase_is_not_evidence(self):
+        """
+        Title case explains a capital inside a phrase, so it cannot mean a name
+        there. The model writes "Genealogy of Morals" and "value judgments"
+        with equal willingness, and both must still singularize.
+        """
+        self.assertEqual(canonicalize("Genealogy of Morals"), "genealogy of morality")
+        self.assertEqual(canonicalize("Value Judgments"), "value judgment")
+
+    def test_shouting_is_not_a_name(self):
+        """An all-capitals word is emphasis or an acronym, not how a name reads."""
+        self.assertEqual(canonicalize("GENEALOGIES"), "genealogy")
+
+    def test_the_guard_costs_a_capitalized_single_plural(self):
+        """
+        Stated rather than hidden: a bare capitalized plural keeps its s, so
+        "Judgments" alone and "judgments" alone become different concepts.
+
+        That is the accepted price. Fragmenting two real words is recoverable;
+        coining "socrate" and searching OpenAlex for it is not.
+        """
+        self.assertEqual(canonicalize("Judgments"), "judgments")
+        self.assertEqual(canonicalize("judgments"), "judgment")
+
     def test_spark_closure_matches_the_local_canonicalizer(self):
         canonicalize_for_spark = make_concept_canonicalizer()
-        labels = ["Value Judgments", "Genealogy of Morals", "ethics", "good vs evil"]
+        labels = [
+            "Value Judgments",
+            "Genealogy of Morals",
+            "ethics",
+            "good vs evil",
+            "Databricks",
+            "Socrates",
+            "value judgments",
+        ]
         self.assertEqual(
             [canonicalize_for_spark(label) for label in labels],
             [canonicalize(label) for label in labels],

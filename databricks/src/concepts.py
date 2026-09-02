@@ -14,7 +14,7 @@ PROMPT_VERSION = "concept-extraction-v1"
 # Alias edits do not rewrite provenance in place. Bump this instead, so a row
 # records the version that produced its canonical value and an older row stays
 # explicable.
-CANONICALIZATION_VERSION = 2
+CANONICALIZATION_VERSION = 3
 
 MAX_CONCEPTS = 8
 MIN_CONCEPTS = 1
@@ -60,6 +60,10 @@ CONCEPT_ALIASES = {
 # Endings that look plural and are not: a mass noun ("ethics", "politics"), a
 # Latin singular ("corpus", "analysis"), or a word that simply ends in one of
 # them. Stripping the s here would coin a concept nobody wrote.
+#
+# These cover common nouns only. Names are handled by case instead: see the
+# proper-noun check below, which is why "Socrates" survives and "ethics" needs
+# to be listed here.
 NON_PLURAL_SUFFIXES = ("ss", "us", "is", "ics", "ous")
 
 
@@ -77,19 +81,45 @@ def make_concept_canonicalizer():
     non_plural_suffixes = tuple(NON_PLURAL_SUFFIXES)
 
     def canonicalize_value(value):
-        text = unicodedata.normalize("NFKC", str(value or "")).strip().lower()
+        text = unicodedata.normalize("NFKC", str(value or "")).strip()
         text = re.sub(r"[‐-―]", "-", text)
         text = re.sub(r"\s+", " ", text).strip(" .,;:")
         if not text:
             return ""
         words = text.split(" ")
+
+        # Decided before the case is folded, because folding destroys the only
+        # evidence there is.
+        #
+        # Capitalization means a name only where title case cannot explain it.
+        # The model writes "Genealogy of Morals" and "Morality" as readily as
+        # "value judgments", so inside a phrase a capital says nothing. Standing
+        # alone it says more: a bare capitalized word the model chose not to
+        # lowercase is "Databricks" or "Socrates" far more often than it is a
+        # plural common noun, and a capitalized common noun standing alone
+        # ("Morality") has no s to lose either way.
+        #
+        # So the guard applies to single words only, and multi-word phrases
+        # singularize as before. An all-capitals word is excluded too: that is
+        # emphasis or an acronym, not the shape a name is written in.
+        #
+        # The two ways to be wrong are not equal. Failing to singularize leaves
+        # a real word that may sit apart from its singular form. Singularizing
+        # a name coins a word nobody wrote, makes it the concept id, and sends
+        # it to OpenAlex to search for. This errs toward the first.
+        looks_like_a_name = (
+            len(words) == 1 and words[0][:1].isupper() and not words[0].isupper()
+        )
+
+        words = [word.lower() for word in words]
         word = words[-1]
-        if len(word) > 4 and word.endswith("ies"):
-            word = word[:-3] + "y"
-        elif len(word) > 4 and word.endswith(("sses", "shes", "ches", "xes", "zes")):
-            word = word[:-2]
-        elif len(word) > 3 and word.endswith("s") and not word.endswith(non_plural_suffixes):
-            word = word[:-1]
+        if not looks_like_a_name:
+            if len(word) > 4 and word.endswith("ies"):
+                word = word[:-3] + "y"
+            elif len(word) > 4 and word.endswith(("sses", "shes", "ches", "xes", "zes")):
+                word = word[:-2]
+            elif len(word) > 3 and word.endswith("s") and not word.endswith(non_plural_suffixes):
+                word = word[:-1]
         words[-1] = word
         normalized = " ".join(words)
         return aliases.get(normalized, normalized)
