@@ -203,19 +203,6 @@ export function useReader(
         setRendition(rend)
         setReady(true)
 
-        // Open the session from the stored position rather than waiting for a
-        // relocation. The first one epub.js reports arrives before the listener
-        // below is attached, and a reader who opens a book and never turns a
-        // page produces no further relocation at all, so the session would
-        // otherwise never open and never close.
-        const opening: ReadingSnapshot = {
-          cfi: stored.lastCfi ?? '',
-          progress: stored.progress ?? 0,
-        }
-        latestReading.current = opening
-        const openedAt = Date.now()
-        persistReading(opening, tracker.open(opening, openedAt), openedAt)
-
         // The first paint can drift as images load; re-anchor once it settles.
         // Hold the saved position for the whole wait, or the short landing that
         // the first paint reports would be written back over it.
