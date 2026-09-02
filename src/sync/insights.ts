@@ -75,17 +75,39 @@ async function credentials(): Promise<string | undefined> {
  * refresh that fails leaves the cached copy exactly as it was: a reader who is
  * offline keeps seeing their insights, labelled old.
  */
-export async function readCachedInsights<T>(id: string, now = Date.now()): Promise<InsightsView<T>> {
+export async function readCachedInsights<T>(
+  id: string,
+  now = Date.now(),
+  force: InsightsStatus | undefined = undefined,
+): Promise<InsightsView<T>> {
+  // Consent is rechecked on every read, not only when fetching. A tab that
+  // turned sync off, or a deletion that completed elsewhere, must not leave a
+  // previous opt-in's insights readable from this one.
+  if (!(await credentials())) return { status: 'unavailable', rows: [] }
+
   const cached = (await db.insightsCache.get(id)) as InsightsCache | undefined
   if (!cached) return { status: 'unavailable', rows: [] }
 
   const envelope = cached.payload as InsightsEnvelope<T> | undefined
   return {
-    status: now - cached.cachedAt > STALE_AFTER_MS ? 'stale' : 'fresh',
+    status: force ?? (now - cached.cachedAt > STALE_AFTER_MS ? 'stale' : 'fresh'),
     rows: envelope?.rows ?? [],
     sourceUpdatedAt: cached.sourceUpdatedAt || undefined,
     cachedAt: cached.cachedAt,
   }
+}
+
+/**
+ * A refresh that did not succeed is stale by definition, however recently the
+ * cache was written. The reader is looking at something the cloud may already
+ * have changed, and saying "fresh" would be a claim we cannot support.
+ */
+function staleCache<T>(id: string, now: number): Promise<InsightsView<T>> {
+  return readCachedInsights<T>(id, now, 'stale')
+}
+
+function isRowShaped(rows: unknown): rows is unknown[] {
+  return Array.isArray(rows) && rows.every((row) => typeof row === 'object' && row !== null)
 }
 
 export async function refreshInsights<T>(
@@ -104,26 +126,36 @@ export async function refreshInsights<T>(
   try {
     response = await transport(id, token)
   } catch {
-    return await readCachedInsights<T>(id, now)
+    return await staleCache<T>(id, now)
   }
 
-  if (!response.ok) return await readCachedInsights<T>(id, now)
+  if (!response.ok) return await staleCache<T>(id, now)
 
   let envelope: InsightsEnvelope<T>
   try {
     envelope = (await response.json()) as InsightsEnvelope<T>
   } catch {
-    return await readCachedInsights<T>(id, now)
+    return await staleCache<T>(id, now)
   }
-  if (!Array.isArray(envelope?.rows)) return await readCachedInsights<T>(id, now)
+  // Every row must be an object. An array of nulls is a successful response and
+  // would replace a good cache with something that cannot be rendered.
+  if (!isRowShaped(envelope?.rows)) return await staleCache<T>(id, now)
 
   const sourceUpdatedAt = envelope.sourceUpdatedAt ? Date.parse(envelope.sourceUpdatedAt) : Number.NaN
-  await db.insightsCache.put({
-    id,
-    payload: envelope,
-    sourceUpdatedAt: Number.isFinite(sourceUpdatedAt) ? sourceUpdatedAt : 0,
-    cachedAt: now,
+  // Consent is rechecked inside the write. A request that began while sync was
+  // on can land after another tab turned it off or finished a deletion, and it
+  // must not repopulate what that tab just cleared.
+  const written = await db.transaction('rw', [db.settings, db.insightsCache], async () => {
+    if (!(await db.settings.get('settings'))?.syncEnabled) return false
+    await db.insightsCache.put({
+      id,
+      payload: envelope,
+      sourceUpdatedAt: Number.isFinite(sourceUpdatedAt) ? sourceUpdatedAt : 0,
+      cachedAt: now,
+    })
+    return true
   })
+  if (!written) return { status: 'unavailable', rows: [] }
 
   return {
     status: 'fresh',
@@ -151,25 +183,37 @@ export interface DeletionRequest {
 export async function requestCloudDeletion(
   options: { transport?: InsightsTransport; requestId?: string } = {},
 ): Promise<{ requestId: string; submitted: boolean }> {
-  const settings = await db.settings.get('settings')
-  const token = settings?.syncToken
-  const existing = (await db.syncState.get('sync'))?.activeDeletionRequestId
-  const requestId = options.requestId ?? existing ?? crypto.randomUUID()
+  const token = (await db.settings.get('settings'))?.syncToken
 
-  await db.transaction('rw', [db.settings, db.syncState, db.eventOutbox, db.insightsCache], async () => {
-    const current = await db.settings.get('settings')
-    if (current) await db.settings.put({ ...current, syncEnabled: false })
-    const state = await db.syncState.get('sync')
-    if (state) {
+  // The id is chosen and claimed inside the transaction. Choosing it outside
+  // lets two tabs that start together both see no request, mint different ids,
+  // and open two deletions of which only the last is trackable.
+  const requestId = await db.transaction(
+    'rw',
+    [db.settings, db.syncState, db.eventOutbox, db.insightsCache],
+    async () => {
+      const current = await db.settings.get('settings')
+      if (current) await db.settings.put({ ...current, syncEnabled: false })
+
+      const state = await db.syncState.get('sync')
+      const claimed =
+        options.requestId ?? state?.activeDeletionRequestId ?? crypto.randomUUID()
+      // The row may not exist yet: enabling sync does not create it, and a
+      // reader can ask for deletion before a single event has been queued.
       await db.syncState.put({
+        id: 'sync',
+        installationId: state?.installationId ?? crypto.randomUUID(),
+        nextSequence: state?.nextSequence ?? 1,
         ...state,
-        activeDeletionRequestId: requestId,
+        activeDeletionRequestId: claimed,
         pausedReason: 'sync_disabled',
       })
-    }
-    await db.eventOutbox.clear()
-    await db.insightsCache.clear()
-  })
+
+      await db.eventOutbox.clear()
+      await db.insightsCache.clear()
+      return claimed
+    },
+  )
 
   if (!token) return { requestId, submitted: false }
 

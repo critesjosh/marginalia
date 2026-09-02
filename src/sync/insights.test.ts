@@ -59,21 +59,6 @@ describe('insights caching', () => {
     expect(view.cachedAt).toBe(NOW)
   })
 
-  it('keeps showing cached insights when the network fails', async () => {
-    await settings({ syncEnabled: true, syncToken: TOKEN })
-    await refreshInsights(INTEREST_PROFILE, { transport: responding({ rows: ROWS }), now: NOW })
-
-    const offline: InsightsTransport = async () => {
-      throw new Error('offline')
-    }
-    const view = await refreshInsights<InterestConcept>(INTEREST_PROFILE, {
-      transport: offline,
-      now: NOW + 1000,
-    })
-    expect(view.status).toBe('fresh')
-    expect(view.rows).toEqual(ROWS)
-  })
-
   it('labels a cached read stale once it is old enough', async () => {
     await settings({ syncEnabled: true, syncToken: TOKEN })
     await refreshInsights(INTEREST_PROFILE, { transport: responding({ rows: ROWS }), now: NOW })
@@ -99,6 +84,53 @@ describe('insights caching', () => {
       })
       expect(view.rows).toEqual(ROWS)
     }
+  })
+
+  it('does not repopulate the cache from a request that outlived consent', async () => {
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    // The response lands after another tab has turned sync off.
+    const racing: InsightsTransport = async () => {
+      await settings({ syncEnabled: false, syncToken: TOKEN })
+      return new Response(JSON.stringify({ rows: ROWS }), { status: 200 })
+    }
+    const view = await refreshInsights(INTEREST_PROFILE, { transport: racing, now: NOW })
+    expect(view).toEqual({ status: 'unavailable', rows: [] })
+    expect(await db.insightsCache.get(INTEREST_PROFILE)).toBeUndefined()
+  })
+
+  it('will not read a cache back once sync is off', async () => {
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    await refreshInsights(INTEREST_PROFILE, { transport: responding({ rows: ROWS }), now: NOW })
+    await settings({ syncEnabled: false, syncToken: TOKEN })
+    expect(await readCachedInsights(INTEREST_PROFILE, NOW)).toEqual({
+      status: 'unavailable',
+      rows: [],
+    })
+  })
+
+  it('keeps showing cached insights when the network fails, labelled stale', async () => {
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    await refreshInsights(INTEREST_PROFILE, { transport: responding({ rows: ROWS }), now: NOW })
+    const offline: InsightsTransport = async () => {
+      throw new Error('offline')
+    }
+    // One second old, and still stale: the cloud may already have moved on.
+    const view = await refreshInsights<InterestConcept>(INTEREST_PROFILE, {
+      transport: offline,
+      now: NOW + 1000,
+    })
+    expect(view.status).toBe('stale')
+    expect(view.rows).toEqual(ROWS)
+  })
+
+  it('refuses rows that are not objects rather than caching something the view cannot draw', async () => {
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    await refreshInsights(INTEREST_PROFILE, { transport: responding({ rows: ROWS }), now: NOW })
+    const view = await refreshInsights<InterestConcept>(INTEREST_PROFILE, {
+      transport: responding({ rows: [null] }),
+      now: NOW + 1,
+    })
+    expect(view.rows).toEqual(ROWS)
   })
 
   it('reports nothing at all as unavailable rather than as empty', async () => {
@@ -152,6 +184,29 @@ describe('cloud deletion', () => {
     const second = await requestCloudDeletion({ transport: responding({}) })
     expect(second.requestId).toBe(first.requestId)
     expect(second.submitted).toBe(true)
+  })
+
+  it('claims one request id even when two tabs ask at once', async () => {
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    const [first, second] = await Promise.all([
+      requestCloudDeletion({ transport: responding({}) }),
+      requestCloudDeletion({ transport: responding({}) }),
+    ])
+    expect(first.requestId).toBe(second.requestId)
+    expect((await db.syncState.get('sync'))?.activeDeletionRequestId).toBe(first.requestId)
+  })
+
+  it('records the request id even with no sync state row to put it in', async () => {
+    // A reader can ask for deletion before a single event has been queued.
+    await db.syncState.clear()
+    await settings({ syncEnabled: true, syncToken: TOKEN })
+    const failing: InsightsTransport = async () => {
+      throw new Error('offline')
+    }
+    const first = await requestCloudDeletion({ transport: failing })
+    expect((await db.syncState.get('sync'))?.activeDeletionRequestId).toBe(first.requestId)
+    const retry = await requestCloudDeletion({ transport: responding({}) })
+    expect(retry.requestId).toBe(first.requestId)
   })
 
   it('still disables sync locally when there is no token to ask with', async () => {

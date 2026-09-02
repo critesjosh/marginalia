@@ -60,18 +60,33 @@ export default function SettingsPage() {
   const [deleting, setDeleting] = useState(false)
   const [deletionMessage, setDeletionMessage] = useState<string>()
   const [deletionStatus, setDeletionStatus] = useState<string>()
+  // Bumped by a retry so the status effect runs again for the same request id.
+  const [deletionAttempts, setDeletionAttempts] = useState(0)
 
   const activeDeletion = syncState?.activeDeletionRequestId
   useEffect(() => {
     if (!activeDeletion) return
     let cancelled = false
-    void readDeletionStatus(activeDeletion).then((result) => {
-      if (!cancelled) setDeletionStatus(result?.status)
-    })
+
+    // The first read can land before the request has been created, and a retry
+    // reuses the same id, so neither the id nor a single read is enough to keep
+    // the status current. Poll until it reaches a state that cannot change.
+    const poll = async () => {
+      const result = await readDeletionStatus(activeDeletion)
+      if (cancelled) return
+      setDeletionStatus(result?.status)
+      if (result?.status === 'completed' || result?.status === 'failed') {
+        window.clearInterval(timer)
+      }
+    }
+    const timer = window.setInterval(() => void poll(), 15_000)
+    void poll()
+
     return () => {
       cancelled = true
+      window.clearInterval(timer)
     }
-  }, [activeDeletion])
+  }, [activeDeletion, deletionAttempts])
 
   async function startDeletion() {
     setDeleting(true)
@@ -88,6 +103,7 @@ export default function SettingsPage() {
     } finally {
       setDeleting(false)
       setConfirmingDeletion(false)
+      setDeletionAttempts((count) => count + 1)
     }
   }
 
