@@ -1,6 +1,6 @@
 # Pinned. An app that resolves a different FastAPI on its next deploy is an app
 # whose behaviour changed without anybody deciding it should.
-databricks-sdk==0.68.0
+databricks-sdk==0.133.0
 databricks-sql-connector==4.0.5
 fastapi==0.118.0
 psycopg[binary]==3.2.10

@@ -87,9 +87,17 @@ resources:
             python_file: ../src/serving_sync.py
             parameters:
               - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name}
-          environment_key: concepts
+          environment_key: serving
       environments:
         - environment_key: concepts
           spec:
             client: "3"
             dependencies: []
+        # The serverless runtime's own SDK predates the Lakebase API, so a
+        # WorkspaceClient there has no .database at all. Only the task that
+        # needs it takes the dependency; the others keep working as they are.
+        - environment_key: serving
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-sdk==0.133.0

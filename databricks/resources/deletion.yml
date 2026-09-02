@@ -55,7 +55,7 @@ resources:
             python_file: ../src/serving_sync.py
             parameters:
               - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name}
-          environment_key: deletion
+          environment_key: serving
         - task_key: verify
           depends_on:
             - task_key: sync_serving
@@ -76,6 +76,12 @@ resources:
           spec:
             client: "3"
             dependencies: []
+        # See events_ingestion.yml: the runtime SDK has no Lakebase API.
+        - environment_key: serving
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-sdk==0.133.0
 
     # The connector can put a deleted reader back into Bronze for as long as the
     # topic retains their records. This sweeps every request that is still

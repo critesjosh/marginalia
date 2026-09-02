@@ -177,6 +177,67 @@ class DeletionManifest(unittest.TestCase):
         self.assertIn("permission: CAN_MANAGE_RUN", SERVING_YML)
 
 
+class PipelineRestrictions(unittest.TestCase):
+    """
+    Pipeline code and job code look identical and are not. A declarative
+    pipeline runs under py4j security that does not whitelist Catalog methods,
+    so spark.catalog there fails at analysis time with a
+    Py4JSecurityException the source gives no hint of.
+    """
+
+    PIPELINES = ("events_ingestion.py", "events_silver.py", "gold_profiles.py", "frontier.py")
+
+    def test_no_pipeline_calls_spark_catalog(self):
+        for name in self.PIPELINES:
+            source = (ROOT / "databricks/src" / name).read_text()
+            code = [
+                line for line in source.splitlines() if not line.lstrip().startswith("#")
+            ]
+            offenders = [line.strip() for line in code if "spark.catalog." in line]
+            self.assertEqual(offenders, [], f"{name} calls spark.catalog")
+
+    def test_suppression_tolerates_only_a_missing_table(self):
+        """
+        A broad except here would turn any read failure into "suppress nobody",
+        which repopulates a reader who asked to be deleted.
+        """
+        body = re.search(
+            r"def _without_deleted_readers.*?return frame\.join", SILVER_PY, re.S
+        )
+        assert body
+        self.assertIn("except AnalysisException", body.group(0))
+        self.assertIn("TABLE_OR_VIEW_NOT_FOUND", body.group(0))
+        self.assertIn("raise", body.group(0))
+        self.assertNotIn("except Exception", body.group(0))
+
+
+class RuntimeDependencies(unittest.TestCase):
+    """
+    The serverless runtime ships its own databricks-sdk, and it is old enough
+    that WorkspaceClient has no .database at all. A task that uses the Lakebase
+    API and declares no dependency fails at runtime with an AttributeError,
+    which nothing about the source suggests.
+    """
+
+    SDK_PIN = "databricks-sdk==0.133.0"
+
+    def test_the_task_using_the_lakebase_api_pins_an_sdk_that_has_it(self):
+        self.assertIn("workspace.database", SYNC_PY)
+        for name in ("events_ingestion.yml", "deletion.yml"):
+            resource = (ROOT / "databricks/resources" / name).read_text()
+            self.assertIn("serving_sync.py", resource)
+            self.assertIn("environment_key: serving", resource)
+            self.assertIn(self.SDK_PIN, resource)
+
+    def test_the_app_pins_the_same_sdk_as_the_jobs(self):
+        """
+        A database resource sets PGPASSWORD, so the App's credential path can
+        go unexercised for a long time and then fail on the day it is needed.
+        """
+        requirements = (ROOT / "databricks/src/app/requirements.txt").read_text()
+        self.assertIn(self.SDK_PIN, requirements)
+
+
 class SyncedTableStates(unittest.TestCase):
     def test_states_use_the_names_the_api_actually_returns(self):
         """

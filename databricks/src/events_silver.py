@@ -5,6 +5,7 @@
 # revise the affected state instead of being discarded permanently.
 
 from pyspark import pipelines as dp
+from pyspark.errors import AnalysisException
 from pyspark.sql import SparkSession, Window
 from pyspark.sql import functions as F
 
@@ -203,15 +204,26 @@ def _without_deleted_readers(frame):
     anything is derived from them. The table may not exist yet: a workspace can
     run this pipeline before its first deletion request is ever made, and that
     is not a reason to fail the run.
+
+    Absence is detected by reading and catching, not by spark.catalog: py4j
+    security does not whitelist Catalog.tableExists inside a pipeline, though it
+    is available to the jobs in this bundle.
+
+    Only "the table is not there" is tolerated. Any other failure re-raises,
+    because the alternative is a run that quietly suppresses nobody and
+    repopulates a reader who asked to be deleted.
     """
-    if not spark.catalog.tableExists(DELETION_REQUESTS):
-        return frame
-    deleting = (
-        spark.read.table(DELETION_REQUESTS)
-        .filter(F.col("status").isin(DELETING_STATUSES))
-        .select("user_id")
-        .distinct()
-    )
+    try:
+        deleting = (
+            spark.read.table(DELETION_REQUESTS)
+            .filter(F.col("status").isin(DELETING_STATUSES))
+            .select("user_id")
+            .distinct()
+        )
+    except AnalysisException as error:
+        if "TABLE_OR_VIEW_NOT_FOUND" in str(error) or "cannot be found" in str(error):
+            return frame
+        raise
     return frame.join(deleting, ["user_id"], "left_anti")
 
 
