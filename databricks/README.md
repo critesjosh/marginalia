@@ -12,8 +12,12 @@ databricks.yml                   bundle, variables, dev and prod targets
 resources/catalog.yml            the bronze/silver/gold/ops schemas
 resources/events_ingestion.yml   triggered pipeline and its 15-minute schedule
 resources/events_silver.yml      parsing, deduplication, state, and sessions
+resources/concepts_gold.yml      engagement and interest profiles
 src/events_ingestion.py          Kafka source that writes events_raw
 src/events_silver.py             Bronze quarantine and Silver materialized views
+src/concepts.py                  canonicalization, response validation, scoring
+src/concept_extraction.py        incremental extraction job, keyed by content hash
+src/gold_profiles.py             book_engagement and reader_interest_profile
 ```
 
 Nothing in this directory names a workspace, a credential, or a private resource
@@ -144,6 +148,18 @@ Run one update on demand:
 ```sh
 databricks bundle run events_ingestion -t dev
 ```
+
+The concept model is the `concept_endpoint` bundle variable, defaulting to
+`databricks-gpt-oss-120b`. The plan originally locked a `luna` endpoint, which
+this workspace does not serve; the decision and the reason are recorded in
+[the feedback log](../docs/databricks-feedback.md). Point it somewhere else with
+`--var concept_endpoint=...` rather than editing extraction code.
+
+Extraction is a job task and not a pipeline, because a materialized view is
+recomputed when its source changes and would call the model again for text that
+has not changed. It is keyed by the hash of the content it read, so unchanged
+content is never paid for twice, and each run takes at most
+`extraction_batch_limit` candidates.
 
 Refresh Silver after Bronze independently when debugging transformations:
 

@@ -29,6 +29,17 @@ variables:
   kafka_topic:
     description: Topic the Cloudflare Worker produces consented events to.
     default: marginalia.events.v1
+  concept_endpoint:
+    description: >-
+      Serving endpoint the concept extraction job queries. A variable rather than
+      a literal because the plan's original choice is not served in every region;
+      changing it is a recorded decision, not an edit in passing.
+    default: databricks-gpt-oss-120b
+  extraction_batch_limit:
+    description: >-
+      Most candidates one extraction run will pay for. The next run takes the
+      rest, so a backlog costs no more per run than a steady state does.
+    default: "200"
 
 include:
   - resources/*.yml

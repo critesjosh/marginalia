@@ -34,3 +34,26 @@ resources:
             - task_key: ingest
           pipeline_task:
             pipeline_id: ${resources.pipelines.events_silver.id}
+        # Extraction is a job task, not a pipeline: it calls a model, and a
+        # materialized view would call it again every time Silver changed.
+        - task_key: extract_concepts
+          depends_on:
+            - task_key: transform_silver
+          spark_python_task:
+            python_file: ../src/concept_extraction.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --concept_endpoint=${var.concept_endpoint}
+              - --extraction_batch_limit=${var.extraction_batch_limit}
+          environment_key: concepts
+        - task_key: build_gold
+          depends_on:
+            - task_key: extract_concepts
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gold_profiles.id}
+      environments:
+        - environment_key: concepts
+          spec:
+            client: "3"
+            dependencies: []
