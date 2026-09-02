@@ -35,6 +35,10 @@ BRONZE = _argument("bronze_schema")
 SILVER = _argument("silver_schema")
 GOLD = _argument("gold_schema")
 OPS = _argument("ops_schema")
+# The Unity Catalog names of the Lakebase synced tables. Verification counts
+# them because "removed from every queryable layer" includes the copy the
+# browser actually reads, and a settled sync is a claim, not a check.
+SERVED = [name.strip() for name in _argument("synced_tables", "").split(",") if name.strip()]
 # Which half of the run this invocation is. The pipeline refreshes happen as job
 # tasks in between, because a full refresh is the platform's operation and not
 # something this script should reimplement with an SDK call and a poll loop.
@@ -58,6 +62,10 @@ DELETED_TABLES = [
     (f"{CATALOG}.{SILVER}.concept_extractions", "user_id"),
     (f"{CATALOG}.{SILVER}.concept_source_state", "user_id"),
     (f"{CATALOG}.{SILVER}.concept_extraction_runs", None),
+    # Overwritten each run rather than appended to, but what the last run left
+    # behind persists indefinitely and holds the reader's id alongside the
+    # model's answer about their text.
+    (f"{CATALOG}.{SILVER}._concept_extraction_staging", "user_id"),
     (f"{CATALOG}.{SILVER}.book_work_matches", "user_id"),
     (f"{CATALOG}.{SILVER}.public_request_subjects", "user_id"),
 ]
@@ -87,7 +95,11 @@ RECOMPUTED_TABLES = [
 # research_works is deliberately absent from every list. It holds OpenAlex
 # metadata about public research and names no reader at all.
 
-ACTIVE_STATUSES = ("accepted", "running", "purging_source")
+# Every state except completed. A request that failed halfway has already had
+# rows deleted out from under it, and dropping suppression there would let the
+# topic replay the reader back into the tables the purge had emptied. It stays
+# suppressed, and the nightly sweep picks it up again.
+ACTIVE_STATUSES = ("accepted", "running", "purging_source", "failed")
 
 # Both ids are server-stamped rather than browser-supplied, but they are still
 # interpolated into SQL here, and an identifier that reaches a DELETE unchecked
@@ -231,7 +243,8 @@ def purge(user_id: str) -> dict:
 def verify(user_id: str) -> dict:
     """Every table in the manifest, counted rather than trusted."""
     remaining = {}
-    for table, column in DELETED_TABLES + RECOMPUTED_TABLES:
+    served = [(table, "user_id") for table in SERVED]
+    for table, column in DELETED_TABLES + RECOMPUTED_TABLES + served:
         if column is None:
             continue
         remaining[table] = _remaining(table, column, user_id)

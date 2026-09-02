@@ -24,11 +24,16 @@ HIGHLIGHT_HISTORY = f"{CATALOG}.{SILVER_SCHEMA}.highlight_history"
 HIGHLIGHTS_CURRENT = f"{CATALOG}.{SILVER_SCHEMA}.highlights_current"
 READING_SESSIONS = f"{CATALOG}.{SILVER_SCHEMA}.reading_sessions"
 
-# A deletion in these states has already removed the reader from Bronze. The
-# topic can still replay them for as long as it retains their records, so every
-# derived table has to keep refusing those rows until the window has passed.
-# Suppressing at the parse step is what makes that one rule instead of six.
-DELETING_STATUSES = ["accepted", "running", "purging_source"]
+# A deletion in these states has already removed, or is about to remove, the
+# reader from Bronze. The topic can still replay them for as long as it retains
+# their records, so every derived table has to keep refusing those rows until
+# the window has passed. Suppressing at the parse step makes that one rule
+# rather than six.
+#
+# failed is in the list deliberately. A purge that stopped halfway has deleted
+# rows already, and lifting suppression there would let a replay refill exactly
+# the tables it emptied. It stays suppressed until a retry finishes.
+DELETING_STATUSES = ["accepted", "running", "purging_source", "failed"]
 
 UUID_V4 = r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 EVENT_TYPES = [

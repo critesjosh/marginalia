@@ -19,6 +19,8 @@ APP_PY = (ROOT / "databricks/src/app/app.py").read_text()
 DELETION_PY = (ROOT / "databricks/src/deletion.py").read_text()
 SILVER_PY = (ROOT / "databricks/src/events_silver.py").read_text()
 SERVING_YML = (ROOT / "databricks/resources/serving.yml").read_text()
+SYNC_PY = (ROOT / "databricks/src/serving_sync.py").read_text()
+EXTRACTION_PY = (ROOT / "databricks/src/concept_extraction.py").read_text()
 GOLD_PY = (ROOT / "databricks/src/gold_profiles.py").read_text()
 
 
@@ -98,18 +100,82 @@ class ResponseShapes(unittest.TestCase):
 
 class Routes(unittest.TestCase):
     def test_every_worker_upstream_path_is_a_route_the_app_serves(self):
-        upstream = set(re.findall(r"`\$\{base\}(/[a-z-]+(?:/[^`]*)?)`", INTELLIGENCE_TS))
-        served = set(re.findall(r'@app\.(?:get|post)\("/api/v1/users/\{user_id\}([^"]*)"', APP_PY))
-        # The Worker's paths carry interpolations where the App declares
-        # parameters. Comparing the fixed prefix is what both actually agree on.
-        self.assertEqual(
-            {path.split("/$")[0].rstrip("/") for path in upstream},
-            {path.split("/{")[0].rstrip("/") for path in served},
-        )
+        """
+        Shape as well as prefix. Collapsing an interpolated segment to its
+        prefix would let the collection route and the by-id route look like one
+        path, and either could then disappear unnoticed.
+        """
+        upstream = {
+            re.sub(r"\$\{[^}]+\}", "*", path)
+            for path in re.findall(r"`\$\{base\}(/[a-z-]+(?:/[^`]*)?)`", INTELLIGENCE_TS)
+        }
+        served = {
+            re.sub(r"\{[^}]+\}", "*", path)
+            for path in re.findall(
+                r'@app\.(?:get|post)\("/api/v1/users/\{user_id\}([^"]*)"', APP_PY
+            )
+        }
+        self.assertEqual(upstream, served)
+        self.assertIn("/deletion-requests", upstream)
+        self.assertIn("/deletion-requests/*", upstream)
+
+    def test_the_methods_match_as_well_as_the_paths(self):
+        """A GET route the Worker POSTs to is a 405, not a missing route."""
+        self.assertIn('@app.post("/api/v1/users/{user_id}/deletion-requests"', APP_PY)
+        self.assertIn("`${base}/deletion-requests`,\n      'POST'", INTELLIGENCE_TS)
 
     def test_the_browser_asks_for_the_routes_the_worker_exposes(self):
         for route in ("interest-profile", "book-engagement", "delete"):
             self.assertIn(f"'{route}'", INSIGHTS_TS + INTELLIGENCE_TS)
+
+
+class DeletionManifest(unittest.TestCase):
+    def test_every_silver_table_holding_a_reader_is_in_the_manifest(self):
+        """
+        The manifest is the whole promise. A table that names a reader and is
+        not listed is a table a completed deletion left them in, and the
+        extraction staging table is exactly the kind that gets forgotten:
+        overwritten each run, and therefore easy to think of as temporary.
+        """
+        listed = set(re.findall(r'\{SILVER\}\.(\w+)"', DELETION_PY))
+        written = set(re.findall(r'= f"\{CATALOG\}\.\{SILVER\}\.(\w+)"', EXTRACTION_PY))
+        self.assertLessEqual(written, listed)
+        self.assertIn("_concept_extraction_staging", listed)
+
+    def test_verification_reaches_the_copy_the_browser_reads(self):
+        """Absence from Delta is not absence from the serving tables."""
+        self.assertIn("SERVED", DELETION_PY)
+        self.assertIn("+ served", DELETION_PY)
+        self.assertIn("--synced_tables=", (ROOT / "databricks/resources/deletion.yml").read_text())
+
+    def test_a_failed_request_keeps_suppressing_and_gets_retried(self):
+        """
+        A half-finished purge that stopped suppressing would let the topic
+        replay the reader into the tables it had just emptied.
+        """
+        active = re.search(r"ACTIVE_STATUSES = \((.*?)\)", DELETION_PY, re.S)
+        self.assertIn("failed", active.group(1))
+
+    def test_the_app_starts_the_job_rather_than_only_recording_it(self):
+        self.assertIn("workspace.jobs.run_now", APP_PY)
+        self.assertIn("MARGINALIA_DELETION_JOB_ID", SERVING_YML)
+        self.assertIn("permission: CAN_MANAGE_RUN", SERVING_YML)
+
+
+class SyncedTableStates(unittest.TestCase):
+    def test_states_use_the_names_the_api_actually_returns(self):
+        """
+        The SDK enum is prefixed. Unprefixed names match nothing, so a settled
+        sync would time out and a failed one would go unnoticed until it did.
+        """
+        for name in re.findall(r'"(SYNCED[A-Z_]*)"', SYNC_PY):
+            self.assertTrue(name.startswith("SYNCED_TABLE"), name)
+        self.assertIn('"SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"', SYNC_PY)
+        # Plain ONLINE is a servable copy, including a stale one.
+        self.assertNotIn('SETTLED = {"SYNCED_TABLE_ONLINE"}', SYNC_PY)
+
+    def test_the_enum_value_is_read_rather_than_the_enum_stringified(self):
+        self.assertIn('getattr(detailed, "value", detailed)', SYNC_PY)
 
 
 class ServingResources(unittest.TestCase):
@@ -123,6 +189,13 @@ class ServingResources(unittest.TestCase):
     def test_both_synced_sources_publish_change_data_feed(self):
         """A synced table over a source without CDF re-copies the whole table."""
         self.assertEqual(GOLD_PY.count('"delta.enableChangeDataFeed": "true"'), 2)
+
+    def test_the_instance_retention_window_is_one_the_api_accepts(self):
+        """Valid values are 2 to 35 days; bundle validation does not enforce it."""
+        window = re.search(r"retention_window_in_days: (\d+)", SERVING_YML)
+        self.assertTrue(window)
+        self.assertGreaterEqual(int(window.group(1)), 2)
+        self.assertLessEqual(int(window.group(1)), 35)
 
     def test_the_app_names_no_workspace_or_credential(self):
         for forbidden in ("https://", "dapi", "client_secret"):

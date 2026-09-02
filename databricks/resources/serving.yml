@@ -2,13 +2,17 @@ resources:
   # Lakebase. The browser never reaches this, and neither does anything else in
   # the workspace: it exists so a per-reader lookup is a millisecond index seek
   # rather than a warehouse query, and its tables are read-only copies of Gold.
+  # Since March 2026 an instance created this way is backed by an Autoscaling
+  # project. The Database instance API still describes it, which is why this
+  # stays a database_instance rather than a projects/branches/endpoints triple.
   database_instances:
     lakebase:
       name: ${var.lakebase_instance}
       capacity: ${var.lakebase_capacity}
       # Nothing here is a source of truth. Everything can be resynced from Gold,
-      # so paying to keep a long recovery window would be paying twice.
-      retention_window_in_days: 1
+      # so paying to keep a long recovery window would be paying twice. Two days
+      # is the floor the API allows, not a considered choice.
+      retention_window_in_days: 2
 
   # Registers the Postgres database as a Unity Catalog catalog, which is what
   # lets a synced table be named and governed like any other table.
@@ -80,6 +84,14 @@ resources:
           sql_warehouse:
             id: ${resources.sql_warehouses.ops_warehouse.id}
             permission: CAN_USE
+        # Run, not manage. The App starts a deletion the moment a reader asks
+        # for one; waiting for the nightly sweep would leave them watching a
+        # request that says accepted and is doing nothing.
+        - name: deletion-job
+          description: Started when a reader asks for cloud deletion.
+          job:
+            id: ${resources.jobs.cloud_deletion.id}
+            permission: CAN_MANAGE_RUN
       config:
         env:
           - name: MARGINALIA_LAKEBASE_INSTANCE
@@ -90,6 +102,8 @@ resources:
             value: /sql/1.0/warehouses/${resources.sql_warehouses.ops_warehouse.id}
           - name: MARGINALIA_DELETION_TABLE
             value: ${var.catalog}.${resources.schemas.ops.name}.deletion_requests
+          - name: MARGINALIA_DELETION_JOB_ID
+            value: ${resources.jobs.cloud_deletion.id}
           # The one identity allowed to ask about a reader. Supplied at deploy
           # rather than committed: it names private infrastructure, and an app
           # that starts without it refuses every request rather than serving one.

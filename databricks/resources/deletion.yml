@@ -69,6 +69,7 @@ resources:
               - --ops_schema=${resources.schemas.ops.name}
               - --stage=verify
               - --request_id={{job.parameters.request_id}}
+              - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name}
           environment_key: deletion
       environments:
         - environment_key: deletion

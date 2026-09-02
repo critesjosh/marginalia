@@ -8,6 +8,14 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-02: Phase 4 serving review
+
+- Surface used: Databricks CLI bundle schema, Lakebase and Databricks Apps documentation
+- Goal: verify the Phase 4 Lakebase, App, and deletion resources against the current platform before deploying them.
+- Result: `databricks bundle validate` accepts a `retention_window_in_days` of 1 that the API documents as invalid (the range is 2 to 35), so the CLI schema had to be read directly to find it. The synced-table state enum is prefixed `SYNCED_TABLE_*` and its members include the API's own misspelling `SYNCED_TABLED_OFFLINE`; unprefixed names match nothing. Since March 2026 a new database instance is backed by an Autoscaling project, but the Database instance API still describes it, so `database_instances` remains the right bundle resource.
+- Friction: bundle validation checks structure rather than documented value ranges, so an invalid field deploys and fails late. Unity Catalog grants do not imply Postgres grants: a synced table is readable only by its owning role until the App's role is granted `USAGE` and `SELECT` inside the database. Databricks forwards a caller identity across three `X-Forwarded-*` headers and does not document which carries a service principal's application id.
+- Workaround or follow-up: read `databricks bundle schema` for value ranges rather than trusting validation. Accept any of the three identity headers against an allowlist rather than guessing one. Grant the App's Postgres role explicitly, including default privileges, so a later synced table is not invisible to it.
+
 ### 2026-09-02: Phase 6 deployment and live acceptance
 
 - Surface used: Databricks CLI, Automation Bundles, jobs, Lakeflow pipelines, and SQL warehouse
@@ -251,6 +259,20 @@ data, or other secrets.
   companion job triggers the pipeline every 15 minutes, paused in development.
 
 ## Entry template
+
+### 2026-09-02: Phase 4 serving review validation
+
+- Surface used: Databricks CLI (`bundle schema`, `bundle validate`, `auth profiles`)
+- Goal: validate the Phase 4 Lakebase, Databricks App, and deletion job resource
+  definitions against the current CLI schema.
+- Result: the local schema exposed an invalid one-day Provisioned instance retention
+  window (the accepted range is 2–35 days). Live bundle validation could not finish
+  because both configured workspace profiles were expired.
+- Friction: `bundle validate` reports only the authentication failure before completing
+  schema validation, so `bundle schema` had to be inspected separately to find the
+  resource constraint.
+- Workaround or follow-up: refresh a workspace profile and rerun strict validation; use
+  the local CLI schema for resource-field checks that do not require workspace access.
 
 ### YYYY-MM-DD: short task name
 

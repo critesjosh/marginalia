@@ -27,16 +27,28 @@ TABLES = [name.strip() for name in _argument("synced_tables").split(",") if name
 TIMEOUT_SECONDS = int(_argument("sync_timeout_seconds", "900"))
 POLL_SECONDS = 10
 
-# What the platform calls a sync that has landed. Anything else is either still
-# working or has failed, and neither is something to report as done.
-SETTLED = {"ONLINE", "ONLINE_NO_PENDING_UPDATE"}
-FAILED = {"OFFLINE_FAILED", "ONLINE_PIPELINE_FAILED", "OFFLINE"}
+# The platform's own names, prefixed, exactly as the SDK enum spells them. The
+# missing letter in SYNCED_TABLED_OFFLINE is the API's, not a typo here.
+#
+# ONLINE_NO_PENDING_UPDATE is the only state that means the update this run
+# triggered has landed. Plain ONLINE means a copy is servable, which a stale one
+# also is, so treating it as settled would let a run return before its own
+# update was applied.
+SETTLED = {"SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE"}
+FAILED = {
+    "SYNCED_TABLE_OFFLINE_FAILED",
+    "SYNCED_TABLE_ONLINE_PIPELINE_FAILED",
+    "SYNCED_TABLED_OFFLINE",
+}
 
 
 def state(name: str) -> str:
     table = workspace.database.get_synced_database_table(name=name)
     status = table.data_synchronization_status
-    return str(getattr(status, "detailed_state", "") or "").upper()
+    detailed = getattr(status, "detailed_state", None)
+    # An enum, whose str() is "SyncedTableState.SYNCED_TABLE_ONLINE" and whose
+    # value is the name the API actually uses.
+    return str(getattr(detailed, "value", detailed) or "").upper()
 
 
 def trigger(name: str) -> str:

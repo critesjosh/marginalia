@@ -205,6 +205,38 @@ referenced here by name.
    would be an App whose blast radius is every reader's text rather than one
    reader's scores.
 
+   Unity Catalog grants say nothing about Postgres. A synced table is readable
+   by its owning role only, so the App's role needs to be told, once, inside the
+   database:
+
+   ```sh
+   databricks psql marginalia-lakebase-dev
+   ```
+
+   ```sql
+   GRANT USAGE ON SCHEMA marginalia_gold TO "<app-service-principal>";
+   GRANT SELECT ON ALL TABLES IN SCHEMA marginalia_gold TO "<app-service-principal>";
+   ALTER DEFAULT PRIVILEGES IN SCHEMA marginalia_gold
+     GRANT SELECT ON TABLES TO "<app-service-principal>";
+   ```
+
+   The default-privileges line is what stops a later synced table from being
+   invisible to an App that could read the two before it. `SELECT` only: the
+   synced tables are read-only copies, and the App has no reason to write to
+   one.
+
+8. Create the deletion request table, once, before the first reader can ask for
+   a deletion. The job owns that schema and creates it on its first run, so
+   running it against a request id that matches nothing does exactly that and
+   deletes nothing:
+
+   ```sh
+   databricks bundle run cloud_deletion -t dev --params request_id=bootstrap
+   ```
+
+   Without this the App's first deletion request has no table to write to.
+   Every later request creates nothing and starts the job itself.
+
 ## Deploying
 
 ```sh

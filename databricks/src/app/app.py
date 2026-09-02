@@ -33,8 +33,15 @@ INSTANCE_NAME = os.environ.get("MARGINALIA_LAKEBASE_INSTANCE", "")
 # already gates the App, but this is what makes "only the trusted caller" a
 # property of the App rather than of somebody's memory of a permissions page.
 TRUSTED_CALLER = os.environ.get("MARGINALIA_TRUSTED_CALLER", "")
+# Comma-separated so a deployment can name the caller's application id and its
+# username without having to know which header the platform puts each in.
+ALLOWED_CALLERS = {value.strip() for value in TRUSTED_CALLER.split(",") if value.strip()}
 WAREHOUSE_HTTP_PATH = os.environ.get("MARGINALIA_WAREHOUSE_HTTP_PATH", "")
 OPS_TABLE = os.environ.get("MARGINALIA_DELETION_TABLE", "")
+# Recording a request is not the same as starting one. The job is what actually
+# deletes, and a reader who asked should not wait for a nightly sweep to find
+# out that anything is happening.
+DELETION_JOB_ID = os.environ.get("MARGINALIA_DELETION_JOB_ID", "")
 # Kafka keeps delivered records for this long, so a deletion is not finished
 # until the window has passed and a replay can no longer restore the reader.
 SOURCE_RETENTION_DAYS = int(os.environ.get("MARGINALIA_SOURCE_RETENTION_DAYS", "7"))
@@ -92,18 +99,22 @@ def authorize(request: Request, user_id: str) -> str:
     whether the caller may reach the App at all; this decides whether the caller
     is the one identity allowed to ask about a reader.
     """
-    if not TRUSTED_CALLER:
+    if not ALLOWED_CALLERS:
         # Refusing is the only safe reading of a missing configuration. Serving
         # a profile because nobody said who was allowed to read it is precisely
         # the failure this check exists to prevent.
         raise HTTPException(status_code=503, detail="caller_not_configured")
 
-    caller = (
-        request.headers.get("x-forwarded-preferred-username")
-        or request.headers.get("x-forwarded-email")
-        or ""
-    )
-    if caller != TRUSTED_CALLER:
+    # Databricks forwards a caller's identity across three headers, and which
+    # one carries a service principal's application id is not something to
+    # guess: a check that reads only one header and gets it wrong either refuses
+    # the intended caller or is satisfied by a mutable username. Any of the
+    # three matching an allowed identity is accepted, and nothing else is.
+    presented = {
+        request.headers.get(header, "")
+        for header in ("x-forwarded-user", "x-forwarded-preferred-username", "x-forwarded-email")
+    } - {""}
+    if not presented & ALLOWED_CALLERS:
         raise HTTPException(status_code=403, detail="untrusted_caller")
 
     if not user_id:
@@ -253,7 +264,26 @@ def create_deletion_request(
 
     if row is None:
         raise HTTPException(status_code=503, detail="deletion_not_recorded")
+
+    start_deletion(body.requestId)
     return {"requestId": body.requestId, "status": BROWSER_STATUS.get(row[0], "running")}
+
+
+def start_deletion(request_id: str):
+    """
+    Idempotent by the job's own design: a second run over a request whose purge
+    already finished deletes nothing and verifies the same absence. Failing to
+    start is not failing the request, because the row is written and the nightly
+    sweep picks it up; the browser is polling either way.
+    """
+    if not DELETION_JOB_ID:
+        return
+    try:
+        workspace.jobs.run_now(
+            job_id=int(DELETION_JOB_ID), job_parameters={"request_id": request_id}
+        )
+    except Exception:  # noqa: BLE001 - the request stands whether or not this did
+        return
 
 
 @app.get("/api/v1/users/{user_id}/deletion-requests/{request_id}")
