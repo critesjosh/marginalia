@@ -19,7 +19,9 @@
     "payload"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": {
+      "const": 1
+    },
     "eventId": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -28,9 +30,21 @@
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
-    "sequence": { "type": "integer", "minimum": 1 },
-    "source": { "enum": ["pwa", "koreader"] },
-    "appVersion": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source": {
+      "enum": [
+        "pwa",
+        "koreader"
+      ]
+    },
+    "appVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
     "eventType": {
       "enum": [
         "privacy_consent_changed",
@@ -38,27 +52,60 @@
         "highlight_updated",
         "highlight_deleted",
         "conversation_started",
-        "question_asked"
+        "question_asked",
+        "book_opened",
+        "book_closed",
+        "reading_progressed",
+        "chapter_entered",
+        "book_completed",
+        "book_reopened"
       ]
     },
-    "eventTime": { "type": "string", "format": "date-time" },
-    "emittedAt": { "type": "string", "format": "date-time" },
+    "eventTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "emittedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
     "entities": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "bookId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "highlightId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "conversationId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "messageId": { "type": "string", "minLength": 1, "maxLength": 200 }
+        "bookId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "highlightId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "conversationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
       }
     },
     "privacy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["consentVersion", "included"],
+      "required": [
+        "consentVersion",
+        "included"
+      ],
       "properties": {
-        "consentVersion": { "const": 1 },
+        "consentVersion": {
+          "const": 1
+        },
         "included": {
           "type": "array",
           "uniqueItems": true,
@@ -76,77 +123,61 @@
         }
       }
     },
-    "payload": { "type": "object" }
+    "payload": {
+      "type": "object"
+    }
   },
   "allOf": [
     {
       "if": {
         "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated", "highlight_deleted"] }
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated",
+              "highlight_deleted"
+            ]
+          }
         }
       },
       "then": {
-        "properties": { "entities": { "type": "object", "required": ["bookId", "highlightId"] } }
-      }
-    },
-    {
-      "if": { "properties": { "eventType": { "const": "conversation_started" } } },
-      "then": {
         "properties": {
-          "entities": { "type": "object", "required": ["bookId", "conversationId"] },
-          "privacy": {
+          "entities": {
             "type": "object",
-            "properties": {
-              "included": { "type": "array", "items": { "type": "string", "const": "conversationText" } }
-            }
+            "required": [
+              "bookId",
+              "highlightId"
+            ]
           }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "eventType": { "const": "question_asked" } } },
-      "then": {
-        "properties": {
-          "entities": { "type": "object", "required": ["bookId", "conversationId", "messageId"] },
-          "privacy": {
-            "type": "object",
-            "properties": {
-              "included": { "type": "array", "items": { "type": "string", "const": "conversationText" } }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "eventType": { "const": "privacy_consent_changed" } } },
-      "then": {
-        "properties": {
-          "privacy": { "type": "object", "properties": { "included": { "type": "array", "maxItems": 0 } } }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "eventType": { "const": "highlight_deleted" } } },
-      "then": {
-        "properties": {
-          "privacy": { "type": "object", "properties": { "included": { "type": "array", "maxItems": 0 } } }
         }
       }
     },
     {
       "if": {
         "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated"] }
+          "eventType": {
+            "const": "conversation_started"
+          }
         }
       },
       "then": {
         "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId",
+              "conversationId"
+            ]
+          },
           "privacy": {
             "type": "object",
             "properties": {
               "included": {
                 "type": "array",
-                "items": { "type": "string", "enum": ["highlightText", "highlightNotes"] }
+                "items": {
+                  "type": "string",
+                  "const": "conversationText"
+                }
               }
             }
           }
@@ -156,17 +187,31 @@
     {
       "if": {
         "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated"] },
-          "payload": { "type": "object", "required": ["text"] }
-        },
-        "required": ["eventType", "payload"]
+          "eventType": {
+            "const": "question_asked"
+          }
+        }
       },
       "then": {
         "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId",
+              "conversationId",
+              "messageId"
+            ]
+          },
           "privacy": {
             "type": "object",
             "properties": {
-              "included": { "type": "array", "contains": { "const": "highlightText" } }
+              "included": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "const": "conversationText"
+                }
+              }
             }
           }
         }
@@ -175,35 +220,20 @@
     {
       "if": {
         "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated"] },
-          "privacy": {
-            "type": "object",
-            "properties": {
-              "included": { "type": "array", "contains": { "const": "highlightText" } }
-            },
-            "required": ["included"]
+          "eventType": {
+            "const": "privacy_consent_changed"
           }
-        },
-        "required": ["eventType", "privacy"]
-      },
-      "then": {
-        "properties": { "payload": { "type": "object", "required": ["text"] } }
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated"] },
-          "payload": { "type": "object", "required": ["note"] }
-        },
-        "required": ["eventType", "payload"]
+        }
       },
       "then": {
         "properties": {
           "privacy": {
             "type": "object",
             "properties": {
-              "included": { "type": "array", "contains": { "const": "highlightNotes" } }
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
             }
           }
         }
@@ -212,43 +242,264 @@
     {
       "if": {
         "properties": {
-          "eventType": { "enum": ["highlight_created", "highlight_updated"] },
+          "eventType": {
+            "const": "highlight_deleted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
           "privacy": {
             "type": "object",
             "properties": {
-              "included": { "type": "array", "contains": { "const": "highlightNotes" } }
-            },
-            "required": ["included"]
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
           }
-        },
-        "required": ["eventType", "privacy"]
-      },
-      "then": {
-        "properties": { "payload": { "type": "object", "required": ["note"] } }
+        }
       }
     },
     {
       "if": {
         "properties": {
-          "eventType": { "const": "conversation_started" },
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
           "privacy": {
             "type": "object",
             "properties": {
-              "included": { "type": "array", "contains": { "const": "conversationText" } }
-            },
-            "required": ["included"]
+              "included": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "highlightText",
+                    "highlightNotes"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "text"
+            ]
           }
         },
-        "required": ["eventType", "privacy"]
+        "required": [
+          "eventType",
+          "payload"
+        ]
       },
       "then": {
-        "properties": { "payload": { "type": "object", "required": ["title"] } }
+        "properties": {
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "highlightText"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "highlightText"
+                }
+              }
+            },
+            "required": [
+              "included"
+            ]
+          }
+        },
+        "required": [
+          "eventType",
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "text"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "required": [
+              "note"
+            ]
+          }
+        },
+        "required": [
+          "eventType",
+          "payload"
+        ]
+      },
+      "then": {
+        "properties": {
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "highlightNotes"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "highlight_created",
+              "highlight_updated"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "highlightNotes"
+                }
+              }
+            },
+            "required": [
+              "included"
+            ]
+          }
+        },
+        "required": [
+          "eventType",
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "note"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "conversation_started"
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "conversationText"
+                }
+              }
+            },
+            "required": [
+              "included"
+            ]
+          }
+        },
+        "required": [
+          "eventType",
+          "privacy"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "title"
+            ]
+          }
+        }
       },
       "else": {
         "properties": {
           "payload": {
             "type": "object",
-            "not": { "anyOf": [{ "required": ["title"] }, { "required": ["seedText"] }] }
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "title"
+                  ]
+                },
+                {
+                  "required": [
+                    "seedText"
+                  ]
+                }
+              ]
+            }
           }
         }
       }
@@ -256,23 +507,84 @@
     {
       "if": {
         "properties": {
-          "eventType": { "const": "question_asked" },
+          "eventType": {
+            "const": "question_asked"
+          },
           "privacy": {
             "type": "object",
             "properties": {
-              "included": { "type": "array", "contains": { "const": "conversationText" } }
+              "included": {
+                "type": "array",
+                "contains": {
+                  "const": "conversationText"
+                }
+              }
             },
-            "required": ["included"]
+            "required": [
+              "included"
+            ]
           }
         },
-        "required": ["eventType", "privacy"]
+        "required": [
+          "eventType",
+          "privacy"
+        ]
       },
       "then": {
-        "properties": { "payload": { "type": "object", "required": ["content"] } }
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "content"
+            ]
+          }
+        }
       },
       "else": {
         "properties": {
-          "payload": { "type": "object", "not": { "required": ["content"] } }
+          "payload": {
+            "type": "object",
+            "not": {
+              "required": [
+                "content"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "enum": [
+              "book_opened",
+              "book_closed",
+              "reading_progressed",
+              "chapter_entered",
+              "book_completed",
+              "book_reopened"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entities": {
+            "type": "object",
+            "required": [
+              "bookId"
+            ]
+          },
+          "privacy": {
+            "type": "object",
+            "properties": {
+              "included": {
+                "type": "array",
+                "maxItems": 0
+              }
+            }
+          }
         }
       }
     }

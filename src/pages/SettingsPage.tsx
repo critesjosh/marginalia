@@ -8,7 +8,7 @@ import { createAudiobookSession } from '../lib/audiobooks'
 import { BackIcon } from '../components/Icons'
 import KoreaderImport from '../components/KoreaderImport'
 import { updateSyncPreferences } from '../sync/preferences'
-import { discardOutboxEvent, retryRejectedEvent } from '../sync/delivery'
+import { discardOutboxEvent, releaseHeldEvent, retryRejectedEvent } from '../sync/delivery'
 import { deliverNow } from '../sync/scheduler'
 import type { SyncPreferenceKey, SyncState } from '../sync/types'
 
@@ -47,6 +47,12 @@ export default function SettingsPage() {
   const [syncMessage, setSyncMessage] = useState<string>()
 
   const outbox = useLiveQuery(() => db.eventOutbox.orderBy('sequence').toArray(), []) ?? []
+  const pendingErrors = outbox.filter(
+    (row) =>
+      row.status === 'pending' &&
+      row.lastErrorCode !== undefined &&
+      row.lastErrorCode !== 'blocked_by_prior_event',
+  )
   const syncState = useLiveQuery(() => db.syncState.get('sync'), [])
   const [delivering, setDelivering] = useState(false)
 
@@ -459,6 +465,47 @@ export default function SettingsPage() {
             >
               {delivering ? 'Sending…' : 'Send queued events now'}
             </button>
+            {outbox.filter((row) => row.status === 'held').map((row) => (
+              <div key={row.eventId} className="mt-3 rounded-lg border border-amber-900/60 p-3">
+                <p className="break-all text-xs font-medium text-amber-200">
+                  {row.eventType} · {row.eventId}
+                </p>
+                <p className="mt-1 text-xs text-stone-400">
+                  Waiting for its chat turn to finish. If that turn was interrupted, release it
+                  so later activity can be delivered.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => void releaseHeldEvent(row.eventId)}
+                    className="rounded border border-stone-700 px-2 py-1 text-xs"
+                  >
+                    Release
+                  </button>
+                  <button
+                    onClick={() => void discardOutboxEvent(row.eventId)}
+                    className="rounded border border-red-900 px-2 py-1 text-xs text-red-200"
+                  >
+                    Discard event
+                  </button>
+                </div>
+              </div>
+            ))}
+            {pendingErrors.map((row) => (
+              <div key={row.eventId} className="mt-3 rounded-lg border border-amber-900/60 p-3">
+                <p className="break-all text-xs font-medium text-amber-200">
+                  {row.eventType} · {row.eventId}
+                </p>
+                <p className="mt-1 text-xs text-stone-400">
+                  Retrying automatically after: {row.lastErrorCode}
+                </p>
+                <button
+                  onClick={() => void discardOutboxEvent(row.eventId)}
+                  className="mt-2 rounded border border-red-900 px-2 py-1 text-xs text-red-200"
+                >
+                  Discard event
+                </button>
+              </div>
+            ))}
             {outbox.filter((row) => row.status === 'rejected').map((row) => (
               <div key={row.eventId} className="mt-3 rounded-lg border border-red-900/60 p-3">
                 <p className="break-all text-xs font-medium text-red-200">

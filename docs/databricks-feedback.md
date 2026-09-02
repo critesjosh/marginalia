@@ -8,6 +8,47 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-01: Phase 2 deployment and synthetic acceptance run
+
+- Surface used: Databricks CLI (bundles, pipelines, filesystem), Unity Catalog volume,
+  SQL warehouse
+- Goal: deploy Phase 2 and verify quarantine, deduplication, conflicts, highlight state,
+  late events, future clocks, and sessionization against synthetic Bronze records.
+- Result: the Silver pipeline was deployed and three updates completed. The 29-record
+  acceptance set produced 24 logical events, one conflict, six expected sessions, one
+  current highlight, and three inspectable quarantine rows with the expected reasons.
+- Friction: the default service-principal profile authenticated but lacked `USE CATALOG`,
+  public DBFS root was disabled, and `try_parse_json` accepts bare text as a scalar Variant
+  rather than returning null.
+- Workaround or follow-up: deployed with an existing authorized user profile, stored the
+  fixture in a governed development volume, and required a top-level Variant object before
+  treating a record as a valid envelope.
+
+### 2026-09-01: Phase 2 Silver bundle validation
+
+- Surface used: Databricks CLI (`databricks bundle validate`), Lakeflow pipelines bundle
+- Goal: validate the Phase 2 quarantine, deduplication, highlights, and reading-session
+  pipeline against the configured development workspace.
+- Result: the development bundle resolved both pipelines and their schema references and
+  passed validation.
+- Friction: validation requires workspace metadata even for bundle structure checks, so it
+  fails with a generic credentials message in the restricted network environment.
+- Workaround or follow-up: rerunning the same command with workspace network access used
+  the existing profile successfully; no reauthentication or profile change was needed.
+
+### 2026-09-01: Phase 1 review authentication check
+
+- Surface used: Databricks CLI (`databricks auth describe`)
+- Goal: revalidate the configured development identity before reviewing the deployed
+  Phase 1 resources and starting Phase 2 work.
+- Result: the CLI found the configured profile, but authentication could not complete
+  from the restricted execution environment because workspace metadata was unreachable.
+- Friction: the resulting generic credentials error looks like a bad profile even though
+  all required profile fields were present; the preceding metadata warnings were the only
+  indication that network reachability was the actual blocker.
+- Workaround or follow-up: rerun the same read-only check with workspace network access
+  before treating the stored credentials as invalid or attempting to reauthenticate.
+
 ### 2026-09-01: Phase 1 preflight and events ingestion bundle
 
 - Surface used: CLI (`databricks auth describe`, `catalogs`, `warehouses`, `connections`,

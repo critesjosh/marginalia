@@ -7,7 +7,9 @@ resources:
       # stops, so cost follows event volume instead of wall-clock time.
       continuous: false
       catalog: ${var.catalog}
-      schema: ${var.bronze_schema}
+      # Reference the resource's resolved name so development-mode prefixes do
+      # not split the schema resource from the pipeline target.
+      schema: ${resources.schemas.bronze.name}
       libraries:
         - file:
             path: ../src/events_ingestion.py
@@ -27,3 +29,8 @@ resources:
         - task_key: ingest
           pipeline_task:
             pipeline_id: ${resources.pipelines.events_ingestion.id}
+        - task_key: transform_silver
+          depends_on:
+            - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.events_silver.id}

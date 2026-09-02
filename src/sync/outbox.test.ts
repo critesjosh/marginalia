@@ -7,7 +7,10 @@ import { runCoordinatedDelivery } from './coordinator'
 import {
   deliverPendingEvents,
   discardOutboxEvent,
+  HELD_RECOVERY_AGE_MS,
   nextHeadOfLineBatch,
+  recoverHeldQuestions,
+  releaseHeldEvent,
   retryRejectedEvent,
 } from './delivery'
 import {
@@ -442,6 +445,53 @@ describe('head-of-line delivery and coordination', () => {
     expect(await db.eventOutbox.get('event-1')).toMatchObject({ status: 'pending', attempts: 0 })
     await discardOutboxEvent('event-1')
     expect(await db.eventOutbox.count()).toBe(0)
+  })
+
+  it('recovers interrupted held questions and discards orphaned ones', async () => {
+    await db.messages.add({
+      id: 'message-kept',
+      conversationId: 'conversation-1',
+      role: 'user',
+      content: 'A persisted question',
+      createdAt: NOW,
+    })
+    await db.eventOutbox.bulkAdd([
+      row(1, {
+        status: 'held',
+        eventType: 'question_asked',
+        payload: { entities: { messageId: 'message-kept' } } as EventOutboxRow['payload'],
+      }),
+      row(2, {
+        status: 'held',
+        eventType: 'question_asked',
+        payload: { entities: { messageId: 'message-missing' } } as EventOutboxRow['payload'],
+      }),
+    ])
+
+    expect(await recoverHeldQuestions(NOW + HELD_RECOVERY_AGE_MS - 1)).toEqual({
+      released: 0,
+      discarded: 1,
+    })
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({ status: 'held' })
+
+    expect(await recoverHeldQuestions(NOW + HELD_RECOVERY_AGE_MS)).toEqual({
+      released: 1,
+      discarded: 0,
+    })
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({
+      status: 'pending',
+      nextAttemptAt: NOW + HELD_RECOVERY_AGE_MS,
+    })
+    expect(await db.eventOutbox.get('event-2')).toBeUndefined()
+  })
+
+  it('lets diagnostics release a held event explicitly', async () => {
+    await db.eventOutbox.add(row(1, { status: 'held' }))
+    await releaseHeldEvent('event-1', NOW + 1)
+    expect(await db.eventOutbox.get('event-1')).toMatchObject({
+      status: 'pending',
+      nextAttemptAt: NOW + 1,
+    })
   })
 
   it('allows only one fallback lease holder at a time and recovers after release', async () => {

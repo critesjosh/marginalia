@@ -28,6 +28,12 @@ PAYLOADS = {
     "highlight_deleted": "highlight-deleted.schema.json",
     "conversation_started": "conversation-started.schema.json",
     "question_asked": "question-asked.schema.json",
+    "book_opened": "book-opened.schema.json",
+    "book_closed": "book-closed.schema.json",
+    "reading_progressed": "reading-progressed.schema.json",
+    "chapter_entered": "chapter-entered.schema.json",
+    "book_completed": "book-completed.schema.json",
+    "book_reopened": "book-reopened.schema.json",
 }
 PAYLOAD_VALIDATORS = {
     event_type: Draft202012Validator(

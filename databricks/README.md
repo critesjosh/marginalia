@@ -2,7 +2,8 @@
 
 Declarative Automation Bundle for the Databricks side of
 [the intelligence plan](../docs/databricks-intelligence-plan.md). Phase 1 covers
-authenticated ingress to Bronze only.
+authenticated ingress to Bronze; Phase 2 adds deterministic Silver identity,
+highlights, and reading sessions.
 
 ## What is here
 
@@ -10,7 +11,9 @@ authenticated ingress to Bronze only.
 databricks.yml                   bundle, variables, dev and prod targets
 resources/catalog.yml            the bronze/silver/gold/ops schemas
 resources/events_ingestion.yml   triggered pipeline and its 15-minute schedule
+resources/events_silver.yml      parsing, deduplication, state, and sessions
 src/events_ingestion.py          Kafka source that writes events_raw
+src/events_silver.py             Bronze quarantine and Silver materialized views
 ```
 
 Nothing in this directory names a workspace, a credential, or a private resource
@@ -24,6 +27,11 @@ Streaming Kafka source is generally available, so there is no preview to enable.
 Creating the catalog and the secret scope needs metastore privileges a workspace
 service principal does not hold by default; run those steps as a user with
 metastore admin rights.
+
+The identity that deploys the bundle also needs `USE CATALOG` plus ownership or
+the corresponding create privileges on all four target schemas. Bundle
+validation can succeed for an identity that cannot deploy, because deployment
+must read and reconcile the existing Unity Catalog objects.
 
 ## Steps that stay outside the bundle
 
@@ -137,6 +145,12 @@ Run one update on demand:
 databricks bundle run events_ingestion -t dev
 ```
 
+Refresh Silver after Bronze independently when debugging transformations:
+
+```sh
+databricks bundle run events_silver -t dev
+```
+
 The pipeline is triggered, not continuous. An update reads from the offset the
 previous update committed, ingests the backlog, and stops, so it bills only
 while it is working. A companion job runs it every 15 minutes; development mode
@@ -144,4 +158,7 @@ deploys that schedule paused, so dev updates only when you ask for one.
 
 Bronze freshness is therefore the schedule interval. Shortening it shortens the
 end-to-end freshness objective and raises cost proportionally. Seven-day topic
-retention means an update that does not run for a while still catches up.
+retention means an update that resumes within that window still catches up.
+After a longer gap, expired committed offsets make the next update fail rather
+than silently skipping records; restore from a retained source or accept the
+explicit gap before restarting from the earliest available offset.

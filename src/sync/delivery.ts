@@ -2,6 +2,7 @@ import { db } from '../db/db'
 import type { DeliveryResult, DeliveryTransport, EventOutboxRow } from './types'
 
 export const MAX_BATCH_EVENTS = 20
+export const HELD_RECOVERY_AGE_MS = 15 * 60_000
 
 export function nextHeadOfLineBatch(
   rows: readonly EventOutboxRow[],
@@ -107,6 +108,53 @@ export async function retryRejectedEvent(eventId: string, now = Date.now()): Pro
     lastErrorCode: undefined,
   })
   await clearRejectedPauseWhenPossible()
+}
+
+/**
+ * Releases stale provisional question events left behind by a tab that
+ * disappeared while the model was answering. A recent held row may still
+ * belong to another tab's live stream, so it is never released early. The
+ * question message was committed in the same transaction as the held event and
+ * is the recovery record; an orphan is discarded immediately.
+ */
+export async function recoverHeldQuestions(
+  now = Date.now(),
+  minimumAge = HELD_RECOVERY_AGE_MS,
+): Promise<{ released: number; discarded: number }> {
+  return db.transaction('rw', [db.eventOutbox, db.messages], async () => {
+    const held = await db.eventOutbox.where('status').equals('held').toArray()
+    let released = 0
+    let discarded = 0
+
+    for (const row of held) {
+      if (row.eventType !== 'question_asked') continue
+      const messageId = row.payload.entities.messageId
+      const message = messageId ? await db.messages.get(messageId) : undefined
+      if (!message) {
+        await db.eventOutbox.delete(row.eventId)
+        discarded += 1
+      } else if (now - row.createdAt >= minimumAge) {
+        await db.eventOutbox.update(row.eventId, {
+          status: 'pending',
+          nextAttemptAt: now,
+          lastErrorCode: undefined,
+        })
+        released += 1
+      }
+    }
+
+    return { released, discarded }
+  })
+}
+
+export async function releaseHeldEvent(eventId: string, now = Date.now()): Promise<void> {
+  const row = await db.eventOutbox.get(eventId)
+  if (row?.status !== 'held') return
+  await db.eventOutbox.update(eventId, {
+    status: 'pending',
+    nextAttemptAt: now,
+    lastErrorCode: undefined,
+  })
 }
 
 export async function discardOutboxEvent(eventId: string): Promise<void> {

@@ -1,7 +1,7 @@
 import { db } from '../db/db'
 import { DEFAULT_SETTINGS } from '../db/types'
 import { runCoordinatedDelivery } from './coordinator'
-import { deliverPendingEvents } from './delivery'
+import { deliverPendingEvents, recoverHeldQuestions } from './delivery'
 import { HttpDeliveryTransport, type HttpDeliveryOptions, type PauseReason } from './transport'
 
 export const DELIVERY_INTERVAL_MS = 60_000
@@ -36,6 +36,10 @@ export async function deliverNow(
 ): Promise<number> {
   const settings = { ...DEFAULT_SETTINGS, ...(await db.settings.get('settings')) }
   if (!settings.syncEnabled || !settings.syncToken) return 0
+
+  // Recheck on every delivery tick so an interrupted provisional question is
+  // released after its stale window without requiring another page load.
+  await recoverHeldQuestions()
 
   const state = await db.syncState.get('sync')
   if (state?.pausedReason) return 0

@@ -9,7 +9,7 @@ import {
   type EventPayloadByType,
   type MarginaliaEventV1,
   type OutboxStatus,
-  type PhaseZeroEventType,
+  type MarginaliaEventType,
   type PrivacyCategory,
   type SyncConsentV1,
   type SyncState,
@@ -17,12 +17,12 @@ import {
 
 const APP_VERSION = '0.0.0'
 
-export interface EventContent<T extends PhaseZeroEventType> {
+export interface EventContent<T extends MarginaliaEventType> {
   payload: EventPayloadByType[T]
   included: PrivacyCategory[]
 }
 
-export interface EnqueueEventInput<T extends PhaseZeroEventType> {
+export interface EnqueueEventInput<T extends MarginaliaEventType> {
   eventType: T
   eventTime: number
   entities: EventEntities
@@ -51,7 +51,7 @@ async function syncState(): Promise<SyncState> {
  * Every caller must include settings, syncState, and eventOutbox in the
  * transaction together with the product table it changes.
  */
-export async function enqueueEvent<T extends PhaseZeroEventType>(
+export async function enqueueEvent<T extends MarginaliaEventType>(
   input: EnqueueEventInput<T>,
 ): Promise<EventOutboxRow | undefined> {
   const settings = settingsWithDefaults(await db.settings.get('settings'))

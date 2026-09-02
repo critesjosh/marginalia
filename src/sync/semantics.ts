@@ -1,12 +1,17 @@
 export interface ReceivedEvent<T = unknown> {
+  schemaVersion?: number
   userId: string
   eventId: string
   eventType: string
   eventTime: string
+  emittedAt?: string
   receivedAt: string
   installationId?: string
   sequence?: number
+  source?: string
+  appVersion?: string
   entities?: Record<string, string>
+  privacy?: unknown
   payload: T
 }
 
@@ -42,19 +47,29 @@ export function deduplicateEvents<T>(events: readonly ReceivedEvent<T>[]): Dedup
       accepted.push(event)
     } else if (
       canonical({
+        schemaVersion: first.schemaVersion,
         eventType: first.eventType,
         eventTime: first.eventTime,
+        emittedAt: first.emittedAt,
         installationId: first.installationId,
         sequence: first.sequence,
+        source: first.source,
+        appVersion: first.appVersion,
         entities: first.entities,
+        privacy: first.privacy,
         payload: first.payload,
       }) ===
       canonical({
+        schemaVersion: event.schemaVersion,
         eventType: event.eventType,
         eventTime: event.eventTime,
+        emittedAt: event.emittedAt,
         installationId: event.installationId,
         sequence: event.sequence,
+        source: event.source,
+        appVersion: event.appVersion,
         entities: event.entities,
+        privacy: event.privacy,
         payload: event.payload,
       })
     ) {
@@ -74,6 +89,8 @@ export interface ReadingEvent {
   bookId: string
   eventType: 'book_opened' | 'book_closed' | 'reading_progressed' | 'chapter_entered'
   eventTime: string
+  receivedAt?: string
+  sequence?: number
 }
 
 export interface ReadingSession {
@@ -89,6 +106,15 @@ export interface ReadingSession {
 
 const IDLE_MS = 30 * 60 * 1_000
 const ACTIVE_CAP_SECONDS = 120
+const FUTURE_CLOCK_MS = 24 * 60 * 60 * 1_000
+
+function effectiveTime(event: ReadingEvent): number {
+  const eventTime = Date.parse(event.eventTime)
+  const receivedAt = event.receivedAt ? Date.parse(event.receivedAt) : Number.NaN
+  return Number.isFinite(receivedAt) && eventTime > receivedAt + FUTURE_CLOCK_MS
+    ? receivedAt
+    : eventTime
+}
 
 function stableId(parts: readonly string[]): string {
   let hash = 2166136261
@@ -99,10 +125,30 @@ function stableId(parts: readonly string[]): string {
   return `session-${(hash >>> 0).toString(16).padStart(8, '0')}`
 }
 
-function sessionizeOneStream(events: readonly ReadingEvent[]): ReadingSession[] {
-  const sorted = [...events].sort(
-    (a, b) => Date.parse(a.eventTime) - Date.parse(b.eventTime) || a.eventId.localeCompare(b.eventId),
+function millis(value: string | undefined): number {
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY
+}
+
+/**
+ * The same order the Silver pipeline windows by, down to the tie-breaks: a
+ * missing sequence or receipt sorts first, matching Spark's nulls-first
+ * ascending default, so both sides pick the same event to open a session with.
+ */
+function compareInStream(a: ReadingEvent, b: ReadingEvent): number {
+  // Subtraction would turn two absent values into NaN, so compare directly.
+  const order = (left: number, right: number) => (left === right ? 0 : left < right ? -1 : 1)
+  const missing = Number.NEGATIVE_INFINITY
+  return (
+    order(effectiveTime(a), effectiveTime(b)) ||
+    order(a.sequence ?? missing, b.sequence ?? missing) ||
+    order(millis(a.receivedAt), millis(b.receivedAt)) ||
+    a.eventId.localeCompare(b.eventId)
   )
+}
+
+function sessionizeOneStream(events: readonly ReadingEvent[]): ReadingSession[] {
+  const sorted = [...events].sort(compareInStream)
   const sessions: ReadingSession[] = []
   let current: ReadingSession | undefined
   let lastTime = 0
@@ -121,12 +167,19 @@ function sessionizeOneStream(events: readonly ReadingEvent[]): ReadingSession[] 
   }
 
   for (const event of sorted) {
-    const time = Date.parse(event.eventTime)
+    const time = effectiveTime(event)
     const sameStream =
       current?.userId === event.userId &&
       current.installationId === event.installationId &&
       current.bookId === event.bookId
-    if (!current || !sameStream || time - lastTime >= IDLE_MS) {
+    // An open always starts a session, as it does in the Silver pipeline: one
+    // that arrives without its close still must not extend the previous one.
+    if (
+      !current ||
+      !sameStream ||
+      event.eventType === 'book_opened' ||
+      time - lastTime >= IDLE_MS
+    ) {
       if (current) sessions.push(current)
       begin(event, time)
     } else {

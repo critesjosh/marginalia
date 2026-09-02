@@ -12,24 +12,33 @@ export interface ConfluentConfig {
   topic: string
 }
 
+export interface ConfluentEnv {
+  CONFLUENT_REST_ENDPOINT?: string
+  CONFLUENT_CLUSTER_ID?: string
+  CONFLUENT_API_KEY?: string
+  CONFLUENT_API_SECRET?: string
+  CONFLUENT_TOPIC?: string
+}
+
 export type ProduceOutcome =
   | { status: 'accepted'; partition: number; offset: number }
-  | { status: 'retry'; code: 'upstream_unavailable' | 'upstream_unauthorized'; detail: string }
+  | {
+      status: 'retry'
+      code: 'upstream_unavailable' | 'upstream_unauthorized' | 'upstream_configuration'
+      detail: string
+    }
   | { status: 'rejected'; code: 'upstream_rejected'; detail: string }
 
 const PRODUCE_TIMEOUT_MS = 10_000
 
 export function confluentConfigFrom(
-  env: Record<string, unknown>,
+  env: ConfluentEnv,
 ): ConfluentConfig | undefined {
-  const read = (key: string): string | undefined =>
-    typeof env[key] === 'string' && env[key] ? (env[key] as string) : undefined
-
-  const restEndpoint = read('CONFLUENT_REST_ENDPOINT')
-  const clusterId = read('CONFLUENT_CLUSTER_ID')
-  const apiKey = read('CONFLUENT_API_KEY')
-  const apiSecret = read('CONFLUENT_API_SECRET')
-  const topic = read('CONFLUENT_TOPIC')
+  const restEndpoint = env.CONFLUENT_REST_ENDPOINT
+  const clusterId = env.CONFLUENT_CLUSTER_ID
+  const apiKey = env.CONFLUENT_API_KEY
+  const apiSecret = env.CONFLUENT_API_SECRET
+  const topic = env.CONFLUENT_TOPIC
 
   if (!restEndpoint || !clusterId || !apiKey || !apiSecret || !topic) return undefined
   return { restEndpoint, clusterId, apiKey, apiSecret, topic }
@@ -108,15 +117,20 @@ export class ConfluentProducer {
     }
 
     if (!response.ok) {
-      return { status: 'rejected', code: 'upstream_rejected', detail: String(response.status) }
+      return response.status === 413
+        ? { status: 'rejected', code: 'upstream_rejected', detail: String(response.status) }
+        : { status: 'retry', code: 'upstream_configuration', detail: String(response.status) }
     }
 
     // Kafka REST reports a per-record failure inside a 200 response.
     const errorCode = body?.error_code ?? 200
     if (errorCode !== 200) {
+      if (errorCode === 413) {
+        return { status: 'rejected', code: 'upstream_rejected', detail: String(errorCode) }
+      }
       return errorCode >= 500
         ? { status: 'retry', code: 'upstream_unavailable', detail: String(errorCode) }
-        : { status: 'rejected', code: 'upstream_rejected', detail: String(errorCode) }
+        : { status: 'retry', code: 'upstream_configuration', detail: String(errorCode) }
     }
 
     if (typeof body?.partition_id !== 'number' || typeof body?.offset !== 'number') {

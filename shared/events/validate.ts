@@ -11,6 +11,12 @@ import {
   validate_highlight_updated,
   validate_privacy_consent_changed,
   validate_question_asked,
+  validate_book_opened,
+  validate_book_closed,
+  validate_reading_progressed,
+  validate_chapter_entered,
+  validate_book_completed,
+  validate_book_reopened,
   type StandaloneValidator,
   type StandaloneValidatorError,
 } from './validators.generated.js'
@@ -24,6 +30,12 @@ export const PAYLOAD_VALIDATORS: Record<string, StandaloneValidator> = {
   highlight_deleted: validate_highlight_deleted,
   conversation_started: validate_conversation_started,
   question_asked: validate_question_asked,
+  book_opened: validate_book_opened,
+  book_closed: validate_book_closed,
+  reading_progressed: validate_reading_progressed,
+  chapter_entered: validate_chapter_entered,
+  book_completed: validate_book_completed,
+  book_reopened: validate_book_reopened,
 }
 
 /** Why an event may not be produced. Every code is stable and log-safe. */

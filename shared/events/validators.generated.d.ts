@@ -22,3 +22,9 @@ export declare const validate_highlight_updated: StandaloneValidator
 export declare const validate_highlight_deleted: StandaloneValidator
 export declare const validate_conversation_started: StandaloneValidator
 export declare const validate_question_asked: StandaloneValidator
+export declare const validate_book_opened: StandaloneValidator
+export declare const validate_book_closed: StandaloneValidator
+export declare const validate_reading_progressed: StandaloneValidator
+export declare const validate_chapter_entered: StandaloneValidator
+export declare const validate_book_completed: StandaloneValidator
+export declare const validate_book_reopened: StandaloneValidator

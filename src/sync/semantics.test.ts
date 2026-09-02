@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { deduplicateEvents, sessionizeReadingEvents, type ReadingEvent } from './semantics'
+import { readFileSync } from 'node:fs'
+import {
+  deduplicateEvents,
+  sessionizeReadingEvents,
+  type ReadingEvent,
+  type ReceivedEvent,
+} from './semantics'
 
 describe('deduplication reference semantics', () => {
   it('keeps the first event, identifies a delivery duplicate, and quarantines a conflict', () => {
@@ -67,6 +73,27 @@ describe('sessionization reference semantics', () => {
     expect(sessions[1].eventIds).toEqual(['three'])
   })
 
+  it('starts a session at an open that arrives without its close', () => {
+    const sessions = sessionizeReadingEvents([
+      event('one', 'book_opened', 0),
+      event('two', 'reading_progressed', 1),
+      event('three', 'book_opened', 2),
+      event('four', 'reading_progressed', 3),
+    ])
+    expect(sessions.map((session) => session.eventIds)).toEqual([
+      ['one', 'two'],
+      ['three', 'four'],
+    ])
+  })
+
+  it('breaks ties on sequence before receipt, as the Silver windows do', () => {
+    const sessions = sessionizeReadingEvents([
+      { ...event('zzz', 'reading_progressed', 0), sequence: 1 },
+      { ...event('aaa', 'reading_progressed', 0), sequence: 2 },
+    ])
+    expect(sessions[0].eventIds).toEqual(['zzz', 'aaa'])
+  })
+
   it('is deterministic when input arrives late and out of order', () => {
     const events = [
       event('three', 'book_closed', 2),
@@ -89,5 +116,42 @@ describe('sessionization reference semantics', () => {
       ['book-one-open', 'book-one-close'],
       ['book-two-open', 'book-two-close'],
     ])
+  })
+
+  it('documents every Phase 2 fixture outcome, including late and future clocks', () => {
+    const path = new URL('../../contracts/fixtures/reading-sessions-phase-2.jsonl', import.meta.url)
+    const submitted = readFileSync(path, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    const received = submitted.map((item) => ({
+      ...item,
+      userId: 'fixture-user',
+      receivedAt: item.emittedAt,
+    })) as unknown as ReceivedEvent[]
+    const deduplicated = deduplicateEvents(received)
+
+    expect(deduplicated.accepted).toHaveLength(18)
+    expect(deduplicated.duplicateEventIds).toEqual(['40000000-0000-4000-8000-000000000002'])
+    expect(deduplicated.conflicts.map((conflict) => conflict.eventId)).toEqual([
+      '40000000-0000-4000-8000-000000000003',
+    ])
+
+    const readingEvents = deduplicated.accepted.map((item) => ({
+      eventId: item.eventId,
+      userId: item.userId,
+      installationId: item.installationId!,
+      bookId: item.entities!.bookId,
+      eventType: item.eventType,
+      eventTime: item.eventTime,
+      receivedAt: item.receivedAt,
+      sequence: item.sequence,
+    })) as ReadingEvent[]
+    const sessions = sessionizeReadingEvents(readingEvents)
+
+    expect(sessions).toHaveLength(6)
+    expect(sessions.map((session) => session.activeSeconds)).toEqual([300, 120, 120, 480, 240, 0])
+    expect(sessions[3].eventIds).toContain('40000000-0000-4000-8000-000000000014')
+    expect(sessions[5].startedAt).toBe('2026-09-01T11:10:00.000Z')
   })
 })

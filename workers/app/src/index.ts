@@ -1,5 +1,5 @@
 import { handleRelayRequest } from '../../../shared/relay.ts'
-import { EVENTS_PATH, handleEventBatchRequest, type EventsEnv } from './events.ts'
+import { EVENTS_PATH, handleEventBatchRequest } from './events.ts'
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; " +
@@ -42,7 +42,7 @@ export default {
       }
 
       if (url.pathname === EVENTS_PATH) {
-        return await handleEventBatchRequest(request, env as unknown as EventsEnv)
+        return await handleEventBatchRequest(request, env)
       }
 
       if (url.pathname.startsWith('/api/')) {

@@ -8,10 +8,17 @@ import { validateSubmittedEvent } from '../shared/events/validate'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
-const fixtures = readFileSync(join(root, 'contracts/fixtures/nietzsche-phase-0.jsonl'), 'utf8')
-  .split('\n')
-  .filter(Boolean)
-  .map((line) => JSON.parse(line) as Record<string, unknown>)
+const fixtureFiles = [
+  'nietzsche-phase-0.jsonl',
+  'reading-sessions-phase-2.jsonl',
+  'highlight-lifecycle-phase-2.jsonl',
+]
+const fixtures = fixtureFiles.flatMap((file) =>
+  readFileSync(join(root, 'contracts/fixtures', file), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>),
+)
 
 describe('the generated validators', () => {
   it('are current with the contracts they were built from', () => {

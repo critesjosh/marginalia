@@ -8,6 +8,7 @@ import {
   ConfluentProducer,
   confluentConfigFrom,
   recordKey,
+  type ConfluentEnv,
   type ProduceOutcome,
 } from './confluent'
 
@@ -15,12 +16,11 @@ export const EVENTS_PATH = '/api/events/v1/batches'
 export const MAX_BATCH_EVENTS = 20
 export const MAX_BATCH_BYTES = 128 * 1024
 
-export interface EventsEnv {
+export interface EventsEnv extends ConfluentEnv {
   MARGINALIA_SYNC_TOKEN_SHA256?: string
   MARGINALIA_TRUSTED_USER_ID?: string
   SYNC_CONTROL?: KVNamespace
-  EVENTS_RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> }
-  [key: string]: unknown
+  EVENTS_RATE_LIMITER?: RateLimit
 }
 
 export type DeliveryResult =
@@ -42,19 +42,34 @@ function failure(status: number, code: string): Response {
   return json({ error: { code } }, status)
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+async function sha256(value: string): Promise<ArrayBuffer> {
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
 }
 
-/** Length-independent comparison so a wrong token leaks no timing signal. */
-function equalsConstantTime(a: string, b: string): boolean {
-  const left = new TextEncoder().encode(a)
-  const right = new TextEncoder().encode(b)
-  let difference = left.length ^ right.length
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    difference |= (left[index] ?? 0) ^ (right[index] ?? 0)
+function digestFromHex(value: string): Uint8Array | undefined {
+  if (!/^[0-9a-f]{64}$/i.test(value)) return undefined
+  const bytes = new Uint8Array(32)
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16)
   }
+  return bytes
+}
+
+/** Compares fixed-length digests with the runtime's constant-time primitive. */
+async function tokenMatches(value: string, expectedHex: string): Promise<boolean> {
+  const expected = digestFromHex(expectedHex)
+  if (!expected) return false
+  const presented = await sha256(value)
+  // Cloudflare exposes timingSafeEqual on SubtleCrypto. Node's Web Crypto does
+  // not yet, so unit tests use the fixed-length fallback below.
+  const subtle = crypto.subtle as SubtleCrypto & {
+    timingSafeEqual?: (left: ArrayBuffer | ArrayBufferView, right: ArrayBuffer | ArrayBufferView) => boolean
+  }
+  if (subtle.timingSafeEqual) return subtle.timingSafeEqual(presented, expected)
+
+  const left = new Uint8Array(presented)
+  let difference = 0
+  for (let index = 0; index < left.length; index += 1) difference |= left[index] ^ expected[index]
   return difference === 0
 }
 
@@ -62,6 +77,30 @@ function bearerToken(request: Request): string | undefined {
   const header = request.headers.get('Authorization') ?? ''
   const match = /^Bearer (.+)$/.exec(header.trim())
   return match?.[1]
+}
+
+async function boundedText(request: Request, limit: number): Promise<string | undefined> {
+  if (!request.body) return ''
+
+  const reader = request.body.getReader()
+  const decoder = new TextDecoder()
+  let size = 0
+  let text = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > limit) {
+        await reader.cancel('request body exceeds event batch limit')
+        return undefined
+      }
+      text += decoder.decode(value, { stream: true })
+    }
+    return text + decoder.decode()
+  } finally {
+    reader.releaseLock()
+  }
 }
 
 /**
@@ -104,34 +143,37 @@ export async function handleEventBatchRequest(
 ): Promise<Response> {
   if (request.method !== 'POST') return failure(405, 'method_not_allowed')
 
-  if (!env.MARGINALIA_SYNC_TOKEN_SHA256 || !env.MARGINALIA_TRUSTED_USER_ID) {
+  if (
+    !env.MARGINALIA_SYNC_TOKEN_SHA256 ||
+    !digestFromHex(env.MARGINALIA_SYNC_TOKEN_SHA256) ||
+    !env.MARGINALIA_TRUSTED_USER_ID
+  ) {
     return failure(503, 'sync_not_configured')
+  }
+
+  // Rate-limit before authentication so token guessing is bounded too. The
+  // Cloudflare-provided address is not logged or persisted by this Worker.
+  if (env.EVENTS_RATE_LIMITER) {
+    const address = request.headers.get('CF-Connecting-IP') ?? 'unknown'
+    const { success } = await env.EVENTS_RATE_LIMITER.limit({ key: `ip:${address}` })
+    if (!success) return failure(429, 'rate_limited')
   }
 
   const token = bearerToken(request)
   if (!token) return failure(401, 'missing_token')
-  const presented = await sha256Hex(token)
-  if (!equalsConstantTime(presented, env.MARGINALIA_SYNC_TOKEN_SHA256.toLowerCase())) {
+  if (!(await tokenMatches(token, env.MARGINALIA_SYNC_TOKEN_SHA256))) {
     return failure(401, 'invalid_token')
   }
 
   const userId = env.MARGINALIA_TRUSTED_USER_ID
-
-  // Keyed on the digest so no rate-limiter key ever holds the token itself.
-  if (env.EVENTS_RATE_LIMITER) {
-    const { success } = await env.EVENTS_RATE_LIMITER.limit({ key: presented })
-    if (!success) return failure(429, 'rate_limited')
-  }
 
   if (await syncDisabled(env, userId)) return failure(423, 'sync_disabled')
 
   const declaredLength = Number(request.headers.get('Content-Length') ?? '0')
   if (declaredLength > MAX_BATCH_BYTES) return failure(413, 'batch_too_large')
 
-  const body = await request.text()
-  if (new TextEncoder().encode(body).length > MAX_BATCH_BYTES) {
-    return failure(413, 'batch_too_large')
-  }
+  const body = await boundedText(request, MAX_BATCH_BYTES)
+  if (body === undefined) return failure(413, 'batch_too_large')
 
   let parsed: unknown
   try {
@@ -153,7 +195,7 @@ export async function handleEventBatchRequest(
     return json({ results })
   }
 
-  const configuration = confluentConfigFrom(env as Record<string, unknown>)
+  const configuration = confluentConfigFrom(env)
   const producer =
     options.producer ?? (configuration ? new ConfluentProducer(configuration) : undefined)
   if (!producer) return failure(503, 'sync_not_configured')

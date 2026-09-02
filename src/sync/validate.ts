@@ -7,8 +7,14 @@ import highlightDeletedSchema from '../../contracts/events/v1/payloads/highlight
 import conversationStartedSchema from '../../contracts/events/v1/payloads/conversation-started.schema.json'
 import questionAskedSchema from '../../contracts/events/v1/payloads/question-asked.schema.json'
 import privacyChangedSchema from '../../contracts/events/v1/payloads/privacy-consent-changed.schema.json'
+import bookOpenedSchema from '../../contracts/events/v1/payloads/book-opened.schema.json'
+import bookClosedSchema from '../../contracts/events/v1/payloads/book-closed.schema.json'
+import readingProgressedSchema from '../../contracts/events/v1/payloads/reading-progressed.schema.json'
+import chapterEnteredSchema from '../../contracts/events/v1/payloads/chapter-entered.schema.json'
+import bookCompletedSchema from '../../contracts/events/v1/payloads/book-completed.schema.json'
+import bookReopenedSchema from '../../contracts/events/v1/payloads/book-reopened.schema.json'
 import consentSchema from '../../contracts/privacy/v1/consent.schema.json'
-import type { MarginaliaEventV1, PhaseZeroEventType, SyncConsentV1 } from './types'
+import type { MarginaliaEventV1, MarginaliaEventType, SyncConsentV1 } from './types'
 
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false })
 addFormats(ajv)
@@ -17,13 +23,19 @@ const compile = (schema: object) => ajv.compile(schema)
 
 const validateEnvelope = compile(envelopeSchema)
 const validateConsentSchema = compile(consentSchema)
-const payloadValidators: Record<PhaseZeroEventType, ValidateFunction> = {
+const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = {
   privacy_consent_changed: compile(privacyChangedSchema),
   highlight_created: compile(highlightCreatedSchema),
   highlight_updated: compile(highlightUpdatedSchema),
   highlight_deleted: compile(highlightDeletedSchema),
   conversation_started: compile(conversationStartedSchema),
   question_asked: compile(questionAskedSchema),
+  book_opened: compile(bookOpenedSchema),
+  book_closed: compile(bookClosedSchema),
+  reading_progressed: compile(readingProgressedSchema),
+  chapter_entered: compile(chapterEnteredSchema),
+  book_completed: compile(bookCompletedSchema),
+  book_reopened: compile(bookReopenedSchema),
 }
 
 export interface ValidationResult {

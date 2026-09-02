@@ -32,13 +32,19 @@ export interface PrivacySnapshot {
   included: PrivacyCategory[]
 }
 
-export type PhaseZeroEventType =
+export type MarginaliaEventType =
   | 'privacy_consent_changed'
   | 'highlight_created'
   | 'highlight_updated'
   | 'highlight_deleted'
   | 'conversation_started'
   | 'question_asked'
+  | 'book_opened'
+  | 'book_closed'
+  | 'reading_progressed'
+  | 'chapter_entered'
+  | 'book_completed'
+  | 'book_reopened'
 
 export interface EventEntities {
   bookId?: string
@@ -79,9 +85,35 @@ export interface EventPayloadByType {
     progress?: number
     content?: string
   }
+  book_opened: { progress: number; chapter?: string; openedAt: string; reopened?: boolean }
+  book_closed: {
+    progress: number
+    chapter?: string
+    closedAt: string
+    reason: 'explicit' | 'backgrounded' | 'navigated_away'
+  }
+  reading_progressed: {
+    progress: number
+    chapter?: string
+    observedAt: string
+    trigger: 'progress_delta' | 'chapter_change' | 'closing' | 'backgrounded'
+  }
+  chapter_entered: {
+    chapter: string
+    chapterIndex?: number
+    progress: number
+    enteredAt: string
+  }
+  book_completed: { progress: number; completedAt: string }
+  book_reopened: {
+    progress: number
+    chapter?: string
+    reopenedAt: string
+    daysSinceLastOpen: number
+  }
 }
 
-export type MarginaliaEventV1<T extends PhaseZeroEventType = PhaseZeroEventType> = {
+export type MarginaliaEventV1<T extends MarginaliaEventType = MarginaliaEventType> = {
   schemaVersion: typeof EVENT_SCHEMA_VERSION
   eventId: string
   installationId: string
@@ -101,7 +133,7 @@ export type OutboxStatus = 'held' | 'pending' | 'rejected'
 export interface EventOutboxRow {
   eventId: string
   sequence: number
-  eventType: PhaseZeroEventType
+  eventType: MarginaliaEventType
   eventTime: string
   payload: MarginaliaEventV1
   privacySnapshot: PrivacySnapshot

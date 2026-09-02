@@ -86,6 +86,12 @@ describe('the sync token', () => {
     env.MARGINALIA_SYNC_TOKEN_SHA256 = undefined
     expect((await send(fixtureEvents)).status).toBe(503)
   })
+
+  it('fails closed when the configured digest is malformed', async () => {
+    env.MARGINALIA_SYNC_TOKEN_SHA256 = 'not-a-sha256-digest'
+    expect((await send(fixtureEvents)).status).toBe(503)
+    expect(producer.records).toHaveLength(0)
+  })
 })
 
 describe('the request shape', () => {
@@ -201,6 +207,21 @@ describe('rate limiting', () => {
   it('turns away a caller over the limit', async () => {
     env.EVENTS_RATE_LIMITER = { limit: async () => ({ success: false }) }
     expect((await send(fixtureEvents)).status).toBe(429)
+  })
+
+  it('rate-limits before checking an invalid token', async () => {
+    const keys: string[] = []
+    env.EVENTS_RATE_LIMITER = {
+      limit: async ({ key }) => {
+        keys.push(key)
+        return { success: false }
+      },
+    }
+    const request = batchRequest(fixtureEvents, { token: 'wrong-token' })
+    request.headers.set('CF-Connecting-IP', '192.0.2.10')
+
+    expect((await handleEventBatchRequest(request, env, { producer })).status).toBe(429)
+    expect(keys).toEqual(['ip:192.0.2.10'])
   })
 })
 

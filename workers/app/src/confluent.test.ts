@@ -40,6 +40,37 @@ describe('ConfluentProducer', () => {
       'https://rest.example/kafka/v3/clusters/lkc-test/topics/marginalia.events.v1/records',
     ])
   })
+
+  it('retries operator configuration errors instead of rejecting a valid event', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ error_code: 404, message: 'topic not found' }), {
+        status: 404,
+      })
+    const outcome = await new ConfluentProducer(CONFIG, fetchImpl as typeof fetch).produce({
+      key: 'k',
+      value: { a: 1 },
+    })
+
+    expect(outcome).toEqual({
+      status: 'retry',
+      code: 'upstream_configuration',
+      detail: '404',
+    })
+  })
+
+  it('rejects only a record the upstream reports as too large', async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ error_code: 413 }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    const outcome = await new ConfluentProducer(CONFIG, fetchImpl as typeof fetch).produce({
+      key: 'k',
+      value: { a: 1 },
+    })
+
+    expect(outcome).toEqual({ status: 'rejected', code: 'upstream_rejected', detail: '413' })
+  })
 })
 
 describe('recordKey', () => {
