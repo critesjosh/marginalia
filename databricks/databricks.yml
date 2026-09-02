@@ -93,6 +93,30 @@ variables:
       purging_source until this has passed, because a replay inside the window
       could otherwise restore the reader.
     default: "7"
+  observatory_app_name:
+    description: Databricks App serving the Observatory to the reader.
+    default: marginalia-observatory
+  dashboard_name:
+    description: AI/BI dashboard over the Gold profiles.
+    default: Marginalia
+  genie_space_title:
+    description: Curated Genie space over the Gold profiles.
+    default: Marginalia
+  trusted_user_id:
+    description: >-
+      The reader whose intelligence the Observatory shows. Supplied at deploy
+      because it names a person, not a resource. The Observatory refuses to
+      render without it rather than choosing a default reader.
+    default: ""
+  genie_space_id:
+    description: >-
+      Id of the deployed Genie space, linked from the Observatory. Known only
+      after the first deploy creates it, so it is supplied on the second. An
+      app environment variable cannot be empty, hence "unset" rather than "".
+    default: "unset"
+  dashboard_id:
+    description: Id of the deployed dashboard, linked from the Observatory.
+    default: "unset"
   extraction_batch_limit:
     description: >-
       Most candidates one extraction run will pay for. The next run takes the
@@ -112,6 +136,9 @@ targets:
       # Apps, Lakebase instances, and database catalogs it does not, so they are
       # named apart here for the same reason the catalog is.
       app_name: marginalia-intelligence-dev
+      observatory_app_name: marginalia-observatory-dev
+      dashboard_name: Marginalia (dev)
+      genie_space_title: Marginalia (dev)
       lakebase_instance: marginalia-lakebase-dev
       lakebase_catalog: marginalia_serving_dev
 

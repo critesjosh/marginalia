@@ -5,7 +5,8 @@ Declarative Automation Bundle for the Databricks side of
 authenticated ingress to Bronze; Phase 2 adds deterministic Silver identity,
 highlights, and reading sessions; Phase 3 adds extraction and the first Gold
 profiles; Phase 4 adds the serving loop, Lakebase, the App, and cloud deletion;
-Phase 6 adds targeted public sources, frontier, and recommendations.
+Phase 6 adds targeted public sources, frontier, and recommendations; Phase 7
+adds the Observatory, an AI/BI dashboard, and a curated Genie space.
 
 ## What is here
 
@@ -17,6 +18,7 @@ resources/events_silver.yml      parsing, deduplication, state, and sessions
 resources/concepts_gold.yml      engagement, interest, and frontier profiles
 resources/serving.yml            Lakebase, synced tables, warehouse, and the App
 resources/deletion.yml           the cloud deletion job and the replay purge
+resources/observatory.yml        the Observatory app, dashboard, and Genie space
 src/events_ingestion.py          Kafka source that writes events_raw
 src/events_silver.py             Bronze quarantine and Silver materialized views
 src/concepts.py                  canonicalization, response validation, scoring
@@ -28,6 +30,11 @@ src/frontier.py                  intellectual_frontier and recommendation_candid
 src/serving_sync.py              triggers the Lakebase synced tables and waits
 src/deletion.py                  cloud deletion, its manifest, and verification
 src/app/                         the Databricks App the Cloudflare Worker calls
+src/observatory/                 the Observatory app and every query it runs
+dashboards/                      the AI/BI dashboard definition
+genie/                           the Genie space instructions
+eval/genie_questions.json        fixed questions, their grain, and their checks
+eval/genie_eval.py               runs those questions to establish correct answers
 ```
 
 The App is the only thing outside the workspace that can read a reader's
@@ -364,6 +371,73 @@ Run one by hand:
 ```sh
 databricks bundle run cloud_deletion -t dev --params request_id=<uuid>
 ```
+
+## The Observatory
+
+A second App, deliberately separate from the serving one. They differ in every
+way that matters: the Observatory has a UI and no external caller, reads Gold
+through a warehouse rather than Postgres, and exists for the reader looking at
+their own reading. Sharing an app would mean sharing a service principal, and
+with it a grant on Gold the serving app has no business holding.
+
+Eight views: Overview, Reading, Interests, Concepts, Frontier, Recommendations,
+Agent quality, and Ask Marginalia. Every one states when its source was last
+computed, which is a property of the queries rather than something each view
+remembers to add.
+
+Agent quality is empty and says why. It reports Librarian retrieval quality,
+which is Phase 8 and not yet built; an empty chart there would claim the agent exists
+and scored nothing.
+
+Ask Marginalia links to the Genie space rather than reimplementing it. Genie is
+its own product surface, and the plan says to stop rather than replace one.
+
+## What the Observatory cannot read
+
+Its service principal has `SELECT` on the Gold schema, and on exactly two Silver
+tables by name: `concept_extractions` and `reading_sessions`. Not the Silver
+schema. So `highlights_current`, `events`, and everything else holding the
+reader's own words are unreachable, and a query that reached for one would fail
+at the grant rather than succeed quietly.
+
+Genie's boundary is the same and enforced the same way: its data sources are the
+four Gold tables, so its instruction that it cannot see a reader's words is
+backed by not being able to.
+
+```sh
+databricks apps get marginalia-observatory-dev   # read the service principal id
+```
+
+```sql
+GRANT USE CATALOG ON CATALOG marginalia_dev TO `<observatory-service-principal>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA marginalia_dev.<gold> TO `<observatory-service-principal>`;
+GRANT USE SCHEMA ON SCHEMA marginalia_dev.<silver> TO `<observatory-service-principal>`;
+GRANT SELECT ON TABLE marginalia_dev.<silver>.concept_extractions TO `<observatory-service-principal>`;
+GRANT SELECT ON TABLE marginalia_dev.<silver>.reading_sessions TO `<observatory-service-principal>`;
+```
+
+Grant the two Silver tables by name. Granting the schema would hand over the
+highlight text as well, which is the whole thing this boundary exists to keep.
+
+## Evaluating Genie
+
+The questions are fixed, in `eval/genie_questions.json`, each with the grain it
+asks about and the SQL whose result is the correct answer. Grain is what the
+set is really testing: the commonest way for a text-to-SQL answer to be wrong is
+not bad syntax, it is counting the right thing at the wrong grain.
+
+```sh
+python3 databricks/eval/genie_eval.py --profile me \
+  --warehouse <id> --gold marginalia_dev.<gold-schema>
+```
+
+That prints the correct answers; asking Genie is done by hand and compared
+against them. The values move as the reader reads, so what is fixed is the
+question, the grain, and the checks rather than stored numbers.
+
+One question has no SQL and must be refused: asking for the text of a reader's
+highlights. A correct answer says it cannot see them. An empty result is a wrong
+answer, because it reads as the reader having none.
 
 ## Phase 4 acceptance
 
