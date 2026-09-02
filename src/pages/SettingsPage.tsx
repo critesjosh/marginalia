@@ -8,6 +8,9 @@ import { createAudiobookSession } from '../lib/audiobooks'
 import { BackIcon } from '../components/Icons'
 import KoreaderImport from '../components/KoreaderImport'
 import { updateSyncPreferences } from '../sync/preferences'
+// The same list the consent model uses, not a copy of it: a category added
+// there must not be one this button silently leaves out of "all".
+import { CONTENT_CONSENT_KEYS } from '../sync/privacy'
 import { discardOutboxEvent, releaseHeldEvent, retryRejectedEvent } from '../sync/delivery'
 import { deliverNow } from '../sync/scheduler'
 import { readDeletionStatus, requestCloudDeletion } from '../sync/insights'
@@ -108,6 +111,8 @@ export default function SettingsPage() {
   }
 
   const settings = stored ?? DEFAULT_SETTINGS
+  const selectedTextConsent = CONTENT_CONSENT_KEYS.filter((key) => settings[key]).length
+  const allTextConsent = selectedTextConsent === CONTENT_CONSENT_KEYS.length
 
   useEffect(() => {
     if (stored && !dirtyKey) setApiKey(stored.apiKey ?? '')
@@ -172,6 +177,15 @@ export default function SettingsPage() {
 
   async function setSyncPreference(key: SyncPreferenceKey, value: boolean) {
     await updateSyncPreferences({ [key]: value })
+  }
+
+  // One patch, not seven calls. Each call stamps a consent timestamp and, when
+  // clearing, purges the queued content for the category it revoked; doing that
+  // seven times would write seven consent versions for a single decision.
+  async function setAllTextConsent(value: boolean) {
+    await updateSyncPreferences(
+      Object.fromEntries(CONTENT_CONSENT_KEYS.map((key) => [key, value])),
+    )
   }
 
   async function saveSyncToken() {
@@ -446,6 +460,18 @@ export default function SettingsPage() {
               Each category is separate and off by default. Metadata-only events can still be
               recorded when activity sync is on.
             </p>
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-stone-400" aria-live="polite">
+                {selectedTextConsent} of {CONTENT_CONSENT_KEYS.length} selected
+              </p>
+              <button
+                type="button"
+                onClick={() => void setAllTextConsent(!allTextConsent)}
+                className="rounded-lg border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:bg-stone-800"
+              >
+                {allTextConsent ? 'Clear all' : 'Select all'}
+              </button>
+            </div>
             <div className="mt-3 space-y-3">
               <ConsentToggle
                 label="Book metadata"
