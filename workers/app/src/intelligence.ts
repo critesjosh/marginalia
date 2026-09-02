@@ -123,7 +123,6 @@ async function authorize(
   }
 
   const userId = env.MARGINALIA_TRUSTED_USER_ID
-  if (await syncDisabled(env, userId)) return failure(423, 'sync_disabled')
   return { userId }
 }
 
@@ -139,6 +138,13 @@ export async function handleIntelligenceRequest(
   const authorized = await authorize(request, env)
   if (authorized instanceof Response) return authorized
   const { userId } = authorized
+
+  // Reading intelligence stops when the user is disabled. Deleting does not:
+  // disabling is the first thing deletion does, so refusing a disabled user
+  // here would leave a failed request with no way to retry, and the status of the
+  // deletion permanently unreadable.
+  const isDeletion = route === 'delete' || route.startsWith('delete/')
+  if (!isDeletion && (await syncDisabled(env, userId))) return failure(423, 'sync_disabled')
 
   const upstream: UpstreamCaller =
     options.upstream ??
@@ -220,7 +226,17 @@ async function proxy(
     return failure(503, 'intelligence_unavailable')
   }
 
+  // Pass through the statuses a caller can act on, and collapse the rest.
+  // Reporting an upstream authorization problem as 401 would tell a browser its
+  // own token was wrong, which it was not.
   if (response.status === 404) return failure(404, 'not_found')
+  if (response.status === 409) return failure(409, 'already_exists')
+  if (response.status === 429) {
+    const retryAfter = response.headers.get('retry-after')
+    const throttled = failure(429, 'upstream_rate_limited')
+    if (retryAfter) throttled.headers.set('retry-after', retryAfter)
+    return throttled
+  }
   if (!response.ok) return failure(503, 'intelligence_unavailable')
 
   let payload: unknown

@@ -119,6 +119,59 @@ describe('the intelligence endpoints', () => {
     expect(control.store.get('sync-state:trusted-personal-user')).toBe('disabled')
   })
 
+  it('still accepts a deletion retry after sync is disabled, with the same id', async () => {
+    // Disabling is the first thing deletion does, so a disabled user must still
+    // be able to retry. Refusing here would strand a half-finished deletion.
+    const control = kv({ 'sync-state:trusted-personal-user': 'disabled' })
+    const seen: string[] = []
+    const spy: UpstreamCaller = async (path, init) => {
+      seen.push(`${init.method} ${path}`)
+      return new Response(JSON.stringify({ status: 'accepted' }), { status: 200 })
+    }
+    const retry = await handleIntelligenceRequest(
+      post('delete', { requestId: REQUEST_ID }),
+      await env({ SYNC_CONTROL: control.binding }),
+      { upstream: spy },
+    )
+    expect(retry.status).toBe(200)
+    expect(seen).toEqual([
+      'POST /api/v1/users/trusted-personal-user/deletion-requests',
+    ])
+  })
+
+  it('lets a disabled user read the status of their deletion', async () => {
+    const control = kv({ 'sync-state:trusted-personal-user': 'disabled' })
+    const response = await handleIntelligenceRequest(
+      get(`delete/${REQUEST_ID}`),
+      await env({ SYNC_CONTROL: control.binding }),
+      { upstream: async () => new Response(JSON.stringify({ status: 'running' }), { status: 200 }) },
+    )
+    expect(response.status).toBe(200)
+  })
+
+  it('passes through statuses a caller can act on rather than calling them all unavailable', async () => {
+    const cases: Array<[number, number, string]> = [
+      [404, 404, 'not_found'],
+      [409, 409, 'already_exists'],
+      [429, 429, 'upstream_rate_limited'],
+      // An upstream authorization problem is not the browser's token being wrong.
+      [403, 503, 'intelligence_unavailable'],
+      [500, 503, 'intelligence_unavailable'],
+    ]
+    for (const [upstreamStatus, expected, code] of cases) {
+      const response = await handleIntelligenceRequest(get('book-engagement'), await env(), {
+        upstream: async () =>
+          new Response(upstreamStatus === 429 ? '{}' : null, {
+            status: upstreamStatus,
+            headers: upstreamStatus === 429 ? { 'retry-after': '30' } : {},
+          }),
+      })
+      expect([upstreamStatus, response.status]).toEqual([upstreamStatus, expected])
+      expect(await response.json()).toEqual({ error: { code } })
+      if (upstreamStatus === 429) expect(response.headers.get('retry-after')).toBe('30')
+    }
+  })
+
   it('rejects a deletion request id that is not a uuid', async () => {
     const response = await handleIntelligenceRequest(
       post('delete', { requestId: 'whatever' }),

@@ -190,6 +190,19 @@ not the identity store: the token digest remains a secret. Its purpose is to sto
 installation promptly during full cloud deletion. A disabled user receives HTTP 423 and
 must not be re-enabled until deletion completes and a new sync token is installed.
 
+"Promptly" is bounded by KV, not by the write. Workers KV is eventually consistent, and a
+Worker in another location can keep serving a cached enabled value for up to about a
+minute after the disable is written, so an installation that has not yet seen it can still
+submit events during that window. Deletion tolerates this because the deletion job runs
+well after the request is created, and because the Kafka replay suppression covers records
+produced in the gap. Closing the window properly means a Durable Object rather than KV,
+which is a deliberate revision to make when multi-user support arrives and the barrier has
+to be exact.
+
+The deletion routes are deliberately exempt from the disabled check. Disabling is the
+first thing deletion does, so refusing a disabled user would leave a failed request with
+no way to retry and the status of the deletion permanently unreadable.
+
 ### Worker to Confluent
 
 The Worker holds these deployment secrets or non-secret variables:
