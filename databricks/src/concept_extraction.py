@@ -318,7 +318,7 @@ def run():
     )
 
     # Materialized before it is branched. `valid` and `failed` both read it, and
-    # an unmaterialized frame would run the ai_query lineage once per branch:
+    # a frame that is not materialized would run the ai_query lineage once per branch:
     # paying twice, and writing rows from two different answers.
     parsed.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(STAGING)
     staged = spark.read.table(STAGING)
