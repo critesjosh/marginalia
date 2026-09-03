@@ -8,6 +8,8 @@ data, or other secrets.
 
 ## Entries
 
+<!-- cspell:ignore Geburt Jenseits sprach Tragodie -->
+
 ### 2026-09-03: recommendations from books, and what is still wrong with them
 
 - Surface used: Open Library search API, Lakeflow pipelines
@@ -20,7 +22,7 @@ data, or other secrets.
 
 - Surface used: Lakeflow declarative pipeline, Python UDF
 - Goal: record a serialization failure that reached a live run twice.
-- Result: `build_frontier` failed with `ModuleNotFoundError: No module named 'public_matching'` inside the Python worker. Cloudpickle serializes a nested function by value and a module-level function by reference, so a helper defined beside the closure factory rather than inside it makes the worker try to import a module it does not have.
+- Result: `build_frontier` failed with `ModuleNotFoundError: No module named 'public_matching'` inside the Python worker. cloudpickle serializes a nested function by value and a module-level function by reference, so a helper defined beside the closure factory rather than inside it makes the worker try to import a module it does not have.
 - Friction: the driver resolves the import fine, so nothing fails locally, in tests, or during analysis. The first version of this rule was learned in Phase 6 and broken again in Phase 7 by adding one helper in the obvious place.
 - Workaround or follow-up: nest every helper a closure calls inside the factory. A contract test now inspects the returned closure's referenced globals and fails if any is a function defined in the module, which is checkable without a Spark session.
 
