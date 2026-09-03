@@ -8,6 +8,22 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-03: recommendations from books, and what is still wrong with them
+
+- Surface used: Open Library search API, Lakeflow pipelines
+- Goal: record what changing the candidate source actually produced.
+- Result: candidates are books. Asking Open Library about `friedrich nietzsche` returns Also sprach Zarathustra, Jenseits von Gut und Bose, Der Antichrist and Die Geburt der Tragodie, by Nietzsche, with edition counts that mean something. Under OpenAlex the same slot held a single-cell genomics paper scored against an interest in `artist`.
+- Friction: two quality problems remain and neither is a bug. Open Library's `q=` searches titles, so a one-word concept like `artist` returns The Kill Artist and The Body Artist rather than books about art; `subject=` is the parameter that searches what a book is about. And the diversity component now works, which is the problem: it scores 0 for an author already being read, so Die Geburt der Tragodie, which is Nietzsche on Greek tragedy for a reader reading Nietzsche and Sophocles at once, ranks ninth, below a spy thriller that matched a word in its title. Diversity is right in general and wrong when the author is the reader's strongest interest.
+- Workaround or follow-up: search by subject rather than title. Decide what diversity should mean when the strongest interest is a person: probably a cap on how many of one author may appear rather than a flat penalty on all of them.
+
+### 2026-09-03: a Spark closure cannot call a module-level helper
+
+- Surface used: Lakeflow declarative pipeline, Python UDF
+- Goal: record a serialization failure that reached a live run twice.
+- Result: `build_frontier` failed with `ModuleNotFoundError: No module named 'public_matching'` inside the Python worker. Cloudpickle serializes a nested function by value and a module-level function by reference, so a helper defined beside the closure factory rather than inside it makes the worker try to import a module it does not have.
+- Friction: the driver resolves the import fine, so nothing fails locally, in tests, or during analysis. The first version of this rule was learned in Phase 6 and broken again in Phase 7 by adding one helper in the obvious place.
+- Workaround or follow-up: nest every helper a closure calls inside the factory. A contract test now inspects the returned closure's referenced globals and fails if any is a function defined in the module, which is checkable without a Spark session.
+
 ### 2026-09-02: Phase 7 review, two claims that were stronger than the enforcement
 
 - Surface used: Databricks Apps, AI/BI dashboards, Genie, Unity Catalog grants
