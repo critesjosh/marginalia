@@ -8,7 +8,7 @@ data, or other secrets.
 
 ## Entries
 
-<!-- cspell:ignore Geburt Jenseits sprach Tragodie -->
+<!-- cspell:ignore Geburt Jenseits sprach Tragodie cloudpickle -->
 
 ### 2026-09-03: recommendations from books, and what is still wrong with them
 
