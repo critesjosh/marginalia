@@ -287,6 +287,17 @@ class TheTwoPublicSources(unittest.TestCase):
         self.assertIn("openlibrary.org/search.json", SOURCES_PY)
         self.assertIn("public_book_candidates", SOURCES_PY)
 
+    def test_every_source_it_fetches_from_has_a_recorded_licence(self):
+        """
+        A provider response is stored with the licence it arrived under, so a
+        source added without one fails the run at the first request. Adding
+        openlibrary_subject and forgetting this is exactly what happened.
+        """
+        licensed = set(re.findall(r'^    "(\w+)": "', SOURCES_PY, re.M))
+        fetched = set(re.findall(r'fetch\("(\w+)"', SOURCES_PY))
+        self.assertTrue(fetched)
+        self.assertTrue(fetched <= licensed, f"unlicensed sources: {fetched - licensed}")
+
     def test_the_run_summary_does_not_overstate_what_matched(self):
         """
         It counted every book it examined, including the ones that matched

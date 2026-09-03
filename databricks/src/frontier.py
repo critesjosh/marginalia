@@ -382,5 +382,6 @@ def recommendation_candidates():
         final.withColumn("explanation", explanation)
         .withColumn("score_version", F.lit(RECOMMENDATION_SCORE_VERSION))
         .withColumn("computed_at", F.current_timestamp())
+        .withColumn("authors", F.to_json(F.col("candidate_authors")))
         .drop("candidate_authors", "normalized_title")
     )

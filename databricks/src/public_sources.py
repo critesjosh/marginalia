@@ -64,8 +64,13 @@ PARSER_VERSION = "public-sources-v1"
 
 # Recorded on every row rather than assumed. Both are open data today; a licence
 # that changes is a fact about a row, not a fact about the code.
+# Every stored response records the licence it arrived under. A source missing
+# from here raises rather than defaulting: a response with no licence recorded
+# is one nobody can later work out the terms of, and guessing is worse than
+# failing the run.
 LICENSES = {
     "openlibrary": "CC0-1.0 (Open Library / Internet Archive)",
+    "openlibrary_subject": "CC0-1.0 (Open Library / Internet Archive)",
     "openalex": "CC0-1.0 (OpenAlex)",
 }
 

@@ -12,6 +12,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "databricks" / "src"))
 
+import types  # noqa: E402
+
 from public_matching import (  # noqa: E402
     MATCH_ACCEPT,
     choose_match,
@@ -224,3 +226,23 @@ class Scores(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SparkSerialization(unittest.TestCase):
+    """
+    These closures are sent to a Spark worker, which has no copy of this module.
+    Cloudpickle serializes a nested function by value but a module-level one by
+    reference, so a helper defined beside the factory rather than inside it
+    fails on the worker with ModuleNotFoundError, and only there.
+
+    That has happened twice. This is what makes it fail here instead.
+    """
+
+    def test_the_title_normalizer_calls_nothing_it_cannot_carry(self):
+        normalize = make_title_normalizer()
+        referenced = set(normalize.__code__.co_names) | set(normalize.__code__.co_freevars)
+        globals_ = normalize.__globals__
+        module_functions = [
+            name for name in referenced if isinstance(globals_.get(name), types.FunctionType)
+        ]
+        self.assertEqual(module_functions, [], "a worker cannot import these")

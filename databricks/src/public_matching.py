@@ -53,6 +53,34 @@ def make_title_normalizer():
     """
     articles = tuple(ARTICLES)
 
+    def looks_like_the_author(fragment, author):
+        """
+        Whether a title fragment is really the author's name.
+
+        Nested rather than module level, and that is not a style choice.
+        Cloudpickle serializes a module-level function by reference, so a
+        worker would have to import public_matching to call it, and it cannot.
+        Everything this closure needs has to be inside it.
+
+        Deliberately strict: every word of the fragment must be part of the
+        author's name. "Nietzsche" against "Friedrich Nietzsche" qualifies; a
+        title that merely mentions them does not, because dropping a real half
+        of a title is worse than keeping an author prefix.
+        """
+        if not author:
+            return False
+        names = author if isinstance(author, (list, tuple)) else [author]
+        words = {word for word in re.split(r"[^a-z0-9]+", str(fragment).lower()) if word}
+        if not words:
+            return False
+        for name in names:
+            folded = unicodedata.normalize("NFKD", str(name or ""))
+            folded = "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
+            name_words = {word for word in re.split(r"[^a-z0-9]+", folded) if word}
+            if name_words and words <= name_words:
+                return True
+        return False
+
     def normalize(value, author=None):
         text = unicodedata.normalize("NFKD", str(value or ""))
         text = "".join(ch for ch in text if not unicodedata.combining(ch)).lower()
@@ -73,7 +101,7 @@ def make_title_normalizer():
         # title away and searches for the author instead. So the first half is
         # dropped when it is the author, and kept otherwise.
         parts = text.split(":")
-        if len(parts) > 1 and _looks_like(parts[0], author):
+        if len(parts) > 1 and looks_like_the_author(parts[0], author):
             text = ":".join(parts[1:])
         else:
             text = parts[0]
@@ -89,28 +117,6 @@ def make_title_normalizer():
     return normalize
 
 
-def _looks_like(fragment: str, author) -> bool:
-    """
-    Whether a title fragment is really the author's name.
-
-    Deliberately strict: every word of the fragment has to be part of the
-    author's name. "Nietzsche" against "Friedrich Nietzsche" qualifies; a title
-    that merely mentions them does not, because dropping a real title half is
-    worse than keeping an author prefix.
-    """
-    if not author:
-        return False
-    names = author if isinstance(author, (list, tuple)) else [author]
-    fragment_words = {word for word in re.split(r"[^a-z0-9]+", str(fragment).lower()) if word}
-    if not fragment_words:
-        return False
-    for name in names:
-        folded = unicodedata.normalize("NFKD", str(name or ""))
-        folded = "".join(ch for ch in folded if not unicodedata.combining(ch)).lower()
-        name_words = {word for word in re.split(r"[^a-z0-9]+", folded) if word}
-        if name_words and fragment_words <= name_words:
-            return True
-    return False
 
 
 def normalize_title(title: str, author=None) -> str:
