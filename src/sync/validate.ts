@@ -22,6 +22,10 @@ import conversationResumedSchema from '../../contracts/events/v1/payloads/conver
 import recommendationDismissedSchema from '../../contracts/events/v1/payloads/recommendation-dismissed.schema.json'
 import bookMemoryUpdatedSchema from '../../contracts/events/v1/payloads/book-memory-updated.schema.json'
 import conversationDeletedSchema from '../../contracts/events/v1/payloads/conversation-deleted.schema.json'
+import recommendationShownSchema from '../../contracts/events/v1/payloads/recommendation-shown.schema.json'
+import recommendationOpenedSchema from '../../contracts/events/v1/payloads/recommendation-opened.schema.json'
+import recommendedBookAddedSchema from '../../contracts/events/v1/payloads/recommended-book-added.schema.json'
+import recommendedBookStartedSchema from '../../contracts/events/v1/payloads/recommended-book-started.schema.json'
 import consentSchema from '../../contracts/privacy/v1/consent.schema.json'
 import type { MarginaliaEventV1, MarginaliaEventType, SyncConsentV1 } from './types'
 
@@ -52,6 +56,10 @@ export const payloadValidators: Record<MarginaliaEventType, ValidateFunction> = 
   assistant_response_received: compile(assistantResponseReceivedSchema),
   conversation_resumed: compile(conversationResumedSchema),
   recommendation_dismissed: compile(recommendationDismissedSchema),
+  recommendation_shown: compile(recommendationShownSchema),
+  recommendation_opened: compile(recommendationOpenedSchema),
+  recommended_book_added: compile(recommendedBookAddedSchema),
+  recommended_book_started: compile(recommendedBookStartedSchema),
   book_memory_updated: compile(bookMemoryUpdatedSchema),
   conversation_deleted: compile(conversationDeletedSchema),
 }

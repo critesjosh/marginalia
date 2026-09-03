@@ -24,3 +24,11 @@ resources:
       catalog_name: ${var.catalog}
       name: ${var.ops_schema}
       comment: Deletion requests and operational bookkeeping.
+
+    scoped:
+      catalog_name: ${var.catalog}
+      name: ${var.scoped_schema}
+      comment: >-
+        Per-reader views over Gold and reading sessions. The only schema a
+        reader-facing surface is granted; which rows it returns comes from the
+        principal mapping in the ops schema, not from the query.

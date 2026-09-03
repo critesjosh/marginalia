@@ -16,9 +16,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "databricks/src/observatory"))
+sys.path.insert(0, str(ROOT / "databricks/src"))
 
 from queries import (  # noqa: E402
     FORBIDDEN_TABLES,
+    WITHOUT_A_READER,
     PERMITTED_TABLES,
     STATEMENTS,
     WITHOUT_SOURCE_TIMESTAMP,
@@ -30,14 +32,28 @@ OBSERVATORY_YML = (ROOT / "databricks/resources/observatory.yml").read_text()
 GENIE = json.loads((ROOT / "databricks/genie/marginalia.geniespace.json").read_text())
 QUESTIONS = json.loads((ROOT / "databricks/eval/genie_questions.json").read_text())
 DASHBOARD = json.loads((ROOT / "databricks/dashboards/marginalia.lvdash.json").read_text())
+DELETION_PY = (ROOT / "databricks/src/deletion.py").read_text()
 
 
 def tables_named(statement: str) -> set[str]:
     """Every table a statement reads, by the name that follows FROM or JOIN."""
     found = set()
-    for match in re.findall(r"(?:FROM|JOIN)\s+\{(?:gold|silver)\}\.(\w+)", statement):
+    for match in re.findall(r"(?:FROM|JOIN)\s+\{scoped\}\.(\w+)", statement):
         found.add(match)
     return found
+
+
+class TheStatementsStillNameTables(unittest.TestCase):
+    """
+    Every check below is written in terms of what tables_named() finds, so a
+    placeholder rename that silently made it find nothing would turn this whole
+    file green while enforcing none of it. That has one line of defence and
+    this is it.
+    """
+
+    def test_the_statements_parse(self):
+        for name, statement in STATEMENTS.items():
+            self.assertTrue(tables_named(statement), f"{name} names no table")
 
 
 class TheBoundary(unittest.TestCase):
@@ -65,8 +81,16 @@ class TheBoundary(unittest.TestCase):
         """
         An Observatory query without a user predicate would show one reader
         another's reading the moment a second reader exists.
+
+        Agent quality is the exception and is named rather than skipped: it
+        reads how the Librarian scored against synthetic readers over fixture
+        passages, from a table with no reader column at all. A predicate there
+        would return nothing and read as an agent nobody had evaluated.
         """
         for name, statement in STATEMENTS.items():
+            if name in WITHOUT_A_READER:
+                self.assertNotIn(":user", statement, f"{name} claims a reader it has none of")
+                continue
             self.assertIn(":user", statement, f"{name} is not scoped to a reader")
 
     def test_the_observatory_refuses_rather_than_choosing_a_reader(self):
@@ -241,21 +265,26 @@ class TheDeployedSpaceMatchesItsSources(unittest.TestCase):
             if sql:
                 self.assertNotIn(json.dumps(sql), OBSERVATORY_YML, question["id"])
 
-    def test_the_space_reads_only_gold(self):
+    def test_the_space_reads_only_the_per_reader_views(self):
         """
-        Data sources are what Genie is pointed at, and they must be Gold only.
-
-        They are not, on their own, an access boundary: Genie runs queries
-        under an identity that may hold Unity Catalog access of its own, so a
-        reader who owns these schemas can still reach past this list. Real
-        isolation needs row filters or per-reader views, which this phase does
-        not build. Recorded in the feedback log rather than implied here.
+        Data sources are what Genie is pointed at, and a list of them is not an
+        access boundary: Genie runs queries under an identity that may hold
+        Unity Catalog access of its own, so it can reach past the list. What
+        makes the list mean something is that every entry is a view that
+        filters by the querying principal, and that Genie's identity is granted
+        those and nothing on Gold. Reaching past the list then reaches tables
+        it cannot read.
         """
         identifiers = re.findall(r"- identifier: [^\n]*\.(\w+)$", OBSERVATORY_YML, re.M)
         self.assertTrue(identifiers)
         for table in identifiers:
             self.assertNotIn(table, FORBIDDEN_TABLES)
             self.assertIn(table, PERMITTED_TABLES)
+        self.assertNotIn(
+            "- identifier: ${var.catalog}.${resources.schemas.gold.name}.",
+            OBSERVATORY_YML,
+            "a Genie data source reads Gold directly, which is every reader's rows",
+        )
 
 
 class PinnedDependencies(unittest.TestCase):
@@ -301,16 +330,28 @@ class PinnedDependencies(unittest.TestCase):
 
 
 class PhaseBoundaries(unittest.TestCase):
-    def test_agent_quality_says_it_is_unbuilt_rather_than_showing_zero(self):
+    def test_agent_quality_distinguishes_unevaluated_from_faultless(self):
         """
-        Phase 8 owns that view. An empty chart would claim the Librarian exists
-        and scored nothing, which is a different and worse statement than
-        saying it has not been built.
+        The view was a placeholder through Phase 7 and now reads a real table.
+        The distinction it had to keep is the same one: an empty result means
+        nothing has scored the agent, which is a different and worse statement
+        than an agent that scored zero defects.
         """
         section = OBSERVATORY_PY[OBSERVATORY_PY.index("def agent_quality") :]
         section = section[: section.index("def ask")]
-        self.assertIn("Phase 8", section)
-        self.assertIn("not because it scored zero", section)
+        self.assertIn("nothing has scored it", section)
+        self.assertIn('run("agent_quality")', section)
+
+    def test_agent_quality_reports_defects_rather_than_a_success_rate(self):
+        """
+        Each blocking count is meant to be zero. A percentage would make one
+        spoiler violation across thirty cases read as 97% success.
+        """
+        section = OBSERVATORY_PY[OBSERVATORY_PY.index("BLOCKING_COLUMNS") :]
+        section = section[: section.index("def ask")]
+        for column in ("spoiler_violations", "citation_errors", "injection_failures"):
+            self.assertIn(column, section)
+        self.assertNotIn("success_rate", section)
 
     def test_ask_links_to_genie_rather_than_replacing_it(self):
         """The plan's instruction: stop rather than replace a product surface."""

@@ -20,6 +20,12 @@ variables:
   ops_schema:
     description: Deletion requests and other operational bookkeeping.
     default: marginalia_ops
+  scoped_schema:
+    description: >-
+      Per-reader views over Gold. A reader-facing surface is granted these and
+      nothing on Gold itself, so which rows it can see is decided by the
+      principal-to-reader mapping rather than by the query it happens to write.
+    default: marginalia_scoped
   kafka_secret_scope:
     description: >-
       Databricks secret scope holding the read-only Confluent credentials as
@@ -117,11 +123,38 @@ variables:
   dashboard_id:
     description: Id of the deployed dashboard, linked from the Observatory.
     default: "unset"
+  librarian_index_endpoint:
+    description: Vector Search endpoint the Librarian's passage index is served from.
+    default: marginalia-librarian
+  librarian_serving_endpoint:
+    description: >-
+      Model Serving endpoint the Librarian agent is deployed to. Scaled to zero
+      between questions: a reader asks one every so often, not continuously.
+    default: marginalia-librarian
+  librarian_experiment:
+    description: >-
+      MLflow experiment holding the Librarian's runs, traces, and evaluations.
+      A workspace path rather than a name, because that is what MLflow takes.
+    default: /Shared/marginalia-librarian
+  embedding_endpoint:
+    description: >-
+      Embedding endpoint the passage index uses for ingestion and querying. A
+      variable for the same reason the concept endpoint is: which models a
+      region serves is not something this repository can assume.
+    default: databricks-gte-large-en
   extraction_batch_limit:
     description: >-
       Most candidates one extraction run will pay for. The next run takes the
       rest, so a backlog costs no more per run than a steady state does.
     default: "200"
+
+# The Librarian's evaluation cases live with every other contract fixture, and
+# a job in the workspace has to read them. Syncing the directory keeps one copy
+# rather than a second that drifts.
+sync:
+  paths:
+    - .
+    - ../contracts
 
 include:
   - resources/*.yml
@@ -141,6 +174,9 @@ targets:
       genie_space_title: Marginalia (dev)
       lakebase_instance: marginalia-lakebase-dev
       lakebase_catalog: marginalia_serving_dev
+      librarian_index_endpoint: marginalia-librarian-dev
+      librarian_serving_endpoint: marginalia-librarian-dev
+      librarian_experiment: /Shared/marginalia-librarian-dev
 
   prod:
     mode: production

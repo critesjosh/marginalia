@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
 import { fingerprint } from '../lib/fingerprint'
+import { recordRecommendedBookAdded } from '../sync/recommendations'
 import {
   recordBookAdded,
   recordBookArchived,
@@ -17,6 +18,7 @@ import {
   type Highlight,
   type InsightsCache,
   type Message,
+  type RecommendationFeedback,
   type Settings,
   type SyncState,
 } from './types'
@@ -31,6 +33,7 @@ export class MarginaliaDB extends Dexie {
   eventOutbox!: EntityTable<EventOutboxRow, 'eventId'>
   syncState!: EntityTable<SyncState, 'id'>
   insightsCache!: EntityTable<InsightsCache, 'id'>
+  recommendationFeedback!: EntityTable<RecommendationFeedback, 'candidateId'>
 
   constructor(name = 'marginalia') {
     super(name)
@@ -87,6 +90,16 @@ export class MarginaliaDB extends Dexie {
       syncState: 'id',
       insightsCache: 'id, sourceUpdatedAt, cachedAt',
     })
+
+    // What the reader has already done with a recommendation. The cloud
+    // recomputes its candidate list on its own schedule, so without this a
+    // dismissed book comes back on the next refresh and the reader dismisses
+    // it again. It is a local view of outcomes the events already carry, not a
+    // second record of them: losing it costs a repeated card, not a lost
+    // dismissal.
+    this.version(6).stores({
+      recommendationFeedback: 'candidateId, action, at, bookId',
+    })
   }
 }
 
@@ -129,11 +142,25 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 export async function addBook(
   book: Book,
   origin: 'import' | 'sample' | 'gutenberg' | 'koreader',
+  /**
+   * The recommendation this book came from, when it came from one. Optional
+   * because most books do not: a reader importing an EPUB they already had is
+   * the common case, and only an acquisition flow that started from the
+   * Insights list can say otherwise.
+   */
+  fromRecommendation?: { candidateId: string; scoreVersion?: string },
 ): Promise<void> {
-  await db.transaction('rw', [db.books, db.settings, db.syncState, db.eventOutbox], async () => {
-    await db.books.add(book)
-    await recordBookAdded(book, origin)
-  })
+  await db.transaction(
+    'rw',
+    [db.books, db.settings, db.syncState, db.eventOutbox, db.recommendationFeedback],
+    async () => {
+      await db.books.add(book)
+      await recordBookAdded(book, origin)
+      if (fromRecommendation) {
+        await recordRecommendedBookAdded(fromRecommendation, book.id)
+      }
+    },
+  )
 }
 
 export async function deleteBook(bookId: string): Promise<void> {

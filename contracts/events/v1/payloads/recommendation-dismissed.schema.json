@@ -4,11 +4,34 @@
   "title": "recommendation_dismissed payload",
   "type": "object",
   "additionalProperties": false,
-  "required": ["dismissedAt", "candidateId"],
+  "required": [
+    "dismissedAt",
+    "candidateId"
+  ],
   "properties": {
-    "dismissedAt": { "type": "string", "format": "date-time" },
-    "candidateId": { "type": "string", "maxLength": 300 },
-    "scoreVersion": { "type": "string", "maxLength": 80 },
-    "reason": { "enum": ["not_interested", "already_read", "wrong_topic", "unspecified"] }
+    "dismissedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "candidateId": {
+      "type": "string",
+      "maxLength": 300,
+      "$comment": "An Open Library work key. The pattern admits no whitespace, so this cannot be a sentence; it is not a full validation of the key format, which varies by provider.",
+      "pattern": "^[A-Za-z0-9/_.:-]{1,300}$"
+    },
+    "scoreVersion": {
+      "type": "string",
+      "maxLength": 80,
+      "$comment": "A score version, of the shape the Gold tables emit.",
+      "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+    },
+    "reason": {
+      "enum": [
+        "not_interested",
+        "already_read",
+        "wrong_topic",
+        "unspecified"
+      ]
+    }
   }
 }

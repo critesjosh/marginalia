@@ -10,6 +10,7 @@ import type { InsightsCache } from './types'
 
 export const INTEREST_PROFILE = 'interest-profile'
 export const BOOK_ENGAGEMENT = 'book-engagement'
+export const RECOMMENDATIONS = 'recommendations'
 
 /** Older than this and a cached read is worth saying is old. */
 export const STALE_AFTER_MS = 60 * 60_000
@@ -31,6 +32,24 @@ export interface BookEngagement {
   questions: number
   completed: boolean
   engagementScore: number
+}
+
+/**
+ * One recommended book, with the components that produced its score.
+ *
+ * The explanation is a column rather than generated prose, so what the reader
+ * is told is the same thing the score was computed from. `candidateId` is an
+ * Open Library work key: public, and the key every outcome event carries back.
+ */
+export interface RecommendedBook {
+  candidateId: string
+  candidateTitle: string
+  authors?: string
+  publicationYear?: number
+  recommendationScore: number
+  explanation?: string
+  matchedConcepts?: string
+  scoreVersion?: string
 }
 
 export interface InsightsEnvelope<T> {

@@ -24,6 +24,24 @@ EVENT_CONFLICTS = f"{CATALOG}.{SILVER_SCHEMA}.event_conflicts"
 HIGHLIGHT_HISTORY = f"{CATALOG}.{SILVER_SCHEMA}.highlight_history"
 HIGHLIGHTS_CURRENT = f"{CATALOG}.{SILVER_SCHEMA}.highlights_current"
 READING_SESSIONS = f"{CATALOG}.{SILVER_SCHEMA}.reading_sessions"
+RECOMMENDATION_OUTCOMES = f"{CATALOG}.{SILVER_SCHEMA}.recommendation_outcomes"
+
+# What a reader did with a recommendation. Five events, one row each, kept flat
+# rather than pivoted per candidate: an impression and a dismissal of the same
+# work are two facts at two times, and folding them into one row would lose the
+# order they happened in, which is the whole of what a ranker would learn from.
+RECOMMENDATION_EVENT_TYPES = (
+    "recommendation_shown",
+    "recommendation_opened",
+    "recommendation_dismissed",
+    "recommended_book_added",
+    "recommended_book_started",
+)
+
+# The two that mean the reader wanted the book. Named here so the readiness
+# gate and any later ranker read the same definition rather than each deciding
+# what counts as a positive.
+POSITIVE_OUTCOMES = ("recommended_book_added", "recommended_book_started")
 
 # A deletion in these states has already removed, or is about to remove, the
 # reader from Bronze. The topic can still replay them for as long as it retains
@@ -59,6 +77,10 @@ EVENT_TYPES = [
     "conversation_resumed",
     "assistant_response_received",
     "recommendation_dismissed",
+    "recommendation_shown",
+    "recommendation_opened",
+    "recommended_book_added",
+    "recommended_book_started",
 ]
 READING_TYPES = [
     "book_opened",
@@ -194,6 +216,22 @@ def _payload_keys(event_type):
             event_type == "recommendation_dismissed",
             _strings(["dismissedAt", "candidateId", "scoreVersion", "reason"]),
         )
+        .when(
+            event_type == "recommendation_shown",
+            _strings(["shownAt", "candidateId", "scoreVersion", "rank", "recommendationScore"]),
+        )
+        .when(
+            event_type == "recommendation_opened",
+            _strings(["openedAt", "candidateId", "scoreVersion", "rank"]),
+        )
+        .when(
+            event_type == "recommended_book_added",
+            _strings(["addedAt", "candidateId", "scoreVersion"]),
+        )
+        .when(
+            event_type == "recommended_book_started",
+            _strings(["startedAt", "candidateId", "scoreVersion"]),
+        )
         .otherwise(_strings(["__unknown_event_type__"]))
     )
 
@@ -312,6 +350,10 @@ def parsed_event_records():
                     "conversation_deleted",
                     "conversation_resumed",
                     "recommendation_dismissed",
+                    "recommendation_shown",
+                    "recommendation_opened",
+                    "recommended_book_added",
+                    "recommended_book_started",
                 ]
             )
             & (F.size(privacy_included) != 0)
@@ -445,6 +487,22 @@ def parsed_event_records():
             event_type == "recommendation_dismissed",
             _variant(variant, "$.payload.dismissedAt", "timestamp"),
         )
+        .when(
+            event_type == "recommendation_shown",
+            _variant(variant, "$.payload.shownAt", "timestamp"),
+        )
+        .when(
+            event_type == "recommendation_opened",
+            _variant(variant, "$.payload.openedAt", "timestamp"),
+        )
+        .when(
+            event_type == "recommended_book_added",
+            _variant(variant, "$.payload.addedAt", "timestamp"),
+        )
+        .when(
+            event_type == "recommended_book_started",
+            _variant(variant, "$.payload.startedAt", "timestamp"),
+        )
     )
     missing_payload_timestamp = (
         ~event_type.eqNullSafe("privacy_consent_changed") & payload_timestamp.isNull()
@@ -467,9 +525,13 @@ def parsed_event_records():
     missing_assistant_outcome = (
         (event_type == "assistant_response_received") & assistant_succeeded.isNull()
     )
-    missing_recommendation_candidate = (event_type == "recommendation_dismissed") & (
-        recommendation_candidate_id.isNull() | (F.length(recommendation_candidate_id) == 0)
-    )
+    missing_recommendation_candidate = event_type.isin(
+        "recommendation_dismissed",
+        "recommendation_shown",
+        "recommendation_opened",
+        "recommended_book_added",
+        "recommended_book_started",
+    ) & (recommendation_candidate_id.isNull() | (F.length(recommendation_candidate_id) == 0))
 
     quarantine_reason = (
         F.when(
@@ -590,7 +652,8 @@ EVENT_EXPECTATIONS = {
     ),
     "valid_progress": "progress IS NULL OR (progress >= 0 AND progress <= 1)",
     "required_book_entity": (
-        "event_type IN ('privacy_consent_changed','recommendation_dismissed') "
+        "event_type IN ('privacy_consent_changed','recommendation_dismissed',"
+        "'recommendation_shown','recommendation_opened') "
         "OR book_id IS NOT NULL"
     ),
     "required_highlight_entity": (
@@ -814,4 +877,48 @@ def reading_sessions():
             & (_variant(F.col("payload"), "$.reason", "string") == "explicit")
         ).alias("closed_explicitly"),
         F.max("future_clock").alias("contains_future_clock_event"),
+    )
+
+
+@dp.materialized_view(
+    name=RECOMMENDATION_OUTCOMES,
+    comment=(
+        "Impressions, opens, dismissals, additions, and starts for recommended "
+        "works. One row per event; nothing here is book text."
+    ),
+    table_properties={"delta.enableChangeDataFeed": "true"},
+)
+@dp.expect_all(
+    {
+        "has_a_candidate": "candidate_id IS NOT NULL",
+        "rank_is_a_position": "rank IS NULL OR rank >= 1",
+        "score_is_a_fraction": "recommendation_score IS NULL OR (recommendation_score >= 0 AND recommendation_score <= 1)",
+    }
+)
+def recommendation_outcomes():
+    events = spark.read.table(SILVER_EVENTS).filter(
+        F.col("event_type").isin(list(RECOMMENDATION_EVENT_TYPES))
+    )
+    return events.select(
+        "user_id",
+        "event_id",
+        "event_type",
+        "installation_id",
+        "event_time",
+        "effective_event_time",
+        "received_at",
+        # The work the outcome is about. A public Open Library key, which is why
+        # these events need no content consent at all.
+        _variant(F.col("payload"), "$.candidateId", "string").alias("candidate_id"),
+        # The scoring that produced the recommendation. An outcome without it
+        # cannot be told apart from an outcome under a different formula, which
+        # is the difference between a dataset and a pile of clicks.
+        _variant(F.col("payload"), "$.scoreVersion", "string").alias("score_version"),
+        _variant(F.col("payload"), "$.rank", "int").alias("rank"),
+        _variant(F.col("payload"), "$.recommendationScore", "double").alias("recommendation_score"),
+        _variant(F.col("payload"), "$.reason", "string").alias("dismissal_reason"),
+        # Present only once the recommendation became a book in the library.
+        F.col("book_id"),
+        F.col("event_type").isin(list(POSITIVE_OUTCOMES)).alias("is_positive"),
+        (F.col("event_type") == "recommendation_dismissed").alias("is_negative"),
     )

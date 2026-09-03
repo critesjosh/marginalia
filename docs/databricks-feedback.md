@@ -10,6 +10,118 @@ data, or other secrets.
 
 <!-- cspell:ignore Geburt Jenseits sprach Tragodie cloudpickle -->
 
+### 2026-09-03: an audit that failed open, quietly
+
+- Surface used: Databricks Apps, `databricks-sql-connector`
+- Goal: record a Phase 11 defect whose shape recurs.
+- Result: the MCP audit route called `execute()` on what `warehouse()` returns, which is a connection rather than a cursor. Every audit write would have raised, and the Worker treats a failed audit as something to log rather than fail on on purpose, so every tool call would have succeeded and none would have been recorded. Nothing would have failed, no test would have failed, and the table would simply have stayed empty.
+- Friction: the combination is what makes it dangerous rather than either half. A deliberate fail-open on the caller's side and a broken write on the service's side produce a system that works and audits nothing, and the only signal is a log line nobody is reading. Every other route in the same file opens a cursor correctly, so the mistake is invisible to a reader skimming for shape.
+- Workaround or follow-up: a contract test now asserts the route opens a cursor, and the audit is written before the tool result is returned rather than beside it. The general rule is that a fail-open path needs a test of the thing it fails open around, because its failure is by construction silent.
+
+### 2026-09-03: a registry that decides whether an event exists at all
+
+- Surface used: Lakeflow declarative pipeline, Unity Catalog
+- Goal: record the Phase 9 defect a review found, because it would have been invisible until somebody asked why the numbers were zero.
+- Result: Silver keeps four separate registries keyed by event type: the list of known types, the permitted payload keys per type, the payload timestamp per type, and which types may name no consent category. Four new event types were added to the contracts, the envelope, the browser, the Worker, and the fixtures, and to none of the four. Every event would have been collected, accepted, produced, and then quarantined on arrival as `unknown_event_type`, and the gate they feed would have gone on reporting zero for exactly the reason it was designed to report zero. The contract test that was supposed to catch it looked for the type names anywhere in the file and found them in a tuple that names them for something else.
+- Friction: none from the platform; a quarantine that names the reason is the right behaviour. The lesson is about the shape of the check. A registry keyed by a value from a manifest deserves a test that parses the registry and compares it to the manifest, not one that greps for a string.
+- Workaround or follow-up: the test now reads `EVENT_TYPES` out of the module with `ast` and asserts it covers the manifest, and was mutation-checked by deleting the four entries again.
+
+### 2026-09-03: closing Phase 7's two open items, and what each one cost
+
+- Surface used: Unity Catalog row filters and views, Genie Conversations API, AI/BI dashboards, Databricks Apps, Automation Bundles
+- Goal: make per-reader isolation real, and compare Genie's own answers against the fixed question set instead of promising to do it by hand.
+- Result: both closed. Unity Catalog will not apply a row filter to a materialized view, and every Gold table is one, so of the plan's two options only per-reader views were available. `marginalia_scoped` holds seven views that filter on `current_user()` through a mapping table; the Observatory, dashboard and Genie now read those and hold no grant on Gold or Silver at all. Verified rather than asserted: mapped to the wrong reader the view returned 0 rows against a base table holding 57, and mapped to the right one it returned all 57. `genie_eval.py --ask` then put all ten questions to the deployed space and agreed with the baseline on every one, including the refusal, which Genie answered by declining rather than by returning an empty result.
+- Friction: three things, none of them documented anywhere I could find beforehand. A Genie space validates its data sources at deploy time, so a bundle cannot create a view and point Genie at it in the same deploy; the first deploy of a target needs the schema bootstrapped by hand, and the error arrives as a 403 PERMISSION_DENIED whose message is actually "table does not exist". `bundle deployment unbind` was the wrong reach for a dashboard the CLI said did not exist: it existed, and the identity I was authenticated as could not see it, so the fix was a profile rather than a state edit and the unbind then caused a 409 on the next deploy. And a stopped App returns no `config.env` at all from `apps get`, so a config change cannot be confirmed without starting it.
+- Workaround or follow-up: bootstrap the scoped schema before the first deploy that includes the Genie resource, and check which identity the CLI is using before believing a resource is missing. The mapping table is deliberately not created by the bundle, because a row in it names a person.
+
+### 2026-09-03: four runtime-only mistakes, and the checks that now catch them
+
+- Surface used: serverless Python tasks, Model Serving
+- Goal: record the pattern, because it repeated four times in one phase and each repeat cost a job start.
+- Result: a NUL byte in a source file; `__file__` undefined in a serverless task; an import removed with the line above it; and a helper copied between two modules calling a two-argument function with one. Every one passed `py_compile`, passed every test, deployed cleanly, and failed minutes into a run with a message that named neither the file nor the cause. They are now four contract tests over `databricks/src`: no control characters, no `__file__` in a job script, every standard-library module used is imported, every locally-defined function called exists and is given enough arguments. Each was mutation-checked against the mistake it was written for.
+- Friction: the shared property is that a serverless task compiles the file and runs it, so anything Python defers to call time is deferred past the point where feedback is cheap. A syntax error costs a second; a NameError costs a cluster start.
+- Workaround or follow-up: none needed from the platform, though an error naming the file it could not compile would have saved the first one. The lesson is local: a job script deserves the static checks a library gets, because it has none of the runtime protection a library gets from being imported by tests.
+
+### 2026-09-03: an endpoint that traced nothing, and said nothing about it
+
+- Surface used: Model Serving, MLflow tracing
+- Goal: check that the Librarian's traces existed before claiming cloud deletion removes them.
+- Result: there were none. The agent is decorated with `@mlflow.trace` on every span, the endpoint served a day of questions, and `GET /api/2.0/mlflow/traces` for the experiment returned `{}`. Tracing from a served model needs `ENABLE_MLFLOW_TRACING` and `MLFLOW_EXPERIMENT_ID` in the served entity's environment, neither of which is implied by the decorators or by logging the model to an experiment. Everything written about what a trace records, and about deleting one, was true of an empty set until those two variables were set.
+- Friction: the failure is entirely silent. The decorators run, nothing errors, the experiment exists, and the only way to find out is to go looking for traces that should be there. An endpoint serving a traced model with tracing unconfigured could say so once at startup.
+- Workaround or follow-up: the deploy task now reads the experiment id and sets both variables, and refuses to deploy if the experiment does not exist rather than pointing the endpoint at nowhere.
+
+### 2026-09-03: what a reasoning model returns, and what it cites
+
+- Surface used: `databricks-gpt-oss-120b` through Model Serving, Vector Search
+- Goal: record two shapes that only appear when a real model answers a real question.
+- Result: `choices[0].message.content` is not a string. It is a list of parts, one a reasoning summary and one the answer, so reading it as text gets an empty answer and a reply withheld for "the model returned nothing", blaming the model for the reader's own bug. Separately, asked to cite passage ids, it cited the whole passage block back, brackets and chapter and text. That is a real passage in the wrong format, and rejecting it would have withheld a correct answer over punctuation, so a citation containing exactly one known id now resolves to it. Exactly one: two is ambiguous and guessing would attach a claim to a passage that may not support it.
+- Friction: neither shape is visible from the endpoint listing, which reports the task as `llm/v1/chat` and says nothing about content parts. The first was found by querying the deployed agent and reading a withheld answer; there is no way to have known it from the model's page.
+- Workaround or follow-up: extract the parts of type `text` and drop the reasoning summary, which is the model talking to itself rather than an answer. Both rules live in the module the contract tests exercise, so neither is discovered twice.
+
+### 2026-09-03: three ways a table or an index quietly disagreed
+
+- Surface used: Delta, Vector Search, Model Serving
+- Goal: record the failures that came from state rather than from code.
+- Result: three, each silent in its own way.
+  1. `CREATE TABLE IF NOT EXISTS` does nothing to a table that exists, and the writer built its rows from the live schema, so a column added to the declaration was dropped without a word. A whole run's token counts were measured and stored nowhere. The table now reconciles itself with `ALTER TABLE ADD COLUMNS`.
+  2. A triggered index refuses a second sync while one is running: "Index is not ready to sync yet. Pipeline is in state WAITING_FOR_RESOURCES". The evaluation's sync raced the passage build's, so the wait now brackets the trigger rather than following it, and sleeps ten seconds after asking, because the state does not change the instant a sync is requested.
+  3. Serving hands a request through a pandas DataFrame, so an absent field arrives as NaN rather than None. NaN is truthy, and a NaN in a retrieval filter serializes as bare `NaN`, which is not JSON: a missing spoiler position became a rejected query rather than an unfiltered one.
+- Friction: all three are the same shape. Something absent was represented as something present, and every layer accepted it until the one that could not.
+- Workaround or follow-up: absence is now explicit in the one module that has no network in it, and each rule has a test that fails locally in a second rather than fifteen minutes into a job.
+
+### 2026-09-03: five things that only fail in a workspace
+
+- Surface used: serverless Python tasks, MLflow, Unity Catalog model registry, Vector Search, Databricks SDK
+- Goal: record every way the Librarian's deploy failed, because each one passed locally first.
+- Result: five failures, four of them a class of error rather than a typo.
+  1. A NUL byte in a source file. `python -m py_compile` accepted it, every local test passed, and the job died with "source code string cannot contain null bytes" naming no file. A contract test now rejects any control character in `databricks/src`.
+  2. `__file__` is not defined in a serverless Python task: the runner compiles and executes the source without it, so a module-level `Path(__file__)` raises NameError before the job does anything. An imported sibling module has one, so paths now come from `librarian.__file__`.
+  3. Fixing that removed `import sys` alongside it and nothing noticed, because compiling proves nothing about names. A test now checks that every standard-library module a source uses is one it imports.
+  4. Unity Catalog refuses to register a model with no signature, and refuses one with inputs only. The reply here has two shapes, an answer or a withheld one, so the output schema is a single string holding JSON rather than a schema that would be wrong about one of them.
+  5. `EndpointCoreConfigInput` requires `name` even when `name` is passed beside it to `create_and_wait`, and raises TypeError rather than defaulting it.
+- Friction: the first two are the expensive ones, because they cost a full job start each to discover and neither message names the file or the cause. A serverless task that set `__file__`, or an error that said which file could not be compiled, would have saved both.
+- Workaround or follow-up: the guards are contract tests now, so the next occurrence costs a second rather than a job run.
+
+### 2026-09-03: a field the API accepts and does not return
+
+- Surface used: Vector Search, Automation Bundles
+- Goal: record why `columns_to_sync` came back out of the index definition.
+- Result: declaring it made every subsequent `bundle deploy` plan a recreate of the index. The create call accepts the field, a read of the index does not return it, and the CLI compares what it sent against what it can see, so the difference is permanent. Recreating a Delta Sync index re-runs the whole embedding pipeline, which is the one thing this field was not worth. Omitting it syncs every column, which includes the two that are filters rather than output, and those are what matter.
+- Friction: a permanent destructive diff is the worst shape a drift can take, because the safe answer is to stop deploying and the convenient answer is to pass `--auto-approve` forever.
+- Workaround or follow-up: either return the field from a read or reject it on create. Accepting and forgetting it is what makes the tooling wrong.
+
+### 2026-09-03: Phase 8 preflight, and a resource that validates what it points at
+
+- Surface used: Model Serving, Vector Search, MLflow, Automation Bundles
+- Goal: establish whether the Librarian could be built here at all before building any of it, as the phase's preflight requires.
+- Result: everything the phase needs is available. A custom Model Serving endpoint create was accepted for validation and refused only because the model did not exist, which is the answer that says the feature is enabled. A Vector Search STANDARD endpoint created and came back ONLINE in one call. MLflow experiments and the tracking API answer normally, and the workspace serves `databricks-gte-large-en` for embeddings. The bundle can declare all of it: `vector_search_endpoints`, `vector_search_indexes`, `registered_models`, and `model_serving_endpoints` are resource kinds.
+- Friction: two resources validate their target at deploy rather than creating it, and both produce an error that names the wrong problem. A Genie space refuses with `403 PERMISSION_DENIED` whose message is that a table does not exist. A Vector Search index refuses with `404 TABLE_DOES_NOT_EXIST` on the source table its own job creates. Both mean the same thing, and both make the first deploy of a target a two-step operation that no amount of ordering inside the bundle can fix.
+- Workaround or follow-up: create the scoped views and `librarian_passages` with the same DDL before the first deploy of a target. A `depends_on` between a resource and the job that creates its source would remove the step, and neither resource kind has one.
+
+### 2026-09-03: probing a capability without buying it
+
+- Surface used: Model Serving REST API
+- Goal: answer "can this workspace create a custom serving endpoint" without creating one.
+- Result: posting a create request naming a model that does not exist distinguishes the two cases cleanly. A workspace without the feature refuses the request; this one accepted it and refused the model, which is the answer, and nothing was provisioned or billed.
+- Friction: there is no capability endpoint to ask instead. `GET /api/2.0/previews` returns Not Found, which an earlier phase already recorded, and entitlements are not exposed per feature. Probing by deliberate failure works but reads as a mistake in an audit log.
+- Workaround or follow-up: a read-only capabilities endpoint would replace a family of probes that all look like errors.
+
+### 2026-09-03: two identities that decide whether a per-reader view is a boundary
+
+- Surface used: Genie, AI/BI dashboards, Unity Catalog views
+- Goal: check the assumption the whole scoped-view design rests on, that `current_user()` inside a view is the reader asking.
+- Result: true for Genie and false by default for a dashboard. Genie splits the two credentials: the warehouse runs on the space author's embedded compute credentials, while data access is evaluated against the end user's own Unity Catalog identity, so a view filtering on `current_user()` filters per asker. A published dashboard does the opposite unless told otherwise: with the default shared data permissions viewers query on the publisher's permissions, which would put the publisher inside every scoped view and hand each viewer the publisher's reader. `embed_credentials: false` on the bundle resource is the whole difference between per-reader and per-publisher, and this deployment already had it, which is worse than not: it was true by accident and nothing said so.
+- Friction: the two products document their identity model in their own pages and neither says how it interacts with a view that reads `current_user()`, which is the one thing a person building this needs. The Genie page describes compute credentials in a sentence that reads, on a first pass, as though it settles data access too.
+- Workaround or follow-up: pin `embed_credentials: false` rather than inheriting it, and treat any surface added later as per-publisher until its identity model is checked. A review raised this as a likely defect in Genie; the docs said otherwise for Genie and confirmed it for the dashboard, which is why it was worth reading them rather than acting on either claim.
+
+### 2026-09-03: the first honest evaluation failed the evaluation, not the thing evaluated
+
+- Surface used: Genie Conversations API
+- Goal: record what the first automated comparison actually found.
+- Result: 29 reported problems across the question set, and most were mine. Genie answered `MAX(computed_at) AS last_computed_at`, which is the right answer with a different column name, and a comparator matching on names called it missing. It returned a per-book breakdown in a different row order, and a positional comparison called six rows wrong. Two questions had a `LIMIT 5` in their expected SQL that the question's wording never asked for, so "What concepts are at the edge of what I have read?" was failed for returning all 265 of them. After matching columns by name and then by value, comparing order only where the question says the ranking is the answer, and making the two questions ask for five, all ten passed.
+- Friction: none from the platform. The lesson is about the shape of the check: an evaluation written against one's own assumed SQL measures the assumptions first, and every one of those four failures would have been read as a Genie defect by anyone reading the output rather than the diff.
+- Workaround or follow-up: a question set now carries `ordered` per question, because whether row order is part of the answer is a property of the question and not of the comparator.
+
 ### 2026-09-03: recommendations from books, and what is still wrong with them
 
 - Surface used: Open Library search API, Lakeflow pipelines

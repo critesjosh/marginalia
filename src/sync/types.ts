@@ -52,6 +52,10 @@ export type MarginaliaEventType =
   | 'assistant_response_received'
   | 'conversation_resumed'
   | 'recommendation_dismissed'
+  | 'recommendation_shown'
+  | 'recommendation_opened'
+  | 'recommended_book_added'
+  | 'recommended_book_started'
   | 'book_memory_updated'
   | 'conversation_deleted'
 
@@ -157,6 +161,27 @@ export interface EventPayloadByType {
     scoreVersion?: string
     reason?: 'not_interested' | 'already_read' | 'wrong_topic' | 'unspecified'
   }
+  /**
+   * The impression. `rank` is here because an impression at the top of a list
+   * and one at the bottom are not the same evidence, and a ranker trained
+   * without it learns the list's own order as though it were the reader's
+   * preference.
+   */
+  recommendation_shown: {
+    shownAt: string
+    candidateId: string
+    scoreVersion?: string
+    rank?: number
+    recommendationScore?: number
+  }
+  recommendation_opened: {
+    openedAt: string
+    candidateId: string
+    scoreVersion?: string
+    rank?: number
+  }
+  recommended_book_added: { addedAt: string; candidateId: string; scoreVersion?: string }
+  recommended_book_started: { startedAt: string; candidateId: string; scoreVersion?: string }
   book_memory_updated: { updatedAt: string; summary?: string; cleared?: boolean }
   conversation_deleted: { deletedAt: string; messagesRemoved?: number }
 }
@@ -201,6 +226,33 @@ export interface SyncState {
   lastSuccessfulDeliveryAt?: number
   pausedReason?: 'invalid_token' | 'rejected_event' | 'sync_disabled'
   activeDeletionRequestId?: string
+}
+
+/**
+ * What the reader has already done with one recommendation.
+ *
+ * A local view of outcomes the events already carry, kept so a dismissed book
+ * does not reappear when the cloud recomputes its candidate list on its own
+ * schedule. Losing it costs a repeated card, not a lost dismissal: the event is
+ * the record, this is only what the list remembers.
+ */
+export interface RecommendationFeedback {
+  candidateId: string
+  action: 'shown' | 'opened' | 'dismissed' | 'added' | 'started'
+  at: number
+  /**
+   * The book this recommendation became, once the reader added it. It is the
+   * only thing connecting an EPUB in the library to a work key a list once
+   * suggested, and so the only way a later start can be attributed.
+   */
+  bookId?: string
+  /**
+   * The scoring that produced the recommendation, kept because a start can
+   * happen months after the list that suggested it and the outcome is only
+   * interpretable against the formula behind it. Without this the strongest
+   * positive is the one signal with no provenance.
+   */
+  scoreVersion?: string
 }
 
 export interface InsightsCache {

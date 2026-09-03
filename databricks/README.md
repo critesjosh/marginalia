@@ -6,19 +6,28 @@ authenticated ingress to Bronze; Phase 2 adds deterministic Silver identity,
 highlights, and reading sessions; Phase 3 adds extraction and the first Gold
 profiles; Phase 4 adds the serving loop, Lakebase, the App, and cloud deletion;
 Phase 6 adds targeted public sources, frontier, and recommendations; Phase 7
-adds the Observatory, an AI/BI dashboard, and a curated Genie space.
+adds the Observatory, an AI/BI dashboard, a curated Genie space, and the
+per-reader views all three read through; Phase 8 adds the Librarian, its
+retrieval index, and the evaluation that decides whether it may be deployed;
+Phase 9 adds recommendation outcomes and the gate that keeps a learned ranker
+from being trained on too few of them; Phase 11 adds the read-only MCP surface,
+which lives in the Cloudflare Worker rather than here.
+
+Phase 10 is not here and cannot be: the gate blocks it until real feedback
+accumulates, and the binding constraint is eight weeks of outcomes.
 
 ## What is here
 
 ```text
 databricks.yml                   bundle, variables, dev and prod targets
-resources/catalog.yml            the bronze/silver/gold/ops schemas
+resources/catalog.yml            the bronze/silver/gold/ops/scoped schemas
 resources/events_ingestion.yml   triggered pipeline and its 15-minute schedule
 resources/events_silver.yml      parsing, deduplication, state, and sessions
 resources/concepts_gold.yml      engagement, interest, and frontier profiles
 resources/serving.yml            Lakebase, synced tables, warehouse, and the App
 resources/deletion.yml           the cloud deletion job and the replay purge
 resources/observatory.yml        the Observatory app, dashboard, and Genie space
+resources/librarian.yml          the retrieval index, the model, and its job
 src/events_ingestion.py          Kafka source that writes events_raw
 src/events_silver.py             Bronze quarantine and Silver materialized views
 src/concepts.py                  canonicalization, response validation, scoring
@@ -27,6 +36,13 @@ src/gold_profiles.py             book_engagement and reader_interest_profile
 src/public_matching.py           work matching and the Phase 6 score formulas
 src/public_sources.py            Open Library matching, targeted OpenAlex enrichment
 src/frontier.py                  intellectual_frontier and recommendation_candidates
+src/reader_scope.py              the per-reader views and the principal mapping
+src/readiness_gate.py            whether enough feedback exists to train a ranker
+src/librarian.py                 the Librarian's rules, with no network in them
+src/librarian_agent.py           the served agent: retrieval, one call, tracing
+src/librarian_passages.py        the retrieval source table and its index sync
+src/librarian_deploy.py          logs, registers, and serves a model version
+src/librarian_evaluation.py      the live evaluation, on synthetic readers
 src/serving_sync.py              triggers the Lakebase synced tables and waits
 src/deletion.py                  cloud deletion, its manifest, and verification
 src/app/                         the Databricks App the Cloudflare Worker calls
@@ -34,7 +50,7 @@ src/observatory/                 the Observatory app and every query it runs
 dashboards/                      the AI/BI dashboard definition
 genie/                           the Genie space instructions
 eval/genie_questions.json        fixed questions, their grain, and their checks
-eval/genie_eval.py               runs those questions to establish correct answers
+eval/genie_eval.py               runs those questions, and asks Genie the same ones
 ```
 
 The App is the only thing outside the workspace that can read a reader's
@@ -340,6 +356,108 @@ Deployed without that variable the App starts and refuses every request with
 because nobody had said who was allowed to read it would be the exact failure
 the check exists to prevent.
 
+## Recommendation feedback, and the gate
+
+Five outcomes per recommendation: shown, opened, dismissed, added, started. They
+land in `marginalia_silver.recommendation_outcomes`, one row per event rather
+than one per candidate, because an impression and a dismissal of the same work
+are two facts at two times and the order they happened in is the whole of what
+a ranker would learn from.
+
+Every one carries the candidate's Open Library work key and the score version
+that produced the recommendation. An outcome without that version cannot be
+told apart from an outcome under a different formula, which is the difference
+between a dataset and a pile of clicks. None of it is book text, so these events
+need `syncEnabled` and no content consent at all.
+
+`readiness_gate.py` runs on the fifteen-minute schedule and answers the plan's
+six questions: 500 impressions, 50 positive outcomes, 50 explicit negatives, 20
+distinct candidates, eight weeks of outcomes, and a fifth of them in a temporal
+holdout. It writes every assessment to `marginalia_ops.recommender_readiness`.
+
+```sh
+databricks api post /api/2.2/jobs/run-now --json '{
+  "job_id": <events-ingestion-schedule>, "only": ["recommender_readiness"]
+}'
+```
+
+Two deliberate choices. The holdout is temporal rather than random: a random
+split puts a reader's later click in training and their earlier one in test, so
+the model is scored on a past it has already seen through the future and every
+metric comes out flattering. And an unmet gate is reported rather than raised,
+because unmet is the expected state for most of this system's life and a job
+failing every quarter of an hour trains whoever owns it to ignore it.
+
+Passing says the data is no longer the reason not to train. It is not a claim
+that a model trained on it would be good, and it is not a claim that the
+holdout is clean: the plan's requirement that a holdout outcome share no future
+interaction with a training feature is a property of how features are built,
+which no count can establish. The gate records the cut it measured so a
+training job has to satisfy that rule itself rather than cite this.
+
+One gap worth naming. The two positive outcomes need a book to have arrived
+from a recommendation, and `addBook` now takes the candidate it came from, but
+no acquisition flow passes one yet: Marginalia imports EPUBs, and a
+recommendation is an Open Library work. Impressions, opens and dismissals
+accumulate today; additions and starts wait on a way to get the book. Until
+then the gate cannot pass, and it says so rather than counting zero as met.
+
+## MCP
+
+The read-only MCP server lives in the Cloudflare Worker, not here. The Worker
+holds the only credential outside the workspace that may call the App and
+already knows which reader it acts for; a server anywhere else would need a
+second copy of both.
+
+Four tools, each reading a route the App already serves: `list_interests`,
+`list_book_engagement`, `list_recommendations`, `list_frontier`. A tool can
+reach exactly what the Insights page can reach, which is what stops the MCP
+surface being a second and wider door into the same data.
+
+No tool takes a user id. Not "ignores one": the schemas set
+`additionalProperties: false` and there is no field to put one in, so a prompt
+naming another reader fails validation instead of quietly succeeding. The
+reader comes from the Worker's own secret, the same one the Insights routes
+use, and an MCP call is refused for a disabled reader exactly as an Insights
+call is.
+
+There are deliberately no tools over highlights or conversations. The plan's
+MCP section lists them; nothing outside the workspace is granted the tables
+that hold a reader's words, and adding them means a new grant on Silver and a
+new decision about what may leave the workspace. That is a revision to make
+deliberately, not one to slip in behind a tool definition.
+
+Every call writes one row to `marginalia_ops.mcp_audit`: which tool, when, how
+many rows, and whether it worked. Never the rows. The App creates that table on
+first write, and its service principal needs to be able to:
+
+```sql
+GRANT SELECT, MODIFY ON TABLE marginalia_dev.<ops>.mcp_audit TO `<app-service-principal>`;
+```
+
+An audit that cannot be written is logged and does not fail the read: the
+alternative to an unrecorded read is a reader who cannot read their own
+profile. That choice makes the write path worth being careful about, because a
+broken one is quiet: the first version called `execute()` on the connection
+`warehouse()` returns rather than on a cursor, which would have left every read
+unaudited and nothing failing.
+
+Neither the tool name nor the reason is stored as the caller sent it. The tool
+must be one this server has and the reason one it produces, or the row records
+that something else was asked for. A free-text column in an operational table
+is a place for a reader's sentence to end up under a different retention rule
+than the one it came from.
+
+One HTTP request is one authentication, so a batch is capped at ten messages
+and a body at 64 KiB, and the rate limiter is charged once per tool call rather
+than once at the door. Without both, a single authorised call fans out into an
+unbounded number of reads of the App and writes of this table.
+
+A tool whose upstream call fails, times out, or is refused by the limiter comes
+back as a tool error rather than as a transport failure. A batch that lost every
+other reply because one read was unreachable would be reporting the wrong thing
+about nine tools that were fine.
+
 ## Cloud deletion
 
 `marginalia-cloud-deletion` takes a request id and runs in two halves with the
@@ -352,7 +470,7 @@ sync_serving       push the recomputed rows into Lakebase and wait
 verify             count the reader in every manifest table, then record
 ```
 
-The manifest is versioned (`deletion_manifest_v1`) and splits into tables that
+The manifest is versioned (`deletion_manifest_v5`) and splits into tables that
 are deleted from and materialized views that are recomputed. A table the
 deployment never created is recorded as absent rather than counted as empty,
 because "0 rows" would imply it had been checked.
@@ -392,10 +510,76 @@ and scored nothing.
 Ask Marginalia links to the Genie space rather than reimplementing it. Genie is
 its own product surface, and the plan says to stop rather than replace one.
 
+Agent quality reads the most recent Librarian evaluation. It shows defect counts
+rather than a success rate: every blocking count is meant to be zero, and a
+percentage would make one spoiler violation across thirty cases read as 97%
+success.
+
+## Per-reader isolation
+
+`marginalia_scoped` holds one view per Gold table the reader-facing surfaces
+read, plus `reading_sessions`. Each selects its source where
+`marginalia_ops.reader_principals` says the querying principal is that reader:
+
+```sql
+WHERE EXISTS (
+  SELECT 1 FROM <ops>.reader_principals AS mapped
+  WHERE mapped.user_id = source.user_id
+    AND lower(mapped.principal) = lower(current_user())
+)
+```
+
+A Unity Catalog view runs with its owner's privileges, so the Observatory, the
+dashboard, and Genie are granted the scoped schema and nothing on Gold or
+Silver. Being unmapped is not an error, it is an empty result: a principal
+nobody vouched for is not a reader.
+
+This works only where `current_user()` is the reader asking:
+
+- the Observatory queries as its own service principal, which is mapped;
+- Genie evaluates data access against the end user's own Unity Catalog identity,
+  even though the warehouse runs on embedded compute credentials;
+- a dashboard does not, by default. A published dashboard runs on the
+  publisher's data permissions, which would make `current_user()` the publisher
+  inside every view and hand each viewer the publisher's reader. The resource
+  sets `embed_credentials: false`, and that line is what makes the dashboard
+  per-reader rather than per-publisher.
+
+A principal maps to at most one reader. Two rows naming the same principal and
+different readers would union them, and the views would go on looking correct
+while answering for two people. There is no unique constraint to declare this
+with, so `reader_scope` checks it on every run and fails the task.
+
+Row filters were the plan's other option and Unity Catalog will not apply one to
+a materialized view, which every Gold table is. Views are what is available.
+
+What this does not claim: whoever owns these schemas still owns them, and can
+read the base tables or redefine these views. Readers are bounded from each
+other; nobody is bounded from the owner, and no arrangement of grants inside one
+metastore would do that.
+
+`reader_scope` runs as a task in the fifteen-minute job rather than at deploy,
+because a full refresh drops and recreates the materialized views underneath.
+Map a principal by hand, once:
+
+```sql
+INSERT INTO <catalog>.<ops>.reader_principals
+VALUES ('you@example.com', '<trusted-user-id>', 'the reader, at a keyboard', current_timestamp()),
+       ('<observatory-service-principal>', '<trusted-user-id>', 'the Observatory app', current_timestamp());
+```
+
+Two resources validate what they point at when they are deployed, so the very
+first deploy of a target needs those objects to exist already: a Genie space
+checks its data sources, and a Vector Search index checks its source table.
+Create the scoped views and `librarian_passages` by running the same DDL first,
+or deploy once with those two resources commented out. Every deploy after that
+is ordinary, and the error a missing source produces is worth knowing: the
+Genie one arrives as a 403 whose message is that a table does not exist.
+
 ## What the Observatory cannot read
 
-Its service principal has `SELECT` on the Gold schema and on `reading_sessions`
-by name. Not the Silver schema, and not `concept_extractions`.
+Its service principal has `USE SCHEMA` and `SELECT` on `marginalia_scoped`, and
+nothing else. Not Gold, not the Silver schema, and not `concept_extractions`.
 
 `concept_extractions` is excluded deliberately, and it is the one that looks
 safe. It holds `raw_response`: the model's entire answer to a prompt built from
@@ -405,13 +589,13 @@ words at one remove. The Observatory reads `marginalia_gold.concept_evidence`
 instead, a projection carrying counts and no model output, so the boundary is a
 grant rather than a promise about which columns a query happens to select.
 
-Genie is pointed at the four Gold tables and instructed not to read anything
-else. Be clear about what that is and is not: data sources are not an access
-boundary. Genie runs under an identity that may hold Unity Catalog access of its
-own, so a reader who owns these schemas can reach past the list if they try.
-Real isolation needs row filters or per-reader views, which this phase does not
-build. The same is true of the dashboard, whose datasets are not filtered by
-reader.
+Genie is pointed at the four scoped views and instructed not to read anything
+else. A data-source list is not an access boundary on its own: Genie runs under
+an identity that may hold Unity Catalog access of its own, and could name a
+table the list omits. What makes the list mean something is that the entries are
+per-reader views and the identity has no grant on Gold, so reaching past the
+list reaches something it cannot read. The dashboard's datasets resolve to the
+same schema for the same reason.
 
 ```sh
 databricks apps get marginalia-observatory-dev   # read the service principal id
@@ -419,14 +603,173 @@ databricks apps get marginalia-observatory-dev   # read the service principal id
 
 ```sql
 GRANT USE CATALOG ON CATALOG marginalia_dev TO `<observatory-service-principal>`;
-GRANT USE SCHEMA, SELECT ON SCHEMA marginalia_dev.<gold> TO `<observatory-service-principal>`;
-GRANT USE SCHEMA ON SCHEMA marginalia_dev.<silver> TO `<observatory-service-principal>`;
-GRANT SELECT ON TABLE marginalia_dev.<silver>.concept_extractions TO `<observatory-service-principal>`;
-GRANT SELECT ON TABLE marginalia_dev.<silver>.reading_sessions TO `<observatory-service-principal>`;
+GRANT USE SCHEMA, SELECT ON SCHEMA marginalia_dev.<scoped> TO `<observatory-service-principal>`;
 ```
 
-Grant the two Silver tables by name. Granting the schema would hand over the
-highlight text as well, which is the whole thing this boundary exists to keep.
+One grant, on views that already know which reader is asking. An earlier version
+granted the Gold schema and two Silver tables by name; that was per-table least
+privilege and not per-reader, and it is what the scoped schema replaced. On a
+workspace that had the earlier grants, take them away, or the scoped schema is
+an addition rather than a boundary:
+
+```sql
+REVOKE SELECT, USE SCHEMA ON SCHEMA marginalia_dev.<gold> FROM `<observatory-service-principal>`;
+REVOKE USE SCHEMA ON SCHEMA marginalia_dev.<silver> FROM `<observatory-service-principal>`;
+REVOKE SELECT ON TABLE marginalia_dev.<silver>.reading_sessions FROM `<observatory-service-principal>`;
+```
+
+Grants are workspace state and not a committed file, so check rather than assume:
+
+```sql
+SHOW GRANTS ON SCHEMA marginalia_dev.<gold>;     -- expect no reader-facing principal
+SHOW GRANTS ON SCHEMA marginalia_dev.<silver>;   -- the same
+SHOW GRANTS ON SCHEMA marginalia_dev.<scoped>;   -- expect exactly the reader-facing ones
+```
+
+Remember that catalog- and schema-level privileges inherit downward: a principal
+with `SELECT` on the catalog reads Gold whatever the schema grants say.
+
+## The Librarian
+
+Genie answers structured questions with SQL. The Librarian answers the
+interpretive ones, which cannot be a query, so they are a model reading
+retrieved passages.
+
+```text
+librarian_passages        a Delta table of the reader's own consented text
+  -> librarian_passages_index   triggered Delta Sync, embedded by gte-large-en
+  -> the agent                  retrieve, one model call, validate, or withhold
+  -> a serving endpoint         scaled to zero between questions
+```
+
+`librarian_passages` is a real Delta table and not a materialized view, for the
+reason Phase 4 already paid for once: a Delta Sync index reads its source's
+change feed, and a materialized view accepts `delta.enableChangeDataFeed` and
+ignores it.
+
+Four rules, all of them in `src/librarian.py`, which has no network in it and is
+tested against fixed model replies:
+
+1. A reader sees their own passages. `user_id` comes from the request the caller
+   made, never from the question, and it is a retrieval filter rather than a
+   ranking hint. Whatever the index returns is filtered again on the way back.
+
+   Both filters prove the rows match the id that was asked for, not that the
+   caller was entitled to ask. Anyone who can query the endpoint can name any
+   reader, so the boundary is the endpoint's permissions, the same way the
+   serving App's boundary is `MARGINALIA_TRUSTED_CALLER`. Grant `CAN_QUERY` to
+   server-side identities that already know which reader they act for, and
+   never build a route that forwards a browser-supplied id.
+
+   ```sh
+   databricks serving-endpoints get-permissions marginalia-librarian-dev
+   ```
+2. Nothing past the spoiler position. Each passage carries the progress it was
+   made at, retrieval asks for `progress <=` the reader's position, and the
+   result is checked against the same bound.
+
+   A description has no position and belongs to the whole book, so it is kept.
+   A digest also has no position and is not thereby harmless: it summarises
+   whatever the reader had read when it was written, which on a finished book
+   is the ending. Digests are dropped whenever a position is asked for.
+
+   The position is required. An absent one made both filters unbounded, so a
+   request that simply omitted the field saw everything; asking for the whole
+   book is still possible and has to be said, as `spoiler_progress: 1.0`.
+3. Every claim carries a passage id that was actually retrieved. A reply is a
+   list of claims, each with its own evidence, rather than prose with one list
+   at the end: a single list lets one real citation stand behind every sentence
+   around it, invented ones included. An answer citing anything else, or making
+   a claim that cites nothing, is withheld with its reasons rather than shown,
+   because a reader cannot check a citation this system has just called
+   invented.
+4. Passage text is data. The system prompt says so, the question is placed after
+   the passages so none can read as a follow-up instruction, and the evaluation
+   checks behaviour rather than tone: an injected note names a marker, and
+   emitting it is the failure.
+
+A reply also carries `answerable`. Retrieval returns the nearest passages, not
+the relevant ones, so a question about something the reader never marked still
+comes back with their closest few. Saying so is the right answer and has nothing
+to cite, and a validator that demanded a citation there would push the model
+into answering from its own knowledge, which is the failure rule 3 exists to
+stop. An unanswerable reply that cites anyway is withheld: one of its two halves
+is false and there is no way to tell which. What the model wrote in that field
+is not returned at all unless the caller passes `include_model_note`, which the
+evaluation does and a reader-facing route must not: it is the one place a reply
+need not cite anything, so displaying it would be displaying an uncited claim.
+
+What none of this checks is whether the passage a claim cites actually supports
+it. Per-claim citation is enforced; the honesty of the split is not something a
+machine here can judge, and saying so is better than implying otherwise.
+
+Nothing is retrieved that concept extraction would not read, which means no
+assistant text at all. An agent that retrieves its own previous output cites
+itself and calls it evidence.
+
+### Deploying and evaluating it
+
+```sh
+# Rebuild the passages and sync the index. This is what the hourly schedule runs.
+databricks bundle run librarian_job -t dev
+
+# Evaluate whatever is currently deployed.
+databricks bundle run librarian_job -t dev --params evaluate=true
+
+# Log a new model version, serve it, and evaluate that.
+databricks bundle run librarian_job -t dev --params deploy=true,evaluate=true
+```
+
+Two parameters rather than one. The deploy is gated because the endpoint holds a
+model version and replacing it on a schedule would restart serving to redeploy
+identical code. The evaluation is gated separately, and independently, because
+re-evaluating what is already deployed should not require logging a new version
+to reach it.
+
+`evaluate` is read by the script rather than by a condition task. A task whose
+every dependency was excluded is excluded too, whatever `run_if` says, so the
+evaluation depends on `build_passages` as well as on `log_and_serve`: the first
+always runs, which leaves `ALL_DONE` something to be true about, and naming the
+second is what orders the two when a run does both.
+
+The evaluation runs against the deployed endpoint and the real index, on two
+synthetic readers whose passages are inserted, queried, and deleted again in a
+`finally` block. No reader's own words are involved, which is also the Phase 8
+preflight requirement. Its thresholds are in `librarian.py` and were set before
+the first deployment: cross-reader evidence, spoiler violations, citation
+errors, unsupported answers, and obeyed injections are each zero, retrieval
+recall is at least 0.8, and median latency is measured warm.
+
+Latency and token counts are recorded per case. Tokens rather than money: what
+a token costs is a price list that moves, and a stored figure derived from one
+would be wrong the day it changed.
+
+Results land in `marginalia_ops.librarian_evaluations`, which has no reader
+column because there is no reader in it. That is why the Observatory reads it
+through the one view in `marginalia_scoped` that does not filter by reader, and
+why `reader_scope` fails the run if that table ever grows a `user_id`.
+
+### What deletion has to reach
+
+`deletion_manifest_v5` adds `librarian_passages` and a stage for MLflow traces,
+and the recommendation outcomes and readiness assessments Phase 9 records.
+
+The index has no delete of its own: it syncs from the passages table, so
+deleting the rows and waiting for the sync is the deletion, and the deletion job
+runs `librarian_passages.py --wait_for_sync=true` rather than assuming it.
+
+A trace holds the passages the model was shown, which is reader text in a store
+no `DELETE` reaches. The agent tags every trace with `marginalia.user_id`, and
+that tag is the only handle deletion has; an untagged trace would be
+undeletable, which is why a contract test insists the tag is written.
+
+Traces exist only because the served entity sets `ENABLE_MLFLOW_TRACING` and
+`MLFLOW_EXPERIMENT_ID`. The decorators alone produce nothing, silently, and for
+a while everything written here about traces was true of an empty experiment.
+
+Every evaluation run deletes the traces it caused, by the same tag and the same
+call. That is not tidiness: a tag that stopped being written, or a filter that
+stopped matching, then fails an evaluation rather than a deletion.
 
 ## Evaluating Genie
 
@@ -436,17 +779,33 @@ set is really testing: the commonest way for a text-to-SQL answer to be wrong is
 not bad syntax, it is counting the right thing at the wrong grain.
 
 ```sh
+# The baseline: what the right answer is, run directly.
 python3 databricks/eval/genie_eval.py --profile me \
-  --warehouse <id> --gold marginalia_dev.<gold-schema>
+  --warehouse <id> --tables marginalia_dev.<scoped-schema>
+
+# The evaluation: ask Genie the same questions and compare.
+python3 databricks/eval/genie_eval.py --profile me \
+  --warehouse <id> --tables marginalia_dev.<scoped-schema> \
+  --ask --space <genie-space-id>
 ```
 
-That prints the correct answers; asking Genie is done by hand and compared
-against them. The values move as the reader reads, so what is fixed is the
-question, the grain, and the checks rather than stored numbers.
+The values move as the reader reads, so what is fixed is the question, the
+grain, and the checks rather than stored numbers; the baseline is recomputed on
+every run for that reason.
+
+Genie may name a column whatever its SQL called it, so a column is matched by
+name and then by value, and only a value that appears nowhere in the row fails.
+Row order is compared only where the question says the ranking is the answer.
+Both rules exist because the first run failed correct answers for aliasing a
+column and for ordering an unordered breakdown differently.
+
+Two questions also had a `LIMIT` their wording never asked for, so they measured
+the evaluation's assumptions rather than Genie. They now ask for five.
 
 One question has no SQL and must be refused: asking for the text of a reader's
 highlights. A correct answer says it cannot see them. An empty result is a wrong
-answer, because it reads as the reader having none.
+answer, because it reads as the reader having none, and Genie writing SQL at all
+for that question is a failure whatever it returns.
 
 ## Phase 4 acceptance
 

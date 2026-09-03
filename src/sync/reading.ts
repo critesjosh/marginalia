@@ -1,4 +1,5 @@
 import { db } from '../db/db'
+import { candidateForBook, recordRecommendedBookStarted } from './recommendations'
 import { enqueueEvent } from './outbox'
 import type { EventPayloadByType } from './types'
 
@@ -224,7 +225,7 @@ export async function recordReadingActivity(
 ): Promise<void> {
   await db.transaction(
     'rw',
-    [db.books, db.settings, db.syncState, db.eventOutbox],
+    [db.books, db.settings, db.syncState, db.eventOutbox, db.recommendationFeedback],
     async () => {
       await db.books.update(bookId, {
         lastCfi: snapshot.cfi,
@@ -232,6 +233,26 @@ export async function recordReadingActivity(
         lastOpenedAt: at,
       })
       for (const intent of intents) await enqueueReadingIntent(bookId, intent)
+
+      // A book opened for the first time since a recommendation put it here is
+      // the stronger of the two positives the readiness gate counts. It is
+      // attributed here rather than in the Insights list because this is where
+      // opening a book actually happens, and the reader who takes a suggestion
+      // does not go back to a list to say so.
+      if (intents.some((intent) => intent.eventType === 'book_opened')) {
+        const origin = await candidateForBook(bookId)
+        if (origin && origin.action === 'added') {
+          // The score version comes from the note written when the book was
+          // added. A start can happen months after the list that suggested it,
+          // and an outcome without the formula behind it cannot be told apart
+          // from an outcome under a different one.
+          await recordRecommendedBookStarted(
+            { candidateId: origin.candidateId, scoreVersion: origin.scoreVersion },
+            bookId,
+            at,
+          )
+        }
+      }
     },
   )
 }

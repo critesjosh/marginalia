@@ -2,7 +2,7 @@
 The Databricks App the Cloudflare Worker calls.
 
 It is the only thing outside the workspace that can read a reader's profile, and
-it is deliberately small: four routes, read-only Postgres queries against the
+it is deliberately small: seven routes, read-only Postgres queries against the
 synced tables, and one write that creates a deletion request.
 
 The reader's id is in the path because the Worker puts it there from its own
@@ -21,7 +21,7 @@ import psycopg
 from databricks import sql as dbsql
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
-from fastapi import FastAPI, HTTPException, Path, Request
+from fastapi import Body, FastAPI, HTTPException, Path, Request
 from psycopg.rows import dict_row
 from pydantic import BaseModel
 
@@ -38,6 +38,21 @@ TRUSTED_CALLER = os.environ.get("MARGINALIA_TRUSTED_CALLER", "")
 ALLOWED_CALLERS = {value.strip() for value in TRUSTED_CALLER.split(",") if value.strip()}
 WAREHOUSE_HTTP_PATH = os.environ.get("MARGINALIA_WAREHOUSE_HTTP_PATH", "")
 OPS_TABLE = os.environ.get("MARGINALIA_DELETION_TABLE", "")
+# One line per MCP tool call. Derived from the deletion table's name rather than
+# configured separately: they live in the same operational schema, and two
+# variables that must agree are two variables that eventually do not.
+MCP_AUDIT_TABLE = OPS_TABLE.rsplit(".", 1)[0] + ".mcp_audit" if OPS_TABLE else ""
+# The tools this server has. An audit row naming anything else records that
+# something else was asked for rather than storing what the caller called it:
+# a free-text column in an operational table is a place to put a reader's words.
+KNOWN_TOOLS = {
+    "list_interests",
+    "list_book_engagement",
+    "list_recommendations",
+    "list_frontier",
+}
+# The reasons this server produces, in the shape it produces them.
+AUDIT_DETAIL = re.compile(r"^(unknown_tool|unexpected_argument|upstream_[0-9]{3})$")
 # Recording a request is not the same as starting one. The job is what actually
 # deletes, and a reader who asked should not wait for a nightly sweep to find
 # out that anything is happening.
@@ -330,6 +345,165 @@ def deletion_request(request: Request, user_id: str = Path(...), request_id: str
     if row is None:
         raise HTTPException(status_code=404, detail="not_found")
     return {"requestId": request_id, "status": BROWSER_STATUS.get(row[0], "running")}
+
+
+@app.get("/api/v1/users/{user_id}/recommendations")
+def recommendations(request: Request, user_id: str = Path(...)):
+    """
+    Books to read next, with the components that produced the ranking.
+
+    The explanation is a column rather than generated prose, so what the reader
+    is shown is what the score was computed from. Nothing here is the reader's
+    own text: a candidate is a public work, and the concepts named are the
+    labels their profile already holds.
+
+    Fewer rows than the other two routes. This is a list a person reads rather
+    than a profile a page summarises, and five hundred recommendations is not a
+    longer list, it is a worse one.
+    """
+    authorize(request, user_id)
+    with connection() as pg, pg.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT candidate_id, candidate_title, authors, publication_year,
+                   recommendation_score, explanation, matched_concepts,
+                   score_version, computed_at
+            FROM {PG_SCHEMA}.recommendation_candidates
+            WHERE user_id = %s
+            ORDER BY recommendation_score DESC, candidate_id
+            LIMIT 50
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+
+    updated = source_updated_at(rows)
+    return {
+        "rows": [
+            {
+                "candidateId": row["candidate_id"],
+                "candidateTitle": row["candidate_title"],
+                "authors": row["authors"],
+                "publicationYear": (
+                    int(row["publication_year"]) if row["publication_year"] is not None else None
+                ),
+                "recommendationScore": float(row["recommendation_score"] or 0.0),
+                "explanation": row["explanation"],
+                "matchedConcepts": row["matched_concepts"],
+                "scoreVersion": row["score_version"],
+            }
+            for row in rows
+        ],
+        **({"sourceUpdatedAt": updated} if updated else {}),
+    }
+
+
+@app.get("/api/v1/users/{user_id}/frontier")
+def frontier(request: Request, user_id: str = Path(...)):
+    """
+    Concepts adjacent to what the reader has established, with what makes them
+    adjacent.
+
+    Every row names the established concepts and the public works behind it, so
+    a frontier concept can be argued with rather than only accepted. Nothing
+    here is the reader's own text: the concepts are labels their profile
+    already holds and the works are published research.
+    """
+    authorize(request, user_id)
+    with connection() as pg, pg.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT candidate_concept, frontier_score, neighbour_count,
+                   supporting_work_count, best_cited_by_count, established_concepts,
+                   supporting_works, score_version, computed_at
+            FROM {PG_SCHEMA}.intellectual_frontier
+            WHERE user_id = %s
+            ORDER BY frontier_score DESC, candidate_concept
+            LIMIT 200
+            """,
+            (user_id,),
+        )
+        rows = cursor.fetchall()
+
+    updated = source_updated_at(rows)
+    return {
+        "rows": [
+            {
+                "candidateConcept": row["candidate_concept"],
+                "frontierScore": float(row["frontier_score"] or 0.0),
+                "neighbourCount": int(row["neighbour_count"] or 0),
+                "supportingWorkCount": int(row["supporting_work_count"] or 0),
+                "bestCitedByCount": int(row["best_cited_by_count"] or 0),
+                "establishedConcepts": row["established_concepts"],
+                "supportingWorks": row["supporting_works"],
+                "scoreVersion": row["score_version"],
+            }
+            for row in rows
+        ],
+        **({"sourceUpdatedAt": updated} if updated else {}),
+    }
+
+
+@app.post("/api/v1/users/{user_id}/mcp-audit")
+def record_mcp_audit(request: Request, user_id: str = Path(...), entry: dict = Body(...)):
+    """
+    One line per MCP tool call: which tool, when, how many rows, and whether it
+    worked.
+
+    Never the rows. An audit that quoted what a tool returned would be a second
+    copy of the reader's profile living under a different retention rule, which
+    is exactly the shape of thing the logging rules exist to prevent.
+
+    A write, in a service whose whole point is that it only reads. It is here
+    because the alternative is an audit the Worker keeps to itself, and an
+    audit that lives only where the thing being audited runs is not much of an
+    audit. It writes to one operational table and can touch nothing else.
+    """
+    authorize(request, user_id)
+
+    # The tool and the detail are both caller-influenced, and this table is
+    # governed by the rule that it holds no reader content. So neither is
+    # stored as sent: the tool must be one this server actually has, and the
+    # detail must be one of the reasons this server produces. Anything else is
+    # recorded as the fact that something else was asked for.
+    tool = str(entry.get("tool", ""))[:120]
+    if tool not in KNOWN_TOOLS:
+        tool = "unknown_tool"
+    detail = entry.get("detail")
+    detail = str(detail)[:80] if detail is not None else None
+    if detail is not None and not AUDIT_DETAIL.match(detail):
+        detail = "unrecognised_detail"
+    rows = int(entry.get("rows") or 0)
+    ok = bool(entry.get("ok"))
+    at = str(entry.get("at", ""))[:40]
+    if not tool or not at:
+        raise HTTPException(status_code=400, detail="an audit row needs a tool and a time")
+    if not WAREHOUSE_HTTP_PATH or not MCP_AUDIT_TABLE:
+        raise HTTPException(status_code=503, detail="audit storage is not configured")
+
+    with warehouse() as sql, sql.cursor() as cursor:
+        cursor.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {MCP_AUDIT_TABLE} (
+              called_at TIMESTAMP NOT NULL,
+              recorded_at TIMESTAMP NOT NULL,
+              user_id STRING NOT NULL,
+              tool STRING NOT NULL,
+              rows_returned BIGINT,
+              succeeded BOOLEAN,
+              detail STRING
+            ) USING DELTA
+            """
+        )
+        cursor.execute(
+            f"""
+            INSERT INTO {MCP_AUDIT_TABLE}
+            VALUES (?, current_timestamp(), ?, ?, ?, ?, ?)
+            """,
+            (at, user_id, tool, rows, ok, detail),
+        )
+
+    return {"recorded": True}
 
 
 @app.get("/health")

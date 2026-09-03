@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 INSIGHTS_TS = (ROOT / "src/sync/insights.ts").read_text()
 INTELLIGENCE_TS = (ROOT / "workers/app/src/intelligence.ts").read_text()
+MCP_TS = (ROOT / "workers/app/src/mcp.ts").read_text()
+# Both Worker surfaces that call the App. The MCP server reaches two routes the
+# Insights ones do not, and a parity check over only the first would report the
+# other two as routes nobody calls.
+WORKER_TS = INTELLIGENCE_TS + MCP_TS
 APP_PY = (ROOT / "databricks/src/app/app.py").read_text()
 DELETION_PY = (ROOT / "databricks/src/deletion.py").read_text()
 SILVER_PY = (ROOT / "databricks/src/events_silver.py").read_text()
@@ -100,6 +105,42 @@ class ResponseShapes(unittest.TestCase):
             self.assertIn(f'"{field}"', APP_PY)
 
 
+class TheAuditTable(unittest.TestCase):
+    """
+    The one route in a read-only App that writes. It exists because an audit
+    kept only where the audited thing runs is not much of an audit, and it is
+    narrow because a free-text column in an operational table is a place for a
+    reader's words to end up.
+    """
+
+    def test_it_opens_a_cursor_rather_than_using_the_connection_as_one(self):
+        """
+        `warehouse()` returns a connection. Calling execute() on it raises, and
+        the Worker treats a failed audit as loggable rather than fatal, so the
+        reads would have gone on being unaudited without anything failing.
+        """
+        route = APP_PY[APP_PY.index("def record_mcp_audit") :]
+        self.assertIn("with warehouse() as sql, sql.cursor() as cursor:", route)
+
+    def test_the_tool_name_is_one_the_server_has(self):
+        """A caller-supplied name is not stored as sent."""
+        self.assertIn("KNOWN_TOOLS", APP_PY)
+        self.assertIn('tool = "unknown_tool"', APP_PY)
+
+    def test_the_detail_is_one_of_the_reasons_the_server_produces(self):
+        self.assertIn("AUDIT_DETAIL", APP_PY)
+        self.assertIn('detail = "unrecognised_detail"', APP_PY)
+
+    def test_it_stores_no_row_it_audited(self):
+        route = APP_PY[APP_PY.index("def record_mcp_audit") :]
+        route = route[: route.index("@app.get")]
+        for column in ("rows_returned", "succeeded", "tool"):
+            self.assertIn(column, route)
+        # Counts and outcomes, never content.
+        self.assertNotIn("concept", route)
+        self.assertNotIn("candidate_title", route)
+
+
 class Routes(unittest.TestCase):
     def test_every_worker_upstream_path_is_a_route_the_app_serves(self):
         """
@@ -109,7 +150,12 @@ class Routes(unittest.TestCase):
         """
         upstream = {
             re.sub(r"\$\{[^}]+\}", "*", path)
-            for path in re.findall(r"`\$\{base\}(/[a-z-]+(?:/[^`]*)?)`", INTELLIGENCE_TS)
+            for path in re.findall(r"`\$\{base\}(/[a-z-]+(?:/[^`]*)?)`", WORKER_TS)
+        }
+        # The MCP tools name their routes in a table rather than in a template,
+        # so they are collected from there.
+        upstream |= {
+            f"/{route}" for route in re.findall(r"route: '([a-z-]+)'", MCP_TS)
         }
         served = {
             re.sub(r"\{[^}]+\}", "*", path)
@@ -359,7 +405,12 @@ class ServingResources(unittest.TestCase):
         that does not need it.
         """
         self.assertNotIn('"delta.enableChangeDataFeed"', GOLD_PY)
-        self.assertEqual(SERVING_YML.count("scheduling_policy: SNAPSHOT"), 2)
+        # Every synced table, counted rather than a fixed number: a third one
+        # was added and the only thing that noticed was an assertion that two
+        # existed, which says nothing about the third's policy.
+        tables = SERVING_YML.count("source_table_full_name:")
+        self.assertGreaterEqual(tables, 3)
+        self.assertEqual(SERVING_YML.count("scheduling_policy: SNAPSHOT"), tables)
         for unavailable in ("TRIGGERED", "CONTINUOUS"):
             self.assertNotIn(f"scheduling_policy: {unavailable}", SERVING_YML)
 

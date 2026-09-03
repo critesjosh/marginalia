@@ -56,6 +56,34 @@ resources:
           storage_catalog: ${var.catalog}
           storage_schema: ${resources.schemas.ops.name}
 
+    recommendation_candidates:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.recommendation_candidates
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.recommendation_candidates
+        # One row per reader and candidate work, which is the grain the
+        # outcome events cite back by candidate_id.
+        primary_key_columns:
+          - user_id
+          - candidate_id
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+    intellectual_frontier:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.intellectual_frontier
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.intellectual_frontier
+        primary_key_columns:
+          - user_id
+          - candidate_concept
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
   apps:
     intelligence:
       name: ${var.app_name}

@@ -67,7 +67,11 @@
         "conversation_deleted",
         "assistant_response_received",
         "conversation_resumed",
-        "recommendation_dismissed"
+        "recommendation_dismissed",
+        "recommendation_shown",
+        "recommendation_opened",
+        "recommended_book_added",
+        "recommended_book_started"
       ]
     },
     "eventTime": {

@@ -335,7 +335,18 @@ insightsCache:
   payload
   sourceUpdatedAt
   cachedAt
+
+recommendationFeedback:
+  candidateId primary key
+  action = shown | opened | dismissed | added | started
+  at
 ```
+
+`recommendationFeedback` is a local view of outcomes the events already carry,
+added in Phase 9. The cloud recomputes its candidate list on its own schedule,
+so without it a dismissed book returns on the next refresh and is dismissed
+again. Losing it costs a repeated card, not a lost dismissal: the event is the
+record, this is only what the list remembers.
 
 Acknowledged events are removed from `eventOutbox`; they are not retained locally as a
 second analytics database. `held` is used only for a provisional question that the
@@ -911,7 +922,7 @@ preview response, explicit confirmation, and a compensating or deletion action.
 Each phase is an independently completable `/goal`. A goal must not silently continue
 into the next phase.
 
-### Implementation status (2026-09-02)
+### Implementation status (2026-09-03)
 
 | Phase | Status | Evidence and remaining gate |
 | --- | --- | --- |
@@ -922,8 +933,11 @@ into the next phase.
 | 4 | Complete | Verified end to end on 2026-09-02 against the deployed Worker and a real reading session. A highlight made in the browser at 14:04:15Z was readable through the same-origin Worker at 14:15:11Z, inside the 35-minute objective; the schedule was triggered by hand rather than waited for, so an unattended run adds up to the schedule interval. Missing and invalid sync tokens were refused at the Worker, an unauthenticated caller at the App. Cloud deletion removed one reader from every layer including the serving copies, left the other reader intact, and settled on `purging_source` until the topic retention window closes. |
 | 5 | Complete | Behavioral event contracts and atomic PWA instrumentation landed; existing KOReader handoff remains offline and idempotent. |
 | 6 | Complete | Public-source ingestion, matching, frontier, and heuristic recommendations passed local tests, bundle validation, selected-compute egress, a cache/TTL rerun, live materialization, and SQL checks for keys, provenance, score reproduction, direct-interest exclusion, and deletion linkage. The client-side dismissal emitter remains Phase 9 work, so dismissed exclusion is contract- and transformation-tested here but not yet a live UI loop. |
-| 7 | Implemented; two acceptance items open | Preflight passed: Apps, AI/BI dashboards, and Genie are enabled and manageable by the deploying identity. The Observatory, the dashboard, and a curated Genie space are deployed. The Observatory reads Gold projections that carry no model output, so no grant it holds reaches a reader's words; verified against the live grants. Two acceptance items remain open and are recorded rather than implied: least-privilege is not per-reader isolation, because a Genie space's data sources are not an access boundary and neither Genie nor the dashboard filters by reader, which needs Unity Catalog row filters or per-reader views; and Genie's own answers have not been compared against the fixed question set by hand. |
-| 8-11 | Not started | Later phases retain the preflight and sequencing gates below. |
+| 7 | Complete | Preflight passed: Apps, AI/BI dashboards, and Genie are enabled and manageable by the deploying identity. The Observatory, the dashboard, and a curated Genie space are deployed. The Observatory reads Gold projections that carry no model output, so no grant it holds reaches a reader's words. The two acceptance items left open on 2026-09-02 closed on 2026-09-03. Per-reader isolation is now a schema of views that filter on `current_user()` through a principal mapping: the Observatory, the dashboard, and Genie read those and hold no grant on Gold or Silver at all, verified live by a principal mapped to the wrong reader seeing nothing and the right one seeing every row. Genie's own answers are compared against the fixed question set by `genie_eval.py --ask`, which agreed with the baseline on all nine analytical questions; on the refusal it establishes that no SQL was written and that the prose reads as a refusal, and prints the answer, because whether a refusal also answered anyway is a reading rather than a check. |
+| 8 | Complete | Preflight passed: Vector Search, custom Model Serving, MLflow tracing, and an embedding endpoint are all available, probed rather than assumed. The passage table, the triggered Delta Sync index, the agent, its serving endpoint, the evaluation, and the Observatory's Agent quality view are deployed. Three review rounds shaped the reply contract, and each change is a fixture: a reply is a list of claims, each carrying the passages it rests on, because one evidence list at the end lets a single real citation stand behind the invented sentences around it; a reply that declines shows a fixed sentence and its own prose is withheld unless the caller asks, that field being the one place a reply need not cite anything; a reading position is required, since an absent one made both filters unbounded; and digests are dropped whenever a position is given, carrying none and summarising whatever had been read when written. The live evaluation ran on 2026-09-03 against the deployed endpoint and a real index, over synthetic readers seeded and deleted again: 14 cases, 0 cases with any validation problem, 0 cross-reader evidence, 0 spoiler violations, 0 citation errors, 0 unsupported answers, 0 obeyed injections across two attacks whose canaries the attack text does not contain, retrieval recall 1.0 over the 10 cases that expected a passage, p50 latency 2.8s against a 12s budget, 15,789 tokens. Deletion is manifest v3: it asks the index directly whether the reader is gone rather than trusting a sync, and every evaluation run exercises its trace path, the last removing 14 traces by the `marginalia.user_id` tag. Two limits are recorded rather than implied: per-claim citation is enforced but whether a cited passage supports its claim is not machine-checkable, and `user_id` arrives in the request, so who may name a reader is the endpoint's permissions, currently owner and workspace admins only. No reader's own words were used in the evaluation. |
+| 9 | Complete | The five outcome events have contracts, envelope entries, fixtures, and atomic PWA emitters that write the event and its local record in one transaction, so a dismissed book does not return when the cloud recomputes its list. Recommendations are served: a third Lakebase synced table keyed `(user_id, candidate_id)`, an App route, a Worker route, and a section of Insights that shows the explanation the score was computed from rather than prose written about it. Outcomes land in `marginalia_silver.recommendation_outcomes`, one row per event. The readiness gate runs on the fifteen-minute schedule and recorded its first assessment on 2026-09-03: all six thresholds unmet at zero, a learned ranker blocked, reported rather than raised because unmet is the ordinary state and a job that failed every quarter of an hour would train its owner to ignore it. Deletion is manifest v5. Two gaps are recorded rather than implied: the two positive outcomes need a book to have arrived from a recommendation, and while `addBook` now takes the candidate it came from, no acquisition flow supplies one, because Marginalia imports EPUBs and a recommendation is an Open Library work; and the gate measures the size of a temporal holdout, not whether a training feature saw into it, which is a property of how features are built and is left as the training job's obligation rather than claimed here. |
+| 10 | Blocked by the Phase 9 gate | Cannot start, and not for want of implementation. The plan forbids training until the gate passes, and the gate needs 500 impressions, 50 positives, 50 explicit negatives, 20 distinct candidates, eight weeks of outcomes, and a fifth of them in a temporal holdout. The first assessment measured zero of each, because the emitters shipped the same day. Eight weeks is the binding constraint and no amount of engineering shortens it. |
+| 11 | Complete | A read-only MCP server in the Cloudflare Worker at `/api/mcp`, speaking JSON-RPC over POST, authenticated with the same sync token, rate limiter, and disabled check as the Insights routes. Four tools over the projections the App already serves, with JSON input and output schemas, opaque cursor pagination capped at 100 rows, and an audit row per call in `marginalia_ops.mcp_audit` carrying the tool, time, count, and outcome and never the rows. Scope isolation is structural rather than validated: no tool schema has a field for a user id and `additionalProperties` is false, so a prompt naming another reader fails schema validation; the reader comes from the Worker's secret. Verified live that an absent, wrong, or non-POST request is refused with 401 or 405; the authenticated path is covered by 21 tests against the same entry point and could not be exercised here, because the sync token is held only by the reader. Authentication happens once per HTTP request, so a batch is capped at ten messages and a body at 64 KiB, and the rate limiter is charged once per tool call rather than once per request. Neither the tool name nor the failure reason is stored in the audit as the caller sent it: each must be one the server actually has, or the row records that something else was asked for. Deletion is manifest v5. Tools over highlights and conversations are deliberately absent and recorded as such: nothing outside the workspace is granted the tables holding a reader's words, and adding them is a grant decision rather than a tool definition. |
 
 This table is the status record; phase headings below remain the normative deliverables and
 acceptance criteria. A later phase having code does not make an earlier incomplete phase
@@ -1122,6 +1136,30 @@ Acceptance requires authenticated access, least-privilege resources, accurate so
 timestamps, correct answers on the fixed question set, and no raw-text table exposed to
 Genie unless explicitly required and consented.
 
+Least privilege here means per-reader, not only per-table. A reader-facing surface reads
+`marginalia_scoped`, a schema of views that filter on `current_user()` through a
+principal-to-reader mapping in `marginalia_ops.reader_principals`, and holds no grant on
+Gold or Silver. Unity Catalog refuses a row filter on a materialized view, so of the two
+options this plan named, per-reader views are the one available.
+
+The filter is only a boundary where `current_user()` is the reader. That holds for the
+Observatory, which queries as its own service principal, and for Genie, whose data access
+is evaluated against the end user's Unity Catalog identity even though its warehouse runs
+on embedded compute credentials. It does not hold for a dashboard published the default
+way, whose viewers query on the publisher's permissions, so the dashboard is published
+with `embed_credentials: false`.
+
+A principal maps to at most one reader. Unity Catalog cannot declare that constraint on a
+table, so the view task checks it on every run and fails rather than serving a view that
+unions two readers into one answer.
+
+Grants live in a workspace and not in this repository, so the absence of a Gold grant is
+verified against a deployment rather than guaranteed by a committed file. The revocations
+are written down beside the grants for that reason.
+
+The boundary bounds readers from each other. It does not bound anyone from the owner of
+the schemas, which no arrangement of grants inside one metastore would.
+
 ### Phase 8: Librarian
 
 Preflight:
@@ -1139,6 +1177,22 @@ zero spoiler violations in the blocking suite, evidence IDs on every interpretiv
 prompt-injection tests passing, and latency/cost reported against the chosen baseline.
 Extend the deletion resource manifest and acceptance suite to cover every MLflow trace,
 evaluation table, retrieval index, and Model Serving state introduced in this phase.
+
+The thresholds live in `databricks/src/librarian.py` and were written before the first
+deployment. Cross-reader evidence, spoiler violations, citation errors, unsupported
+answers, and obeyed injections are each zero, because they are not quality measures: a
+non-zero budget for any of them is a budget for the harm. Retrieval recall is at least
+0.8 and is a ratio rather than a gate, since a question whose best passage ranks second
+is a worse answer and not an unsafe one. Median latency is measured warm and reported
+against 12 seconds, with the endpoint scaled to zero between questions so a first
+question after a quiet spell pays a cold start that this figure deliberately excludes.
+
+Retrieval is a Vector Search Delta Sync index over `marginalia_silver.librarian_passages`,
+a table rather than a materialized view because a sync reads its source's change feed and
+a materialized view cannot publish one. Spoiler control is a `progress <=` filter applied
+at retrieval and checked again on what comes back. Deletion reaches the index by deleting
+from that table and waiting for the sync, and reaches MLflow traces through the
+`marginalia.user_id` tag the agent stamps on each one; the manifest is `v5`.
 
 ### Phase 9: recommendation feedback and data-readiness gate
 
@@ -1174,10 +1228,11 @@ after the read surface is stable.
 
 ## First end-to-end vertical slice
 
-The first slice spans Phases 0–4 and has no hidden Phase 6 dependency. Its data path
-through Gold has run successfully and every stage below is now deployed by the bundle. The
-slice is complete once the App is deployed with its caller service principal and the
-freshness and deletion acceptance runs pass:
+The first slice spans Phases 0–4 and has no hidden Phase 6 dependency. It was closed on
+2026-09-02 against a real reading session: a highlight made in the browser at 14:04:15Z was
+readable through the same-origin Worker at 14:15:11Z, inside the 35-minute objective, and
+cloud deletion removed that reader from every layer including the serving copies while
+leaving the other intact. The path it describes is still the path:
 
 ```text
 Nietzsche highlight
@@ -1213,6 +1268,11 @@ The slice is complete only when:
   `docs/databricks-feedback.md`.
 
 ## `/goal` execution guidance
+
+Every phase here is now implemented except Phase 10, which the Phase 9 gate blocks until
+real outcomes accumulate. What follows is the pattern the earlier phases were run under,
+kept because the next phase after 10 will want it: one phase per goal, its preflight run
+first, and a stop rather than a substitution when a capability is missing.
 
 Start with Phase 0 as its own persistent goal. Use this objective:
 

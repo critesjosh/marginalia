@@ -37,3 +37,7 @@ export declare const validate_book_deleted: StandaloneValidator
 export declare const validate_assistant_response_received: StandaloneValidator
 export declare const validate_conversation_resumed: StandaloneValidator
 export declare const validate_recommendation_dismissed: StandaloneValidator
+export declare const validate_recommendation_shown: StandaloneValidator
+export declare const validate_recommendation_opened: StandaloneValidator
+export declare const validate_recommended_book_added: StandaloneValidator
+export declare const validate_recommended_book_started: StandaloneValidator

@@ -1,9 +1,13 @@
 """
 Marginalia Observatory.
 
-Eight views over one reader's own intelligence, read from Gold through a SQL
-warehouse using the app's own service principal. No pasted token, no database
-password, and no table holding the reader's own words.
+Eight views over one reader's own intelligence, read through a SQL warehouse
+using the app's own service principal. No pasted token, no database password,
+and no table holding the reader's own words.
+
+What it reads are the per-reader views in the scoped schema, not Gold. The
+service principal has no grant on Gold at all, so another reader's rows are
+not something a mistaken predicate here could reach.
 
 Every view states when its source was last computed, because a dashboard that
 shows a number without saying how old it is invites the reader to assume it is
@@ -21,8 +25,7 @@ from databricks.sdk.core import Config
 from queries import FORBIDDEN_TABLES, STATEMENTS, Result
 
 CATALOG = os.environ.get("MARGINALIA_CATALOG", "")
-GOLD = os.environ.get("MARGINALIA_GOLD_SCHEMA", "")
-SILVER = os.environ.get("MARGINALIA_SILVER_SCHEMA", "")
+SCOPED = os.environ.get("MARGINALIA_SCOPED_SCHEMA", "")
 WAREHOUSE_PATH = os.environ.get("MARGINALIA_WAREHOUSE_HTTP_PATH", "")
 USER_ID = os.environ.get("MARGINALIA_TRUSTED_USER_ID", "")
 # Ids rather than URLs, so no workspace host is committed or passed around.
@@ -47,10 +50,7 @@ st.set_page_config(page_title="Marginalia Observatory", layout="wide")
 
 
 def _bind(statement: str) -> str:
-    return statement.format(
-        gold=f"{CATALOG}.{GOLD}",
-        silver=f"{CATALOG}.{SILVER}",
-    )
+    return statement.format(scoped=f"{CATALOG}.{SCOPED}")
 
 
 @st.cache_resource
@@ -252,17 +252,61 @@ def recommendations() -> None:
     source_line(result)
 
 
+# The defect counts that are meant to be zero, and are not quality measures.
+# A run with one of these is a failed run whatever the rest of it says.
+BLOCKING_COLUMNS = (
+    "cross_reader_evidence",
+    "spoiler_violations",
+    "citation_errors",
+    "unsupported_answers",
+    "injection_failures",
+)
+
+
 def agent_quality() -> None:
     st.header("Agent quality")
-    # Phase 8 owns this. Rendering an empty chart here would suggest the
-    # Librarian exists and is scoring badly, which is a different and worse
-    # claim than saying it has not been built.
-    st.info(
-        "Nothing to show yet. This view reports Librarian retrieval quality, "
-        "citation correctness, spoiler violations, and prompt-injection "
-        "results, all of which are Phase 8 and not yet built. It is empty "
-        "because the agent does not exist, not because it scored zero."
+    st.markdown(
+        "The most recent Librarian evaluation. It runs against synthetic "
+        "readers over fixture passages, so nothing here is anybody's reading: "
+        "it is how the agent behaved when a note told it to ignore its "
+        "instructions, when the retriever returned another reader's passage, "
+        "and when it was asked about a part of the book the reader has not "
+        "reached."
     )
+    result = run("agent_quality")
+    if result.empty:
+        # Still the Phase 7 distinction, and still worth keeping: an empty
+        # table means no evaluation has run, which is different from an
+        # evaluation that found nothing wrong.
+        unavailable(
+            "No evaluation runs recorded. The Librarian may be deployed and "
+            "unevaluated; this is empty because nothing has scored it, not "
+            "because it scored zero."
+        )
+        return
+
+    data = frame(result)
+    defects = int(sum(data[column].fillna(0).sum() for column in BLOCKING_COLUMNS if column in data))
+    if defects:
+        st.error(
+            f"{defects} blocking defect(s) in the last run. Each of these is meant to be "
+            "zero: a spoiler shown, a citation invented, another reader's passage cited, "
+            "an answer given with no source, or an instruction inside a passage obeyed."
+        )
+    else:
+        st.success("No blocking defects in the last run.")
+
+    columns = st.columns(3)
+    columns[0].metric("Cases", len(data))
+    if "retrieval_recall" in data:
+        columns[1].metric("Mean retrieval recall", f"{data['retrieval_recall'].fillna(0).mean():.2f}")
+    if "latency_ms" in data:
+        # The median rather than the mean: one cold start after the endpoint
+        # has scaled to zero would otherwise be reported as the typical wait.
+        columns[2].metric("Median latency", f"{data['latency_ms'].median():.0f} ms")
+
+    st.dataframe(data, width="stretch")
+    source_line(result)
 
 
 def ask() -> None:
@@ -308,8 +352,9 @@ def main() -> None:
     st.sidebar.title("Marginalia Observatory")
     choice = st.sidebar.radio("View", list(VIEWS), label_visibility="collapsed")
     st.sidebar.caption(
-        "One reader's own intelligence, read from Gold. No table holding their "
-        "own words is reachable from here."
+        "One reader's own intelligence, read through per-reader views. No "
+        "table holding their own words is reachable from here, and no other "
+        "reader's rows are either."
     )
     if st.sidebar.button("Refresh"):
         st.cache_data.clear()
@@ -318,8 +363,7 @@ def main() -> None:
         name
         for name, value in [
             ("MARGINALIA_CATALOG", CATALOG),
-            ("MARGINALIA_GOLD_SCHEMA", GOLD),
-            ("MARGINALIA_SILVER_SCHEMA", SILVER),
+            ("MARGINALIA_SCOPED_SCHEMA", SCOPED),
             ("MARGINALIA_WAREHOUSE_HTTP_PATH", WAREHOUSE_PATH),
             ("MARGINALIA_TRUSTED_USER_ID", USER_ID),
         ]

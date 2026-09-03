@@ -12,7 +12,7 @@
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run && python3 -m unittest contracts.test_validate_fixtures contracts.test_concepts contracts.test_public_matching contracts.test_serving_contract contracts.test_observatory_contract"
+    "test": "vitest run && python3 -m unittest contracts.test_validate_fixtures contracts.test_concepts contracts.test_public_matching contracts.test_serving_contract contracts.test_observatory_contract contracts.test_reader_scope contracts.test_librarian contracts.test_recommendation_feedback"
   },
   "dependencies": {
     "dexie": "^4.4.4",

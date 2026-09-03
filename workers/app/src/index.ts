@@ -1,6 +1,13 @@
 import { handleRelayRequest } from '../../../shared/relay.ts'
 import { EVENTS_PATH, handleEventBatchRequest } from './events.ts'
-import { INTELLIGENCE_PREFIX, handleIntelligenceRequest } from './intelligence.ts'
+import { syncDisabled } from './events.ts'
+import {
+  INTELLIGENCE_PREFIX,
+  appCaller,
+  authorize,
+  handleIntelligenceRequest,
+} from './intelligence.ts'
+import { MCP_PATH, handleMcpEndpoint } from './mcp.ts'
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; " +
@@ -48,6 +55,14 @@ export default {
 
       if (url.pathname.startsWith(INTELLIGENCE_PREFIX)) {
         return await handleIntelligenceRequest(request, env)
+      }
+
+      if (url.pathname === MCP_PATH) {
+        return await handleMcpEndpoint(request, env, {
+          authorize,
+          disabled: syncDisabled,
+          caller: appCaller,
+        })
       }
 
       if (url.pathname.startsWith('/api/')) {

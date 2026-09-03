@@ -1,4 +1,9 @@
-import type { EventOutboxRow, InsightsCache, SyncState } from '../sync/types'
+import type {
+  EventOutboxRow,
+  InsightsCache,
+  RecommendationFeedback,
+  SyncState,
+} from '../sync/types'
 
 export interface Book {
   id: string
@@ -181,4 +186,4 @@ export const DEFAULT_SETTINGS: Settings = {
   storagePersistence: 'unknown',
 }
 
-export type { EventOutboxRow, InsightsCache, SyncState }
+export type { EventOutboxRow, InsightsCache, RecommendationFeedback, SyncState }

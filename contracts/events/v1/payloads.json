@@ -21,6 +21,10 @@
     "book_deleted": "book-deleted.schema.json",
     "assistant_response_received": "assistant-response-received.schema.json",
     "conversation_resumed": "conversation-resumed.schema.json",
-    "recommendation_dismissed": "recommendation-dismissed.schema.json"
+    "recommendation_dismissed": "recommendation-dismissed.schema.json",
+    "recommendation_shown": "recommendation-shown.schema.json",
+    "recommendation_opened": "recommendation-opened.schema.json",
+    "recommended_book_added": "recommended-book-added.schema.json",
+    "recommended_book_started": "recommended-book-started.schema.json"
   }
 }

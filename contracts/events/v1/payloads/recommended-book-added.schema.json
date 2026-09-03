@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/recommended-book-added.schema.json",
+  "title": "recommended_book_added payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "addedAt",
+    "candidateId"
+  ],
+  "properties": {
+    "addedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "candidateId": {
+      "type": "string",
+      "maxLength": 300,
+      "$comment": "An Open Library work key. The pattern admits no whitespace, so this cannot be a sentence; it is not a full validation of the key format, which varies by provider.",
+      "pattern": "^[A-Za-z0-9/_.:-]{1,300}$"
+    },
+    "scoreVersion": {
+      "type": "string",
+      "maxLength": 80,
+      "$comment": "A score version, of the shape the Gold tables emit.",
+      "pattern": "^[A-Za-z0-9_.-]{1,80}$"
+    }
+  }
+}

@@ -98,7 +98,7 @@ async function accessToken(env: IntelligenceEnv, now: number): Promise<string | 
  * Returning the user id rather than a boolean means a route cannot forget to
  * use it.
  */
-async function authorize(
+export async function authorize(
   request: Request,
   env: IntelligenceEnv,
 ): Promise<{ userId: string } | Response> {
@@ -126,6 +126,30 @@ async function authorize(
   return { userId }
 }
 
+/**
+ * How this Worker calls the App: one definition, used by the Insights routes
+ * and by the MCP server.
+ *
+ * Written once so a second surface cannot acquire a second set of timeouts,
+ * headers, or opinions about what to do when the App is unreachable.
+ */
+export function appCaller(env: IntelligenceEnv, now: number): UpstreamCaller {
+  return async (path, init) => {
+    if (!env.DATABRICKS_APP_URL) return new Response(null, { status: 503 })
+    const token = await accessToken(env, now)
+    if (!token) return new Response(null, { status: 503 })
+    return fetch(new URL(path, env.DATABRICKS_APP_URL), {
+      method: init.method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(init.body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: init.body,
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    })
+  }
+}
+
 export async function handleIntelligenceRequest(
   request: Request,
   env: IntelligenceEnv,
@@ -146,22 +170,7 @@ export async function handleIntelligenceRequest(
   const isDeletion = route === 'delete' || route.startsWith('delete/')
   if (!isDeletion && (await syncDisabled(env, userId))) return failure(423, 'sync_disabled')
 
-  const upstream: UpstreamCaller =
-    options.upstream ??
-    (async (path, init) => {
-      if (!env.DATABRICKS_APP_URL) return new Response(null, { status: 503 })
-      const token = await accessToken(env, now)
-      if (!token) return new Response(null, { status: 503 })
-      return fetch(new URL(path, env.DATABRICKS_APP_URL), {
-        method: init.method,
-        headers: {
-          authorization: `Bearer ${token}`,
-          ...(init.body ? { 'content-type': 'application/json' } : {}),
-        },
-        body: init.body,
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-      })
-    })
+  const upstream: UpstreamCaller = options.upstream ?? appCaller(env, now)
 
   // The user id comes from the server's own secret, never from the path the
   // browser asked for.
@@ -172,6 +181,12 @@ export async function handleIntelligenceRequest(
   }
   if (request.method === 'GET' && route === 'book-engagement') {
     return await proxy(upstream, `${base}/book-engagement`, 'GET')
+  }
+  if (request.method === 'GET' && route === 'recommendations') {
+    return await proxy(upstream, `${base}/recommendations`, 'GET')
+  }
+  if (request.method === 'GET' && route === 'frontier') {
+    return await proxy(upstream, `${base}/frontier`, 'GET')
   }
 
   if (request.method === 'POST' && route === 'delete') {
