@@ -95,7 +95,7 @@ resources:
                 - "- user_id joins every table.\n"
                 - "- reader_interest_profile.concept_id joins intellectual_frontier.candidate_concept only as an anti-join: the frontier is defined as concepts the reader has no direct evidence for, so an inner join between them is empty by construction and is a sign the question was misread.\n"
                 - "- book_engagement.book_id is the reader's own library id. It is not an Open Library or OpenAlex identifier and must never be joined to one.\n"
-                - "- recommendation_candidates.candidate_id is an OpenAlex work id. Open Library work keys live elsewhere and are a different identifier space. Do not join them.\n"
+                - "- recommendation_candidates.candidate_id is an Open Library work key, because recommendations are books. intellectual_frontier is built from OpenAlex research works, whose ids are a different identifier space. Do not join the two.\n"
                 - "\n"
                 - "SCORES. Report the version alongside any score you report. interest_score is reader_interest_v1, engagement_score is engagement_score_v1, frontier_score is frontier_heuristic_v1, recommendation_score is recommendation_heuristic_v1. A score from one version is not comparable with a score from another.\n"
                 - "\n"

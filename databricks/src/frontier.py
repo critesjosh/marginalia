@@ -211,6 +211,7 @@ def recommendation_candidates():
             "user_id",
             "book_id",
             normalized_title(F.col("title"), F.col("author")).alias("owned_title"),
+            F.lower(F.trim(F.col("author"))).alias("owned_author"),
         )
     )
     deleted_books = events.filter(F.col("event_type") == "book_deleted").select(
@@ -218,7 +219,7 @@ def recommendation_candidates():
     )
     owned_titles = (
         added_books.join(deleted_books, ["user_id", "book_id"], "left_anti")
-        .select("user_id", "owned_title")
+        .select("user_id", "owned_title", "owned_author")
         .distinct()
     )
 
@@ -353,8 +354,14 @@ def recommendation_candidates():
         )
         .join(
             owned_titles,
+            # Author as well as title. Normalization is deliberately lossy, so
+            # a title alone is not an identity: "S/Z" and "11/22/63" reduce
+            # almost to nothing, and an author-prefixed title reduces to a
+            # generic one. Excluding on the pair costs a rare duplicate and
+            # avoids hiding a book the reader does not own.
             (complete.user_id == owned_titles.user_id)
-            & (F.col("normalized_title") == owned_titles.owned_title),
+            & (F.col("normalized_title") == owned_titles.owned_title)
+            & (F.col("first_author").eqNullSafe(owned_titles.owned_author)),
             "left_anti",
         )
         .join(dismissed, ["user_id", "candidate_id"], "left_anti")

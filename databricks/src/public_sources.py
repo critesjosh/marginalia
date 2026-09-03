@@ -452,8 +452,13 @@ def enrich_concepts() -> int:
     # Eligibility follows attempts, not result rows. A successful empty result
     # still consumes its TTL; a failed request retries after six hours instead
     # of pinning every 15-minute batch forever.
-    attempts = spark.read.table(REQUEST_SUBJECTS).filter(F.col("concept_id").isNotNull()).join(
-        spark.read.table(RAW), ["request_id"]
+    # Scoped to this provider. Without the filter a successful Open Library
+    # book search marks the concept recently attempted for OpenAlex as well,
+    # and enrichment stops for the full TTL without anything reporting it.
+    attempts = (
+        spark.read.table(REQUEST_SUBJECTS)
+        .filter(F.col("concept_id").isNotNull())
+        .join(spark.read.table(RAW).filter(F.col("source") == "openalex"), ["request_id"])
     )
     recent_success = attempts.filter(
         F.col("body").isNotNull()
@@ -508,6 +513,10 @@ def enrich_concepts() -> int:
         try:
             works = json.loads(record["body"]).get("results", []) or []
         except ValueError:
+            # A body that will not parse is a failed attempt, not an empty
+            # answer. Left unmarked it reads as success and holds the concept
+            # for the full TTL while storing nothing.
+            record["error"] = "response body did not parse as JSON"
             continue
         for work in works:
             work_id = work.get("id")
@@ -622,6 +631,7 @@ def find_books() -> int:
         try:
             docs = json.loads(record["body"]).get("docs", []) or []
         except ValueError:
+            record["error"] = "response body did not parse as JSON"
             continue
         for doc in docs:
             work_key = doc.get("key")

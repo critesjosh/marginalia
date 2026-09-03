@@ -298,6 +298,26 @@ class TheTwoPublicSources(unittest.TestCase):
         self.assertTrue(fetched)
         self.assertTrue(fetched <= licensed, f"unlicensed sources: {fetched - licensed}")
 
+    def test_each_provider_judges_its_own_attempts(self):
+        """
+        Eligibility is per provider. Joined without a source filter, a
+        successful Open Library search marks the concept recently attempted for
+        OpenAlex too, and enrichment stops for the whole TTL saying nothing.
+        """
+        joins = re.findall(r'\.join\(\s*spark\.read\.table\(RAW\)([^,]*),', SOURCES_PY)
+        self.assertTrue(joins)
+        for join in joins:
+            self.assertIn('F.col("source") ==', join, "an attempts join is not scoped to a source")
+
+    def test_an_unparseable_body_counts_as_a_failure(self):
+        """
+        A body that will not parse is a failed attempt. Left unmarked it has a
+        body and no error, which is exactly the shape of success, and the
+        concept is held for thirty days having stored nothing.
+        """
+        for block in re.findall(r"except ValueError:\n((?:\s+#[^\n]*\n)*\s+[^\n]+\n\s+continue)", SOURCES_PY):
+            self.assertIn('record["error"]', block)
+
     def test_the_run_summary_does_not_overstate_what_matched(self):
         """
         It counted every book it examined, including the ones that matched
