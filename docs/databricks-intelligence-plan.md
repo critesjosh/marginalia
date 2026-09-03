@@ -513,14 +513,21 @@ model label, success status, and optional consented assistant content.
 
 | Family | Events | First instrumented phase |
 | --- | --- | --- |
-| Privacy | `privacy_consent_changed`, `cloud_deletion_requested` | 0 and 4 |
-| Library | `book_added`, `book_archived`, `book_restored`, `book_deleted` | 5 |
+| Privacy | `privacy_consent_changed` | 0 |
+| Library | `book_added`, `book_archived`, `book_restored`, `book_deleted`, `book_memory_updated` | 5 |
 | Reading | `book_opened`, `book_closed`, `reading_progressed`, `chapter_entered`, `book_completed`, `book_reopened` | 2 |
 | Highlights | `highlight_created`, `highlight_updated`, `highlight_deleted` | 0 |
 | Conversations | `conversation_started`, `question_asked`, `assistant_response_received`, `conversation_resumed`, `conversation_deleted` | 0 and 5 |
-| Recommendations | `recommendation_shown`, `recommendation_opened`, `recommendation_dismissed`, `recommended_book_added`, `recommended_book_started` | 8 |
+| Recommendations | `recommendation_shown`, `recommendation_opened`, `recommendation_dismissed`, `recommended_book_added`, `recommended_book_started` | 9 |
 
 Each event type gets a payload schema before application code may emit it.
+
+`cloud_deletion_requested` was in this table and is not an event. Deletion is a
+request with a lifecycle rather than something that happened, and it travels as
+a Worker route and a row in `marginalia_ops.deletion_requests` so the browser
+can poll it; an event would have had to reach Bronze through the same topic the
+deletion is trying to outrun. Removed here rather than left as a contract
+nobody wrote.
 
 ## Delivery contract
 

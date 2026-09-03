@@ -49,6 +49,7 @@ src/app/                         the Databricks App the Cloudflare Worker calls
 src/observatory/                 the Observatory app and every query it runs
 dashboards/                      the AI/BI dashboard definition
 genie/                           the Genie space instructions
+eval/concept_eval.py             the live concept evaluation, run by hand
 eval/genie_questions.json        fixed questions, their grain, and their checks
 eval/genie_eval.py               runs those questions, and asks Genie the same ones
 ```
@@ -502,10 +503,6 @@ Eight views: Overview, Reading, Interests, Concepts, Frontier, Recommendations,
 Agent quality, and Ask Marginalia. Every one states when its source was last
 computed, which is a property of the queries rather than something each view
 remembers to add.
-
-Agent quality is empty and says why. It reports Librarian retrieval quality,
-which is Phase 8 and not yet built; an empty chart there would claim the agent exists
-and scored nothing.
 
 Ask Marginalia links to the Genie space rather than reimplementing it. Genie is
 its own product surface, and the plan says to stop rather than replace one.
