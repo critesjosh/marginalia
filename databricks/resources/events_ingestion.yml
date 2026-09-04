@@ -132,6 +132,24 @@ resources:
               - --ops_schema=${resources.schemas.ops.name}
           environment_key: concepts
 
+        # After both syncs. A synced table arrives in Postgres owned by the
+        # sync rather than by whoever set the schema up, so ALTER DEFAULT
+        # PRIVILEGES does not reach it and an App that could read the tables
+        # before it cannot read the new one. Two phases each added a table and
+        # each broke a route this way.
+        - task_key: serving_grants
+          depends_on:
+            - task_key: sync_serving
+            - task_key: sync_recommendations
+          spark_python_task:
+            python_file: ../src/serving_grants.py
+            parameters:
+              - --instance=${resources.database_instances.lakebase.name}
+              - --database=${var.lakebase_database}
+              - --schema=${var.lakebase_schema}
+              - --readers=${var.app_service_principals}
+          environment_key: serving
+
       environments:
         - environment_key: concepts
           spec:
@@ -145,3 +163,6 @@ resources:
             client: "3"
             dependencies:
               - databricks-sdk==0.133.0
+              # The grant task talks to Postgres directly. Unity Catalog has no
+              # say over who may read a synced table once it is in Lakebase.
+              - psycopg[binary]==3.2.3

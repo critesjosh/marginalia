@@ -105,6 +105,56 @@ class ResponseShapes(unittest.TestCase):
             self.assertIn(f'"{field}"', APP_PY)
 
 
+class ReadingASyncedTableFromPostgres(unittest.TestCase):
+    """
+    Unity Catalog grants say nothing about Postgres, and the gap between them
+    is invisible from the Unity Catalog side. Two phases each added a synced
+    table that was ONLINE, populated, queryable through a warehouse, and
+    unreadable by the App.
+    """
+
+    GRANTS_PY = (ROOT / "databricks/src/serving_grants.py").read_text()
+    INGESTION_YML = (ROOT / "databricks/resources/events_ingestion.yml").read_text()
+
+    def test_the_grant_runs_after_every_sync(self):
+        """
+        Over the tables that exist rather than the ones that existed. A synced
+        table is created by the sync, so ALTER DEFAULT PRIVILEGES does not
+        reach it however early it was run.
+        """
+        task = self.INGESTION_YML[self.INGESTION_YML.index("task_key: serving_grants") :]
+        task = task[: task.index("environment_key")]
+        self.assertIn("task_key: sync_serving", task)
+        self.assertIn("task_key: sync_recommendations", task)
+
+    def test_it_grants_select_and_nothing_else(self):
+        """The synced tables are read-only copies. An App that could write to
+        one would be an App that could disagree with the pipeline."""
+        self.assertIn("GRANT SELECT ON ALL TABLES", self.GRANTS_PY)
+        for forbidden in ("INSERT", "UPDATE", "DELETE", "ALL PRIVILEGES"):
+            self.assertNotIn(f"GRANT {forbidden}", self.GRANTS_PY)
+
+    def test_a_principal_without_a_postgres_role_does_not_fail_the_task(self):
+        """
+        The Observatory reads Gold through a warehouse and has never connected
+        to Lakebase. Naming it is a mistake in a variable, not a reason to
+        leave the App ungranted.
+        """
+        self.assertIn("psycopg.errors.UndefinedObject", self.GRANTS_PY)
+        self.assertIn("no Postgres role for", self.GRANTS_PY)
+
+    def test_the_role_name_is_quoted_rather_than_interpolated_raw(self):
+        self.assertIn("role.replace('\"', '\"\"')", self.GRANTS_PY)
+
+    def test_the_reason_it_is_a_task_is_written_down(self):
+        """
+        Otherwise the next person deletes it, having read the documentation
+        that says default privileges are enough.
+        """
+        self.assertIn("the sync creates them", self.GRANTS_PY)
+        self.assertIn("ALTER DEFAULT PRIVILEGES", self.GRANTS_PY)
+
+
 class TheAuditTable(unittest.TestCase):
     """
     The one route in a read-only App that writes. It exists because an audit

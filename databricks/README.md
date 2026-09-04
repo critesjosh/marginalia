@@ -44,6 +44,7 @@ src/librarian_passages.py        the retrieval source table and its index sync
 src/librarian_deploy.py          logs, registers, and serves a model version
 src/librarian_evaluation.py      the live evaluation, on synthetic readers
 src/serving_sync.py              triggers the Lakebase synced tables and waits
+src/serving_grants.py            lets the App read a table the sync just made
 src/deletion.py                  cloud deletion, its manifest, and verification
 src/app/                         the Databricks App the Cloudflare Worker calls
 src/observatory/                 the Observatory app and every query it runs
@@ -230,12 +231,10 @@ referenced here by name.
    reader's scores.
 
    Unity Catalog grants say nothing about Postgres. A synced table is readable
-   by its owning role only, so the App's role needs to be told, once, inside the
-   database:
-
-   ```sh
-   databricks psql marginalia-lakebase-dev
-   ```
+   by its owning role only, so the App's role has to be told inside the
+   database. That is `serving_grants.py`, a task in the fifteen-minute job
+   rather than a step somebody remembers: pass the App's service principal as
+   `app_service_principals` at deploy and it runs after both syncs.
 
    ```sql
    GRANT USAGE ON SCHEMA marginalia_gold TO "<app-service-principal>";
@@ -244,10 +243,20 @@ referenced here by name.
      GRANT SELECT ON TABLES TO "<app-service-principal>";
    ```
 
-   The default-privileges line is what stops a later synced table from being
-   invisible to an App that could read the two before it. `SELECT` only: the
-   synced tables are read-only copies, and the App has no reason to write to
-   one.
+   It is a task and not a one-time step because the third line does not cover a
+   synced table. Default privileges apply to tables a particular role creates
+   later, and a synced table is created by the sync, so a table added after the
+   grants were written is invisible to an App that could read the ones before
+   it. Phase 9 and Phase 11 each added one, and each returned
+   `intelligence_unavailable` to the browser while the bundle validated, the
+   sync reported ONLINE with rows, and every offline test passed. The App's log
+   said `permission denied for table intellectual_frontier`, and nothing
+   earlier in the chain could have.
+
+   `SELECT` only: the synced tables are read-only copies, and the App has no
+   reason to write to one. A service principal with no Postgres role, like the
+   Observatory's, is reported and skipped rather than failing the task: it reads
+   Gold through a warehouse and has never connected to Lakebase.
 
 No bootstrap step is needed for the deletion request table. The job owns it and
 creates it on its first run, and the App creates it too, because the first

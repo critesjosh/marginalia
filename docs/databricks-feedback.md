@@ -8,7 +8,39 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-03: dashboard layout recheck stayed metadata-only
+
+- Surface used: Databricks CLI metadata APIs through the local architecture dashboard
+- Goal: verify live telemetry still worked after reflowing the tldraw service boxes.
+- Result: the health endpoint returned all expected service metadata after the layout change, with no unavailable sources, and the preview remained reachable.
+- Friction: none from Databricks in this pass.
+- Workaround or follow-up: keep visual-layout checks separate from the optional row-count action so a formatting iteration never wakes the SQL warehouse.
+
+### 2026-09-03: a live architecture dashboard without waking compute
+
+- Surface used: Databricks CLI, Unity Catalog, Lakeflow pipelines, Lakebase, synced tables, Databricks Apps, Model Serving, Vector Search, AI/BI dashboards, Genie, SQL warehouses
+- Goal: feed privacy-safe live service health and table inventory into the tldraw architecture diagram without exposing reader data or credentials.
+- Result: metadata APIs report the current pipeline updates, App compute, endpoint readiness, Lakebase capacity, synced-table health, warehouse state, and governed object inventory without starting SQL compute. The dashboard returns only aggregate status, names, timestamps, and optional row counts; it never returns user ids, titles, reader text, provider bodies, workspace URLs, or credentials.
+- Friction: `bundle summary` could not describe the deployed resources without receiving the externally supplied warehouse id, and `tables list` returns full column schemas and large internal property maps when the dashboard needs only names, types, and update times. Row counts are not metadata and would auto-start the stopped serverless warehouse if polled like health.
+- Workaround or follow-up: query each resource API directly and reduce its response on the server before it reaches the browser. Refresh metadata automatically, but put SQL counts behind an explicit action that warns it can start billable compute.
+
 <!-- cspell:ignore Geburt Jenseits sprach Tragodie cloudpickle -->
+
+### 2026-09-04: a synced table nobody could read, and everything that said it was fine
+
+- Surface used: Lakebase synced tables, Databricks Apps, Postgres
+- Goal: record the one defect that only a live authenticated read could find.
+- Result: two phases each added a synced table. Both deployed, both reported `SYNCED_TABLE_ONLINE_NO_PENDING_UPDATE` with rows, both were queryable through Unity Catalog, and both routes returned `intelligence_unavailable` to the browser. The App's log had the answer: `permission denied for table intellectual_frontier`. `ALTER DEFAULT PRIVILEGES` had been set on the schema years of documentation say it should be, and it does not apply: default privileges cover tables a particular role creates later, and a synced table is created by the sync rather than by the role that ran the ALTER. So the grant covers the tables that existed when somebody last ran it by hand and nothing after.
+- Friction: every signal available before an authenticated read said the system was healthy. Bundle validation passed, the sync status was ONLINE, `SELECT` over the SQL warehouse returned rows, and the offline suite was green. The gap between "Unity Catalog can read this" and "the App's Postgres role can read this" is invisible from the Unity Catalog side, and the synced-table status says nothing about who may read the result.
+- Workaround or follow-up: a `serving_grants` task now runs after the syncs and grants over the tables that exist rather than the ones that existed. The general shape is worth keeping: a resource created by one identity for another to read needs the grant re-applied when the resource is re-created, and a status field that reports the resource is healthy is not reporting that.
+
+### 2026-09-04: a CLI update mask the API refuses
+
+- Surface used: Databricks CLI, Automation Bundles, Databricks Apps
+- Goal: deploy a job change while an unrelated App resource was in the bundle.
+- Result: `bundle deploy` failed with `Invalid update mask. Only description, budget_policy_id, ... are allowed. Supplied update mask: ..., forward_user_access_token, ...`. The CLI sends a field in the app update mask that the API does not accept, so any deploy touching a bundle containing an App fails, whatever changed. The job update never happened.
+- Friction: nothing in the bundle references `forward_user_access_token`; it is the CLI's own mask. The failure blocks unrelated resources in the same bundle, which is the expensive part: a one-line job change cannot be deployed while an App is defined beside it.
+- Workaround or follow-up: submit the affected task as a one-off run against the file the deploy had already uploaded (`jobs/runs/submit` pointing at the workspace path). Upgrading the CLI is the real fix; the version here sends a mask its own control plane rejects.
 
 ### 2026-09-03: an audit that failed open, quietly
 

@@ -87,6 +87,14 @@ variables:
   app_name:
     description: Databricks App serving Gold to the Cloudflare Worker.
     default: marginalia-intelligence
+  app_service_principals:
+    description: >-
+      Postgres roles that may read the synced tables: the Apps' own service
+      principals. Supplied at deploy because they name private infrastructure,
+      and empty means there is nobody to grant to rather than everybody. A
+      synced table added later is invisible to an App until this has run over
+      it, which is a failure only an authenticated read can find.
+    default: ""
   app_caller_service_principal:
     description: >-
       Application id of the Cloudflare Worker's service principal, the only
