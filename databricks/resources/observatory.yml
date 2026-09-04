@@ -20,6 +20,12 @@ resources:
             id: ${var.ops_warehouse_id}
             permission: CAN_USE
       config:
+        # The command lives here rather than in an app.yaml beside the source.
+        # A committed app.yaml is deployed as-is and the bundle's config is not
+        # merged into it, so an app.yaml carrying only a command silently cost
+        # this app every environment variable below, and the Observatory
+        # rendered "Not configured" instead of a reader's intelligence.
+        command: ["streamlit", "run", "app.py", "--server.port", "8000", "--server.address", "0.0.0.0"]
         env:
           - name: MARGINALIA_CATALOG
             value: ${var.catalog}

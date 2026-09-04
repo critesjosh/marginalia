@@ -283,7 +283,29 @@ and a contract test keeps them that way.
 databricks bundle validate -t dev
 databricks bundle deploy -t dev \
   --var="app_caller_service_principal=<application-id>" \
-  --var="ops_warehouse_id=<warehouse-id>"
+  --var="ops_warehouse_id=<warehouse-id>" \
+  --var="trusted_user_id=<reader-id>" \
+  --var="app_service_principals=<intelligence-app-application-id>"
+```
+
+Every one of these defaults to empty, and an empty one is a refusal rather than
+a guess: without `trusted_user_id` the Observatory renders "Not configured"
+instead of choosing a reader, and without `app_caller_service_principal` the
+serving App answers nothing. Omitting them deploys an App that starts
+successfully and then does not work, which is the failure they are meant to
+make obvious.
+
+Requires Databricks CLI v1.15.0 or newer. v1.14.1 sends
+`forward_user_access_token` in the Apps update mask, which the API rejects, so
+no App resource can be updated at all on that version.
+
+An App picks up changed variables only when a new App deployment is made. A
+`bundle deploy` that reports the app "changed" has updated the resource and not
+the running code, so follow it with the run that redeploys each App:
+
+```sh
+databricks bundle run observatory -t dev
+databricks bundle run intelligence -t dev
 ```
 
 The warehouse is referenced rather than created. A workspace already has one, an

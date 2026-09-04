@@ -1,3 +1,0 @@
-# The App runtime reads this. Everything else reaches it as env vars declared
-# on the app resource; nothing here names a workspace or a credential.
-command: ["streamlit", "run", "app.py", "--server.port", "8000", "--server.address", "0.0.0.0"]

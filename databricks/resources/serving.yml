@@ -112,6 +112,11 @@ resources:
             id: ${resources.jobs.cloud_deletion.id}
             permission: CAN_MANAGE_RUN
       config:
+        # The command lives here rather than in an app.yaml beside the source.
+        # A committed app.yaml is deployed as-is and the bundle's config is not
+        # merged into it, so an app.yaml carrying only a command silently cost
+        # this app every environment variable below.
+        command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
         env:
           - name: MARGINALIA_LAKEBASE_INSTANCE
             value: ${resources.database_instances.lakebase.name}
