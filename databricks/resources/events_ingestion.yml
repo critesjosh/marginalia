@@ -1,0 +1,176 @@
+resources:
+  pipelines:
+    events_ingestion:
+      name: marginalia-events-ingestion
+      serverless: true
+      # Triggered, not continuous: an update processes the available backlog and
+      # stops, so cost follows event volume instead of wall-clock time.
+      continuous: false
+      catalog: ${var.catalog}
+      # Reference the resource's resolved name so development-mode prefixes do
+      # not split the schema resource from the pipeline target.
+      schema: ${resources.schemas.bronze.name}
+      libraries:
+        - file:
+            path: ../src/events_ingestion.py
+      configuration:
+        marginalia.kafka.secret_scope: ${var.kafka_secret_scope}
+        marginalia.kafka.topic: ${var.kafka_topic}
+
+  jobs:
+    events_ingestion_schedule:
+      name: marginalia-events-ingestion-schedule
+      # Bronze freshness is this interval. Shortening it shortens the end-to-end
+      # freshness objective and raises pipeline cost proportionally.
+      schedule:
+        quartz_cron_expression: 0 0/15 * * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.events_ingestion.id}
+        - task_key: transform_silver
+          depends_on:
+            - task_key: ingest
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.events_silver.id}
+        # Extraction is a job task, not a pipeline: it calls a model, and a
+        # materialized view would call it again every time Silver changed.
+        - task_key: extract_concepts
+          depends_on:
+            - task_key: transform_silver
+          spark_python_task:
+            python_file: ../src/concept_extraction.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --concept_endpoint=${var.concept_endpoint}
+              - --extraction_batch_limit=${var.extraction_batch_limit}
+          environment_key: concepts
+        - task_key: build_gold
+          depends_on:
+            - task_key: extract_concepts
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gold_profiles.id}
+        # Public sources come after the profiles, because what it asks Open
+        # Library and OpenAlex about is decided by what the profiles say the
+        # reader is interested in.
+        - task_key: public_sources
+          depends_on:
+            - task_key: build_gold
+          spark_python_task:
+            python_file: ../src/public_sources.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --bronze_schema=${resources.schemas.bronze.name}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --public_contact=${var.public_contact}
+              - --public_batch_limit=${var.public_batch_limit}
+              - --public_request_spacing=${var.public_request_spacing}
+              - --public_enrichment_ttl_days=${var.public_enrichment_ttl_days}
+              - --public_failed_retry_hours=${var.public_failed_retry_hours}
+          environment_key: concepts
+        - task_key: build_frontier
+          depends_on:
+            - task_key: public_sources
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.frontier_gold.id}
+        # The per-reader views over Gold. Idempotent DDL rather than a
+        # deployment step, because a full refresh drops and recreates the
+        # materialized views these select from, and a view left pointing at a
+        # table that no longer exists fails on read rather than here.
+        - task_key: reader_scope
+          depends_on:
+            - task_key: build_frontier
+          spark_python_task:
+            python_file: ../src/reader_scope.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --scoped_schema=${resources.schemas.scoped.name}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --ops_schema=${resources.schemas.ops.name}
+          environment_key: concepts
+        # Serving is the last step of the loop, not a separate schedule. A Gold
+        # table that has been recomputed but not synced is not yet something the
+        # browser can read, and the freshness objective is measured to the
+        # browser, not to Gold.
+        - task_key: sync_serving
+          depends_on:
+            - task_key: build_gold
+          spark_python_task:
+            python_file: ../src/serving_sync.py
+            parameters:
+              - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name}
+          environment_key: serving
+        # Recommendations sync separately, after the pipeline that builds
+        # them. Folding them into sync_serving would have made the interest
+        # profile wait on public-source enrichment, which is rate-limited HTTP,
+        # and the freshness objective is measured to the profile. Two tasks
+        # keeps each one behind only what it actually depends on.
+        - task_key: sync_recommendations
+          depends_on:
+            - task_key: build_frontier
+          spark_python_task:
+            python_file: ../src/serving_sync.py
+            parameters:
+              - --synced_tables=${resources.synced_database_tables.recommendation_candidates.name},${resources.synced_database_tables.intellectual_frontier.name}
+          environment_key: serving
+
+        # The readiness gate. Cheap, and reported on every run rather than
+        # consulted by whoever wants to pass it: a gate looked at only by the
+        # person hoping it opened is not a gate.
+        - task_key: recommender_readiness
+          depends_on:
+            - task_key: transform_silver
+          spark_python_task:
+            python_file: ../src/readiness_gate.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --ops_schema=${resources.schemas.ops.name}
+          environment_key: concepts
+
+        # After both syncs. A synced table arrives in Postgres owned by the
+        # sync rather than by whoever set the schema up, so ALTER DEFAULT
+        # PRIVILEGES does not reach it and an App that could read the tables
+        # before it cannot read the new one. Two phases each added a table and
+        # each broke a route this way.
+        - task_key: serving_grants
+          depends_on:
+            - task_key: sync_serving
+            - task_key: sync_recommendations
+          # Whether or not both syncs succeeded. One sync failing does not make
+          # the table the other one created readable, and skipping the grant
+          # because a neighbour failed is how a table stays unreadable for as
+          # long as that neighbour keeps failing.
+          run_if: ALL_DONE
+          spark_python_task:
+            python_file: ../src/serving_grants.py
+            parameters:
+              - --instance=${resources.database_instances.lakebase.name}
+              - --database=${var.lakebase_database}
+              - --schema=${var.lakebase_schema}
+              - --readers=${var.app_service_principals}
+              # Named rather than discovered, so a table that has not synced yet
+              # is a line in the log instead of a shorter list nobody counted.
+              - --tables=reader_interest_profile,book_engagement,recommendation_candidates,intellectual_frontier
+          environment_key: serving
+
+      environments:
+        - environment_key: concepts
+          spec:
+            client: "3"
+            dependencies: []
+        # The serverless runtime's own SDK predates the Lakebase API, so a
+        # WorkspaceClient there has no .database at all. Only the task that
+        # needs it takes the dependency; the others keep working as they are.
+        - environment_key: serving
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-sdk==0.133.0
+              # The grant task talks to Postgres directly. Unity Catalog has no
+              # say over who may read a synced table once it is in Lakebase.
+              - psycopg[binary]==3.2.3

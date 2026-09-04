@@ -1,0 +1,148 @@
+resources:
+  # Retrieval. One endpoint, one index, and a Delta table underneath it that a
+  # job maintains.
+  vector_search_endpoints:
+    librarian_index_endpoint:
+      name: ${var.librarian_index_endpoint}
+      endpoint_type: STANDARD
+
+  vector_search_indexes:
+    librarian_passages:
+      name: ${var.catalog}.${resources.schemas.silver.name}.librarian_passages_index
+      endpoint_name: ${resources.vector_search_endpoints.librarian_index_endpoint.name}
+      primary_key: passage_id
+      index_type: DELTA_SYNC
+      delta_sync_index_spec:
+        source_table: ${var.catalog}.${resources.schemas.silver.name}.librarian_passages
+        # Triggered, like everything else here. A continuously syncing index
+        # bills between questions, and questions are what this is for.
+        pipeline_type: TRIGGERED
+        embedding_source_columns:
+          - name: content
+            embedding_model_endpoint_name: ${var.embedding_endpoint}
+        # No columns_to_sync, which means every column. It was written out
+        # once, listing what an answer cites plus the two columns retrieval
+        # filters on, and had to come back out: the API does not echo the field
+        # in a read, so the CLI saw a difference on every plan and asked to
+        # recreate the index each time. A permanent destructive diff is a worse
+        # thing to carry than two synced columns nothing reads.
+        #
+        # What matters is that user_id and progress are in the index, because
+        # they are filters rather than output: an index missing them would
+        # answer every question with every reader's passages, and would answer
+        # past the reader's position. Syncing everything guarantees both.
+
+  # The model itself. Declared here so the schema and the name are the bundle's;
+  # versions are logged by the deploy job, because a version number cannot be
+  # written down before the model that has it exists.
+  registered_models:
+    librarian_model:
+      name: librarian
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.gold.name}
+      comment: >-
+        Answers a reader's interpretive questions from their own consented
+        passages, up to their current position, citing every claim.
+
+  jobs:
+    # Separate from the fifteen-minute loop. Rebuilding the passages and syncing
+    # the index is cheap; logging a model, waiting for an endpoint, and running
+    # an evaluation against a real model is not, and doing it four times an hour
+    # would spend real money to re-establish something that changes when the
+    # code changes.
+    librarian_job:
+      name: marginalia-librarian
+      # Hourly, and deliberately not part of the fifteen-minute loop. The
+      # freshness objective is measured to Insights, which the Librarian is not;
+      # a highlight made now becomes retrievable within the hour, and saying so
+      # is better than paying four times over to shorten it.
+      schedule:
+        quartz_cron_expression: 0 20 * * * ?
+        timezone_id: UTC
+      parameters:
+        - name: deploy
+          # "false" runs the passages task alone, which is what a scheduled run
+          # wants. A deploy is asked for by hand after the agent changes.
+          default: "false"
+        - name: evaluate
+          # Independent of deploy, so the deployed endpoint can be re-evaluated
+          # without logging a new model version to get at it. Off by default:
+          # a run seeds synthetic passages, forces an index sync, and makes a
+          # model call per case, none of which a scheduled rebuild needs.
+          default: "false"
+      tasks:
+        - task_key: build_passages
+          spark_python_task:
+            python_file: ../src/librarian_passages.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --ops_schema=${resources.schemas.ops.name}
+              - --index_name=${resources.vector_search_indexes.librarian_passages.name}
+              - --index_endpoint=${resources.vector_search_endpoints.librarian_index_endpoint.name}
+          environment_key: librarian
+
+        - task_key: deploy_agent
+          depends_on:
+            - task_key: build_passages
+          # Only when asked. The endpoint holds a model version, and replacing
+          # it on a schedule would restart serving to redeploy identical code.
+          # No environment: a condition task runs no code, and the jobs API
+          # rejects one that carries an environment rather than ignoring it.
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.deploy}}"
+            right: "true"
+
+        - task_key: log_and_serve
+          depends_on:
+            - task_key: deploy_agent
+              outcome: "true"
+          spark_python_task:
+            python_file: ../src/librarian_deploy.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --index_name=${resources.vector_search_indexes.librarian_passages.name}
+              - --chat_endpoint=${var.concept_endpoint}
+              - --serving_endpoint=${var.librarian_serving_endpoint}
+              - --experiment=${var.librarian_experiment}
+          environment_key: librarian
+
+        - task_key: evaluate
+          depends_on:
+            # Both, and build_passages is the one that makes this work. A task
+            # whose every dependency was excluded is excluded too, whatever
+            # run_if says, so depending on log_and_serve alone meant no deploy
+            # meant no evaluation. Depending on a task that always runs as well
+            # leaves ALL_DONE something to be true about.
+            - task_key: build_passages
+            - task_key: log_and_serve
+          # Whether or not a deploy happened. A skipped log_and_serve is done,
+          # not failed, and evaluating the endpoint that is already there is
+          # the common case. Naming log_and_serve at all is what orders the two
+          # when a run does both. The gate is inside the script rather than a
+          # condition task, because a condition task's outcome cannot be
+          # combined with ALL_DONE without one of the two losing its meaning.
+          run_if: ALL_DONE
+          spark_python_task:
+            python_file: ../src/librarian_evaluation.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --ops_schema=${resources.schemas.ops.name}
+              - --index_name=${resources.vector_search_indexes.librarian_passages.name}
+              - --serving_endpoint=${var.librarian_serving_endpoint}
+              - --evaluate={{job.parameters.evaluate}}
+              - --experiment=${var.librarian_experiment}
+          environment_key: librarian
+
+      environments:
+        - environment_key: librarian
+          spec:
+            client: "3"
+            dependencies:
+              # The serverless runtime's SDK predates the Vector Search index
+              # methods this uses, the same way it predated the Lakebase API.
+              - databricks-sdk==0.133.0
+              - mlflow==3.6.0

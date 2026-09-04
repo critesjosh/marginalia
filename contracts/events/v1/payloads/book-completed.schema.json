@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/book-completed.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["progress", "completedAt"],
+  "properties": {
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "completedAt": { "type": "string", "format": "date-time" }
+  }
+}

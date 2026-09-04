@@ -1,0 +1,34 @@
+# The catalog itself is not a bundle resource. On an account with Default
+# Storage the catalogs REST API refuses to create one without an explicit
+# storage root, while CREATE CATALOG over SQL succeeds. See ../README.md.
+resources:
+  schemas:
+    bronze:
+      catalog_name: ${var.catalog}
+      name: ${var.bronze_schema}
+      comment: >-
+        Raw ingested records, valid and malformed. Restricted to the pipeline
+        and Observatory administrators; retained for 30 days.
+
+    silver:
+      catalog_name: ${var.catalog}
+      name: ${var.silver_schema}
+      comment: Deduplicated events and current-state entity tables.
+
+    gold:
+      catalog_name: ${var.catalog}
+      name: ${var.gold_schema}
+      comment: Engagement, interest, frontier, and recommendation tables.
+
+    ops:
+      catalog_name: ${var.catalog}
+      name: ${var.ops_schema}
+      comment: Deletion requests and operational bookkeeping.
+
+    scoped:
+      catalog_name: ${var.catalog}
+      name: ${var.scoped_schema}
+      comment: >-
+        Per-reader views over Gold and reading sessions. The only schema a
+        reader-facing surface is granted; which rows it returns comes from the
+        principal mapping in the ops schema, not from the query.

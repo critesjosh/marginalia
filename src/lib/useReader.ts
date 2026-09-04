@@ -6,6 +6,12 @@ import { db } from '../db/db'
 import { epubThemeStyles } from './themes'
 import { buildAnchors, chapterAt, normalizeHref, type ChapterAnchor } from './chapters'
 import { longPressToSelect } from './touchSelect'
+import {
+  ReadingActivityTracker,
+  recordReadingActivity,
+  type ReadingIntent,
+  type ReadingSnapshot,
+} from '../sync/reading'
 
 export interface ReaderLocation {
   cfi: string
@@ -92,6 +98,21 @@ export function useReader(
   // up: a reader who turns a page while the layout is still settling means to
   // be on the new page, not to be put back on the old one.
   const navEpoch = useRef(0)
+  const readingTracker = useRef<ReadingActivityTracker | undefined>(undefined)
+  const latestReading = useRef<ReadingSnapshot | undefined>(undefined)
+  const readingWrites = useRef<Promise<void>>(Promise.resolve())
+
+  const persistReading = useCallback(
+    (snapshot: ReadingSnapshot, intents: readonly ReadingIntent[], at: number) => {
+      if (!bookId) return
+      readingWrites.current = readingWrites.current
+        .catch(() => {
+          // Keep later positions writable after an isolated IndexedDB failure.
+        })
+        .then(() => recordReadingActivity(bookId, snapshot, intents, at))
+    },
+    [bookId],
+  )
 
   const supersede = useCallback(() => {
     navEpoch.current += 1
@@ -127,6 +148,13 @@ export function useReader(
           setError('That book was removed from your library. Import the EPUB again to read it.')
           return
         }
+
+        const tracker = new ReadingActivityTracker({
+          lastOpenedAt: stored.lastOpenedAt,
+          progress: stored.progress,
+        })
+        readingTracker.current = tracker
+        latestReading.current = undefined
 
         // Claim the saved position before anything can render: a resize that
         // arrives while the book is still opening has to re-anchor to it too.
@@ -209,6 +237,14 @@ export function useReader(
     void start()
 
     return () => {
+      const snapshot = latestReading.current
+      const tracker = readingTracker.current
+      if (snapshot && tracker) {
+        const at = Date.now()
+        persistReading(snapshot, tracker.close(snapshot, at, 'navigated_away'), at)
+      }
+      readingTracker.current = undefined
+      latestReading.current = undefined
       cancelled = true
       window.clearTimeout(releaseHold)
       setRendition(undefined)
@@ -223,7 +259,7 @@ export function useReader(
         // epub.js can throw if it is torn down mid-load; nothing to recover.
       }
     }
-  }, [bookId, container])
+  }, [bookId, container, persistReading])
 
   // Track position and persist it.
   useEffect(() => {
@@ -275,15 +311,76 @@ export function useReader(
       // names the previous chapter — and it sticks, because once the hold
       // releases nothing relocates again until the reader turns a page.
       const chapter = chapterAt(anchors, loc.end?.cfi ?? cfi)
-      setLocation({ cfi, href, chapter: chapter?.label, chapterHref: chapter?.href, progress })
-      void db.books.update(bookId, { lastCfi: cfi, progress, lastOpenedAt: Date.now() })
+      const nextLocation = {
+        cfi,
+        href,
+        chapter: chapter?.label,
+        chapterHref: chapter?.href,
+        progress,
+      }
+      setLocation(nextLocation)
+
+      const snapshot: ReadingSnapshot = { cfi, progress, chapter: chapter?.label }
+      latestReading.current = snapshot
+      const at = Date.now()
+      // No tracker means the book is being torn down and its session is already
+      // closed: epub.js can still relocate on the way out. Keep the position,
+      // emit nothing, so teardown never reopens what the cleanup just closed.
+      const tracker = readingTracker.current
+      const intents =
+        tracker && document.visibilityState !== 'hidden' ? tracker.observe(snapshot, at) : []
+      persistReading(snapshot, intents, at)
     }
 
     rendition.on('relocated', handler)
+
+    // epub.js relocates once inside display(), which is awaited before the
+    // rendition reaches state, so this effect always attaches one relocation
+    // late. Replaying the current location opens the session: without it a book
+    // that is opened and left without a page turn reports nothing at all.
+    if (!latestReading.current) {
+      handler(rendition.currentLocation() as unknown as Parameters<typeof handler>[0])
+    }
+
     return () => {
       rendition.off('relocated', handler)
     }
-  }, [rendition, epub, bookId, container])
+  }, [rendition, epub, bookId, container, persistReading])
+
+  // Close a reading session while the page is backgrounded and reopen it when
+  // the reader returns. pagehide covers browser teardown paths that do not
+  // reliably dispatch visibilitychange first.
+  useEffect(() => {
+    if (!bookId) return
+
+    const close = (reason: 'backgrounded' | 'navigated_away') => {
+      const snapshot = latestReading.current
+      const tracker = readingTracker.current
+      if (!snapshot || !tracker) return
+      const at = Date.now()
+      persistReading(snapshot, tracker.close(snapshot, at, reason), at)
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        close('backgrounded')
+        return
+      }
+      const snapshot = latestReading.current
+      const tracker = readingTracker.current
+      if (!snapshot || !tracker) return
+      const at = Date.now()
+      persistReading(snapshot, tracker.open(snapshot, at), at)
+    }
+
+    const onPageHide = () => close('navigated_away')
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', onPageHide)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', onPageHide)
+    }
+  }, [bookId, persistReading])
 
   // Put the reader back on their page after the viewport changes size.
   useEffect(() => {

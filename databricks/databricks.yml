@@ -1,0 +1,198 @@
+bundle:
+  name: marginalia-intelligence
+
+# Nothing here names a workspace, a credential, or a private resource id. The
+# host comes from the Databricks CLI profile or DATABRICKS_HOST, and the Kafka
+# credentials live in the secret scope the pipeline reads.
+variables:
+  catalog:
+    description: Unity Catalog catalog holding every Marginalia layer.
+    default: marginalia
+  bronze_schema:
+    description: Raw ingested events, quarantine, and public-source responses.
+    default: marginalia_bronze
+  silver_schema:
+    description: Deduplicated events and current-state entity tables.
+    default: marginalia_silver
+  gold_schema:
+    description: Engagement, interest, frontier, and recommendation tables.
+    default: marginalia_gold
+  ops_schema:
+    description: Deletion requests and other operational bookkeeping.
+    default: marginalia_ops
+  scoped_schema:
+    description: >-
+      Per-reader views over Gold. A reader-facing surface is granted these and
+      nothing on Gold itself, so which rows it can see is decided by the
+      principal-to-reader mapping rather than by the query it happens to write.
+    default: marginalia_scoped
+  kafka_secret_scope:
+    description: >-
+      Databricks secret scope holding the read-only Confluent credentials as
+      bootstrap-servers, api-key, and api-secret. Created outside this bundle so
+      no credential and no private host appears in a committed variable.
+    default: marginalia_kafka
+  kafka_topic:
+    description: Topic the Cloudflare Worker produces consented events to.
+    default: marginalia.events.v1
+  concept_endpoint:
+    description: >-
+      Serving endpoint the concept extraction job queries. A variable rather than
+      a literal because the plan's original choice is not served in every region;
+      changing it is a recorded decision, not an edit in passing.
+    default: databricks-gpt-oss-120b
+  public_contact:
+    description: >-
+      Contact address sent to Open Library and OpenAlex in the User-Agent and the
+      mailto parameter. Both providers ask callers to identify themselves and
+      rate limit anonymous traffic harder. Not a secret, and not a credential.
+    default: marginalia@example.invalid
+  public_batch_limit:
+    description: Most public-source requests one run will make, per provider.
+    default: "25"
+  public_request_spacing:
+    description: Minimum seconds between public-source requests.
+    default: "3.0"
+  public_enrichment_ttl_days:
+    description: Days before a concept is eligible for OpenAlex refresh.
+    default: "30"
+  public_failed_retry_hours:
+    description: Hours before retrying a failed public-source request.
+    default: "6"
+  lakebase_instance:
+    description: Lakebase database instance backing the serving copies of Gold.
+    default: marginalia-lakebase
+  lakebase_capacity:
+    description: >-
+      Capacity units for the Lakebase instance. The smallest size serves one
+      reader's profile comfortably; raising it is a cost decision, not a
+      correctness one.
+    default: CU_1
+  lakebase_catalog:
+    description: Unity Catalog catalog registering the Lakebase database.
+    default: marginalia_serving
+  lakebase_database:
+    description: Postgres database inside the Lakebase instance.
+    default: marginalia
+  lakebase_schema:
+    description: Postgres schema holding the synced read-only copies of Gold.
+    default: marginalia_gold
+  ops_warehouse_id:
+    description: >-
+      Existing SQL warehouse the App uses to record and read deletion requests,
+      and the README's acceptance queries use by hand. Referenced rather than
+      created: a workspace already has one, an account on free usage is capped
+      at one, and a warehouse is not something this bundle should own.
+    default: ""
+  app_name:
+    description: Databricks App serving Gold to the Cloudflare Worker.
+    default: marginalia-intelligence
+  app_service_principals:
+    description: >-
+      Postgres roles that may read the synced tables: the Apps' own service
+      principals. Supplied at deploy because they name private infrastructure,
+      and empty means there is nobody to grant to rather than everybody. A
+      synced table added later is invisible to an App until this has run over
+      it, which is a failure only an authenticated read can find.
+    default: ""
+  app_caller_service_principal:
+    description: >-
+      Application id of the Cloudflare Worker's service principal, the only
+      caller the App will answer. Supplied at deploy because it names private
+      infrastructure. An App deployed without it refuses every request.
+    default: ""
+  source_retention_days:
+    description: >-
+      Days the Kafka topic retains delivered records. A deletion stays in
+      purging_source until this has passed, because a replay inside the window
+      could otherwise restore the reader.
+    default: "7"
+  observatory_app_name:
+    description: Databricks App serving the Observatory to the reader.
+    default: marginalia-observatory
+  dashboard_name:
+    description: AI/BI dashboard over the Gold profiles.
+    default: Marginalia
+  genie_space_title:
+    description: Curated Genie space over the Gold profiles.
+    default: Marginalia
+  trusted_user_id:
+    description: >-
+      The reader whose intelligence the Observatory shows. Supplied at deploy
+      because it names a person, not a resource. The Observatory refuses to
+      render without it rather than choosing a default reader.
+    default: ""
+  genie_space_id:
+    description: >-
+      Id of the deployed Genie space, linked from the Observatory. Known only
+      after the first deploy creates it, so it is supplied on the second. An
+      app environment variable cannot be empty, hence "unset" rather than "".
+    default: "unset"
+  dashboard_id:
+    description: Id of the deployed dashboard, linked from the Observatory.
+    default: "unset"
+  librarian_index_endpoint:
+    description: Vector Search endpoint the Librarian's passage index is served from.
+    default: marginalia-librarian
+  librarian_serving_endpoint:
+    description: >-
+      Model Serving endpoint the Librarian agent is deployed to. Scaled to zero
+      between questions: a reader asks one every so often, not continuously.
+    default: marginalia-librarian
+  librarian_experiment:
+    description: >-
+      MLflow experiment holding the Librarian's runs, traces, and evaluations.
+      A workspace path rather than a name, because that is what MLflow takes.
+    default: /Shared/marginalia-librarian
+  embedding_endpoint:
+    description: >-
+      Embedding endpoint the passage index uses for ingestion and querying. A
+      variable for the same reason the concept endpoint is: which models a
+      region serves is not something this repository can assume.
+    default: databricks-gte-large-en
+  extraction_batch_limit:
+    description: >-
+      Most candidates one extraction run will pay for. The next run takes the
+      rest, so a backlog costs no more per run than a steady state does.
+    default: "200"
+
+# The Librarian's evaluation cases live with every other contract fixture, and
+# a job in the workspace has to read them. Syncing the directory keeps one copy
+# rather than a second that drifts.
+sync:
+  paths:
+    - .
+    - ../contracts
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      catalog: marginalia_dev
+      # Development mode prefixes jobs, pipelines, and warehouses on its own.
+      # Apps, Lakebase instances, and database catalogs it does not, so they are
+      # named apart here for the same reason the catalog is.
+      app_name: marginalia-intelligence-dev
+      observatory_app_name: marginalia-observatory-dev
+      dashboard_name: Marginalia (dev)
+      genie_space_title: Marginalia (dev)
+      lakebase_instance: marginalia-lakebase-dev
+      lakebase_catalog: marginalia_serving_dev
+      librarian_index_endpoint: marginalia-librarian-dev
+      librarian_serving_endpoint: marginalia-librarian-dev
+      librarian_experiment: /Shared/marginalia-librarian-dev
+
+  prod:
+    mode: production
+    workspace:
+      # Explicit so a deploy does not depend on the CLI's default path. It
+      # resolves per deploying identity, so a second identity deploying prod
+      # creates its own copy; pin a shared path here once more than one person
+      # or a CI principal deploys. No principal is committed either way.
+      root_path: /Workspace/Users/${workspace.current_user.userName}/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      catalog: marginalia

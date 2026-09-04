@@ -1,0 +1,17 @@
+resources:
+  pipelines:
+    events_silver:
+      name: marginalia-events-silver
+      serverless: true
+      continuous: false
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.silver.name}
+      libraries:
+        - file:
+            path: ../src/events_silver.py
+      configuration:
+        marginalia.catalog: ${var.catalog}
+        marginalia.bronze_schema: ${resources.schemas.bronze.name}
+        marginalia.silver_schema: ${resources.schemas.silver.name}
+        # Read only to suppress readers with a deletion in flight.
+        marginalia.ops_schema: ${resources.schemas.ops.name}

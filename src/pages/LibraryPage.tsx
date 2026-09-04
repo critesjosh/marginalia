@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
+import { addBook, archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError, parseEpubFile } from '../lib/epub'
 import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
 import RemoveBookDialog from '../components/RemoveBookDialog'
-import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
+import { ChartIcon, GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 
 export default function LibraryPage() {
   const fileInput = useRef<HTMLInputElement>(null)
@@ -34,6 +34,13 @@ export default function LibraryPage() {
   )
   const books = shelved?.filter((book) => !book.archivedAt)
   const archived = shelved?.filter((book) => book.archivedAt)
+  // Insights are opt-in and off by default, so the entry point only appears
+  // once a reader has turned sync on.
+  const syncEnabled = useLiveQuery(
+    async () => (await db.settings.get('settings'))?.syncEnabled ?? false,
+    [],
+  )
+
   const chatCounts = useLiveQuery(async () => {
     const rows = await db.conversations.toArray()
     return rows.reduce<Record<string, number>>((acc, c) => {
@@ -67,7 +74,7 @@ export default function LibraryPage() {
         // notes it belongs to.
         const archivedMatch = await findArchivedMatch(book)
         if (archivedMatch) await restoreBook(archivedMatch.id, book)
-        else await db.books.add(book)
+        else await addBook(book, 'import')
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
@@ -98,6 +105,15 @@ export default function LibraryPage() {
               <PlusIcon className="h-4 w-4" />
               {importing ? 'Importing…' : 'Add EPUB'}
             </button>
+            {syncEnabled && (
+              <Link
+                to="/insights"
+                aria-label="Insights"
+                className="rounded-full p-2 text-stone-400 hover:bg-stone-800 hover:text-stone-100"
+              >
+                <ChartIcon />
+              </Link>
+            )}
             <Link
               to="/settings"
               aria-label="Settings"

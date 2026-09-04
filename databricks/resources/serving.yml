@@ -1,0 +1,137 @@
+resources:
+  # Lakebase. The browser never reaches this, and neither does anything else in
+  # the workspace: it exists so a per-reader lookup is a millisecond index seek
+  # rather than a warehouse query, and its tables are read-only copies of Gold.
+  # Since March 2026 an instance created this way is backed by an Autoscaling
+  # project. The Database instance API still describes it, which is why this
+  # stays a database_instance rather than a projects/branches/endpoints triple.
+  database_instances:
+    lakebase:
+      name: ${var.lakebase_instance}
+      capacity: ${var.lakebase_capacity}
+      # Nothing here is a source of truth. Everything can be resynced from Gold,
+      # so paying to keep a long recovery window would be paying twice. Two days
+      # is the floor the API allows, not a considered choice.
+      retention_window_in_days: 2
+
+  # Registers the Postgres database as a Unity Catalog catalog, which is what
+  # lets a synced table be named and governed like any other table.
+  database_catalogs:
+    serving:
+      name: ${var.lakebase_catalog}
+      database_instance_name: ${resources.database_instances.lakebase.name}
+      database_name: ${var.lakebase_database}
+      create_database_if_not_exists: true
+
+  synced_database_tables:
+    reader_interest_profile:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.reader_interest_profile
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.reader_interest_profile
+        # The plan's documented key.
+        primary_key_columns:
+          - user_id
+          - concept_id
+        # Snapshot, not triggered. Triggered reads the source's change feed, and
+        # a materialized view cannot publish one, so a triggered sync fails
+        # outright rather than degrading. A snapshot re-copies the table on each
+        # run, which for one reader's profile costs nothing worth optimizing.
+        # Continuous is not an option for the same reason.
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+    book_engagement:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.book_engagement
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.book_engagement
+        primary_key_columns:
+          - user_id
+          - book_id
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+    recommendation_candidates:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.recommendation_candidates
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.recommendation_candidates
+        # One row per reader and candidate work, which is the grain the
+        # outcome events cite back by candidate_id.
+        primary_key_columns:
+          - user_id
+          - candidate_id
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+    intellectual_frontier:
+      name: ${var.lakebase_catalog}.${var.lakebase_schema}.intellectual_frontier
+      spec:
+        source_table_full_name: ${var.catalog}.${resources.schemas.gold.name}.intellectual_frontier
+        primary_key_columns:
+          - user_id
+          - candidate_concept
+        scheduling_policy: SNAPSHOT
+        create_database_objects_if_missing: true
+        new_pipeline_spec:
+          storage_catalog: ${var.catalog}
+          storage_schema: ${resources.schemas.ops.name}
+
+  apps:
+    intelligence:
+      name: ${var.app_name}
+      description: >-
+        Serves one reader's Gold profiles to the Cloudflare Worker, and records
+        cloud deletion requests. No UI, four routes, no other caller.
+      source_code_path: ../src/app
+      resources:
+        - name: serving-database
+          description: The synced read-only copies of Gold this app answers from.
+          database:
+            instance_name: ${resources.database_instances.lakebase.name}
+            database_name: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: ops-warehouse
+          description: Used only to create and read deletion requests.
+          sql_warehouse:
+            id: ${var.ops_warehouse_id}
+            permission: CAN_USE
+        # Run, not manage. The App starts a deletion the moment a reader asks
+        # for one; waiting for the nightly sweep would leave them watching a
+        # request that says accepted and is doing nothing.
+        - name: deletion-job
+          description: Started when a reader asks for cloud deletion.
+          job:
+            id: ${resources.jobs.cloud_deletion.id}
+            permission: CAN_MANAGE_RUN
+      config:
+        # The command lives here rather than in an app.yaml beside the source.
+        # A committed app.yaml is deployed as-is and the bundle's config is not
+        # merged into it, so an app.yaml carrying only a command silently cost
+        # this app every environment variable below.
+        command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+        env:
+          - name: MARGINALIA_LAKEBASE_INSTANCE
+            value: ${resources.database_instances.lakebase.name}
+          - name: MARGINALIA_PG_SCHEMA
+            value: ${var.lakebase_schema}
+          - name: MARGINALIA_WAREHOUSE_HTTP_PATH
+            value: /sql/1.0/warehouses/${var.ops_warehouse_id}
+          - name: MARGINALIA_DELETION_TABLE
+            value: ${var.catalog}.${resources.schemas.ops.name}.deletion_requests
+          - name: MARGINALIA_DELETION_JOB_ID
+            value: ${resources.jobs.cloud_deletion.id}
+          # The one identity allowed to ask about a reader. Supplied at deploy
+          # rather than committed: it names private infrastructure, and an app
+          # that starts without it refuses every request rather than serving one.
+          - name: MARGINALIA_TRUSTED_CALLER
+            value: ${var.app_caller_service_principal}
+          - name: MARGINALIA_SOURCE_RETENTION_DAYS
+            value: ${var.source_retention_days}

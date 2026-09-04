@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/chapter-entered.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["chapter", "progress", "enteredAt"],
+  "properties": {
+    "chapter": { "type": "string", "maxLength": 500 },
+    "chapterIndex": { "type": "integer", "minimum": 0 },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "enteredAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, deleteConversation, getSettings } from '../db/db'
 import { DEFAULT_SETTINGS } from '../db/types'
 import { HIGHLIGHT_COLORS } from '../lib/highlights'
+import { removeHighlight } from '../sync/operations'
 import ChatSheet from '../components/ChatSheet'
 import MemoryPanel from '../components/MemoryPanel'
 import { BackIcon, TrashIcon } from '../components/Icons'
@@ -125,7 +126,7 @@ export default function ChatsPage() {
                     )}
                   </Link>
                   <button
-                    onClick={() => void db.highlights.delete(highlight.id)}
+                    onClick={() => void removeHighlight(highlight.id)}
                     aria-label="Delete highlight"
                     className="rounded-lg p-2 text-stone-500"
                   >

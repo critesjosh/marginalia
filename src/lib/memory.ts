@@ -3,6 +3,7 @@ import type { Message } from '../db/types'
 import { normalizeSummary } from './digest'
 import { completeChat, targetFor } from './inference'
 import { buildSummaryMessages } from './prompt'
+import { recordBookMemoryCleared, recordBookMemoryUpdated } from '../sync/library'
 
 /** Fold a conversation into the book's digest after this many new messages. */
 const MESSAGES_PER_UPDATE = 4
@@ -38,11 +39,29 @@ export async function getBookMemory(bookId: string): Promise<string | undefined>
  */
 export async function saveBookMemory(bookId: string, summary: string): Promise<void> {
   const normalized = normalizeSummary(summary)
+  const at = Date.now()
   if (!normalized) {
-    await db.bookMemory.delete(bookId)
+    // Clearing is a change like any other, and it has to be recorded in the
+    // same transaction. Deleting it silently would leave the cloud using a
+    // digest the reader has emptied.
+    await db.transaction(
+      'rw',
+      [db.bookMemory, db.settings, db.syncState, db.eventOutbox],
+      async () => {
+        await db.bookMemory.delete(bookId)
+        await recordBookMemoryCleared(bookId, at)
+      },
+    )
     return
   }
-  await db.bookMemory.put({ bookId, summary: normalized, updatedAt: Date.now() })
+  await db.transaction(
+    'rw',
+    [db.bookMemory, db.settings, db.syncState, db.eventOutbox],
+    async () => {
+      await db.bookMemory.put({ bookId, summary: normalized, updatedAt: at })
+      await recordBookMemoryUpdated(bookId, normalized, at)
+    },
+  )
 }
 
 /** One digest update at a time per book, so concurrent replies cannot overwrite each other. */
@@ -100,18 +119,24 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   const summary = normalizeSummary(generated)
   if (!summary) return
 
-  await db.transaction('rw', [db.bookMemory, db.conversations], async () => {
-    // The digest this was merged from can have been rewritten by the reader
-    // while the model was working, and the result would put their wording back
-    // to what it replaced. Theirs wins. Leaving `summarizedCount` alone as well
-    // means these messages fold into the edited digest on the next reply rather
-    // than being dropped.
-    const current = await db.bookMemory.get(bookId)
-    if (current?.updatedAt !== existing?.updatedAt) return
+  await db.transaction(
+    'rw',
+    [db.bookMemory, db.conversations, db.settings, db.syncState, db.eventOutbox],
+    async () => {
+      // The digest this was merged from can have been rewritten by the reader
+      // while the model was working, and the result would put their wording back
+      // to what it replaced. Theirs wins. Leaving `summarizedCount` alone as well
+      // means these messages fold into the edited digest on the next reply rather
+      // than being dropped.
+      const current = await db.bookMemory.get(bookId)
+      if (current?.updatedAt !== existing?.updatedAt) return
 
-    await db.bookMemory.put({ bookId, summary, updatedAt: Date.now() })
-    await db.conversations.update(conversationId, { summarizedCount: messages.length })
-  })
+      const at = Date.now()
+      await db.bookMemory.put({ bookId, summary, updatedAt: at })
+      await db.conversations.update(conversationId, { summarizedCount: messages.length })
+      await recordBookMemoryUpdated(bookId, summary, at)
+    },
+  )
 }
 
 /**

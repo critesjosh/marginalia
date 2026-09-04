@@ -1,1 +1,17 @@
 OPENROUTER_API_KEY=replace-with-a-local-development-key
+
+# Sync ingress. Set these as Worker secrets in production
+# (`wrangler secret put <NAME>`); never commit real values.
+#
+# MARGINALIA_SYNC_TOKEN_SHA256 is the SHA-256 hex digest of the sync token the
+# reader pastes into Settings. The token itself never reaches the Worker's
+# configuration.
+MARGINALIA_SYNC_TOKEN_SHA256=replace-with-the-sha256-hex-digest-of-a-local-token
+MARGINALIA_TRUSTED_USER_ID=replace-with-a-stable-local-user-id
+
+# Confluent Cloud Kafka REST v3. The API key must have produce-only permission
+# on CONFLUENT_TOPIC.
+CONFLUENT_REST_ENDPOINT=https://replace-with-your-cluster.confluent.cloud
+CONFLUENT_CLUSTER_ID=replace-with-your-cluster-id
+CONFLUENT_API_KEY=replace-with-a-produce-only-key
+CONFLUENT_API_SECRET=replace-with-a-produce-only-secret

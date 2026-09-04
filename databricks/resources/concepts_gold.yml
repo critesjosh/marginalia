@@ -1,0 +1,29 @@
+resources:
+  pipelines:
+    gold_profiles:
+      name: marginalia-gold-profiles
+      serverless: true
+      continuous: false
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.gold.name}
+      libraries:
+        - file:
+            path: ../src/gold_profiles.py
+      configuration:
+        marginalia.catalog: ${var.catalog}
+        marginalia.silver_schema: ${resources.schemas.silver.name}
+        marginalia.gold_schema: ${resources.schemas.gold.name}
+
+    frontier_gold:
+      name: marginalia-frontier-gold
+      serverless: true
+      continuous: false
+      catalog: ${var.catalog}
+      schema: ${resources.schemas.gold.name}
+      libraries:
+        - file:
+            path: ../src/frontier.py
+      configuration:
+        marginalia.catalog: ${var.catalog}
+        marginalia.silver_schema: ${resources.schemas.silver.name}
+        marginalia.gold_schema: ${resources.schemas.gold.name}

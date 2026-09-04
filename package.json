@@ -8,10 +8,11 @@
     "build": "tsc -b && vite build",
     "build:cloudflare": "npm run build && tsc -p tsconfig.cloudflare.json",
     "cloudflare:types": "wrangler types workers/app/worker-configuration.d.ts --env-file workers/app/.dev.vars.example --include-runtime false",
+    "contracts:validators": "node tools/generate-event-validators.mjs",
     "deploy:cloudflare": "npm run build:cloudflare && wrangler deploy",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run && python3 -m unittest contracts.test_validate_fixtures contracts.test_concepts contracts.test_public_matching contracts.test_serving_contract contracts.test_observatory_contract contracts.test_reader_scope contracts.test_librarian contracts.test_recommendation_feedback"
   },
   "dependencies": {
     "dexie": "^4.4.4",
@@ -29,6 +30,9 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "fake-indexeddb": "^6.2.5",
     "fengari": "^0.1.5",
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
