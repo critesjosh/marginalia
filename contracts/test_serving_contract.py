@@ -8,12 +8,14 @@ one runtime fails here instead of in a live acceptance run.
 """
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
 INSIGHTS_TS = (ROOT / "src/sync/insights.ts").read_text()
+sys.path.insert(0, str(ROOT / "databricks/src"))
 INTELLIGENCE_TS = (ROOT / "workers/app/src/intelligence.ts").read_text()
 MCP_TS = (ROOT / "workers/app/src/mcp.ts").read_text()
 # Both Worker surfaces that call the App. The MCP server reaches two routes the
@@ -111,28 +113,103 @@ class ReadingASyncedTableFromPostgres(unittest.TestCase):
     is invisible from the Unity Catalog side. Two phases each added a synced
     table that was ONLINE, populated, queryable through a warehouse, and
     unreadable by the App.
+
+    These exercise the statement builder rather than reading the file, because
+    the first version of this class was a set of substring checks and a
+    reviewer pointed out that quoting could have been dead code.
     """
 
     GRANTS_PY = (ROOT / "databricks/src/serving_grants.py").read_text()
-    INGESTION_YML = (ROOT / "databricks/resources/events_ingestion.yml").read_text()
+
+    @staticmethod
+    def _task():
+        import yaml
+
+        job = yaml.safe_load((ROOT / "databricks/resources/events_ingestion.yml").read_text())
+        tasks = job["resources"]["jobs"]["events_ingestion_schedule"]["tasks"]
+        return next(task for task in tasks if task["task_key"] == "serving_grants")
 
     def test_the_grant_runs_after_every_sync(self):
         """
-        Over the tables that exist rather than the ones that existed. A synced
-        table is created by the sync, so ALTER DEFAULT PRIVILEGES does not
-        reach it however early it was run.
+        Parsed rather than grepped: a dependency named anywhere in the file
+        would satisfy a substring check without being a dependency.
         """
-        task = self.INGESTION_YML[self.INGESTION_YML.index("task_key: serving_grants") :]
-        task = task[: task.index("environment_key")]
-        self.assertIn("task_key: sync_serving", task)
-        self.assertIn("task_key: sync_recommendations", task)
+        task = self._task()
+        depends = {entry["task_key"] for entry in task["depends_on"]}
+        self.assertEqual(depends, {"sync_serving", "sync_recommendations"})
+
+    def test_it_runs_even_when_a_sync_failed(self):
+        """
+        One sync failing does not make the table the other created readable.
+        Under the default ALL_SUCCESS the grant is skipped for as long as the
+        neighbour keeps failing.
+        """
+        self.assertEqual(self._task()["run_if"], "ALL_DONE")
+
+    def test_every_synced_table_is_named_to_the_grant(self):
+        """
+        A table the deployment expects and Postgres has not got is a reported
+        absence rather than a shorter list nobody counted.
+        """
+        parameters = " ".join(self._task()["spark_python_task"]["parameters"])
+        named = parameters.split("--tables=")[1].split()[0].split(",")
+        serving = (ROOT / "databricks/resources/serving.yml").read_text()
+        synced = set(re.findall(r"^    (\w+):$", serving, re.M))
+        self.assertEqual(set(named), synced - {"lakebase", "serving", "intelligence"})
 
     def test_it_grants_select_and_nothing_else(self):
-        """The synced tables are read-only copies. An App that could write to
-        one would be an App that could disagree with the pipeline."""
-        self.assertIn("GRANT SELECT ON ALL TABLES", self.GRANTS_PY)
-        for forbidden in ("INSERT", "UPDATE", "DELETE", "ALL PRIVILEGES"):
-            self.assertNotIn(f"GRANT {forbidden}", self.GRANTS_PY)
+        """
+        The synced tables are read-only copies. An App that could write to one
+        would be an App that could disagree with the pipeline.
+        """
+        from serving_grants import grant_statements
+
+        statements = grant_statements("marginalia_gold", "app-sp", ["book_engagement"])
+        privileges = {
+            statement.split("GRANT ")[1].split(" ON")[0]
+            for statement in statements
+            if "GRANT " in statement
+        }
+        self.assertEqual(privileges, {"USAGE", "SELECT"})
+
+    def test_it_grants_on_the_tables_it_was_given_and_no_others(self):
+        """
+        `ON ALL TABLES IN SCHEMA` would extend to whatever is put in the schema
+        later, which is the same shape of mistake as the one this job fixes.
+        """
+        from serving_grants import grant_statements
+
+        statements = grant_statements("s", "r", ["one", "two"])
+        self.assertNotIn("ALL TABLES IN SCHEMA", " ".join(statements))
+        self.assertIn('GRANT SELECT ON TABLE "s"."one" TO "r"', statements)
+        self.assertIn('GRANT SELECT ON TABLE "s"."two" TO "r"', statements)
+
+    def test_every_identifier_is_quoted(self):
+        """
+        Schema as well as role. A schema name with a capital letter is legal
+        and unquoted it is a different schema.
+        """
+        from serving_grants import grant_statements, quoted
+
+        for statement in grant_statements("MixedCase", 'a"role', ["Some.Table"]):
+            self.assertIn('"MixedCase"', statement)
+        self.assertEqual(quoted('a"role'), '"a""role"')
+
+    def test_the_verification_asks_postgres_rather_than_assuming(self):
+        """
+        The failure this job exists to prevent was a grant everybody believed
+        had been made. Reporting success without looking would be the same
+        mistake one layer up.
+        """
+        self.assertIn("has_table_privilege", self.GRANTS_PY)
+        self.assertIn("grants did not take effect", self.GRANTS_PY)
+
+    def test_an_unconfigured_deployment_says_so_loudly(self):
+        """
+        No reader roles reproduces the original outage exactly, so it must not
+        read as a quiet success.
+        """
+        self.assertIn("NO READER ROLES CONFIGURED", self.GRANTS_PY)
 
     def test_a_principal_without_a_postgres_role_does_not_fail_the_task(self):
         """
@@ -143,16 +220,12 @@ class ReadingASyncedTableFromPostgres(unittest.TestCase):
         self.assertIn("psycopg.errors.UndefinedObject", self.GRANTS_PY)
         self.assertIn("no Postgres role for", self.GRANTS_PY)
 
-    def test_the_role_name_is_quoted_rather_than_interpolated_raw(self):
-        self.assertIn("role.replace('\"', '\"\"')", self.GRANTS_PY)
-
-    def test_the_reason_it_is_a_task_is_written_down(self):
+    def test_the_window_it_leaves_open_is_written_down(self):
         """
-        Otherwise the next person deletes it, having read the documentation
-        that says default privileges are enough.
+        A table is created by a deploy and granted by the next run of the job.
+        The interval is bounded by the schedule and is not zero.
         """
-        self.assertIn("the sync creates them", self.GRANTS_PY)
-        self.assertIn("ALTER DEFAULT PRIVILEGES", self.GRANTS_PY)
+        self.assertIn("closes the window rather than removing it", self.GRANTS_PY)
 
 
 class TheAuditTable(unittest.TestCase):

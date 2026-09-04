@@ -44,7 +44,7 @@ src/librarian_passages.py        the retrieval source table and its index sync
 src/librarian_deploy.py          logs, registers, and serves a model version
 src/librarian_evaluation.py      the live evaluation, on synthetic readers
 src/serving_sync.py              triggers the Lakebase synced tables and waits
-src/serving_grants.py            lets the App read a table the sync just made
+src/serving_grants.py            grants and then verifies the App's Postgres reads
 src/deletion.py                  cloud deletion, its manifest, and verification
 src/app/                         the Databricks App the Cloudflare Worker calls
 src/observatory/                 the Observatory app and every query it runs
@@ -234,7 +234,21 @@ referenced here by name.
    by its owning role only, so the App's role has to be told inside the
    database. That is `serving_grants.py`, a task in the fifteen-minute job
    rather than a step somebody remembers: pass the App's service principal as
-   `app_service_principals` at deploy and it runs after both syncs.
+   `app_service_principals` at deploy and it runs after both syncs, whether or
+   not they succeeded, because one sync failing does not make the table the
+   other created readable.
+
+   It closes the window rather than removing it. A table is created by a deploy
+   and granted by the next run of the job, so there is an interval, bounded by
+   the schedule, in which a newly synced table is unreadable. It also ends by
+   asking Postgres `has_table_privilege` for every role and table it was told
+   about and failing if one is not readable, because the failure it exists to
+   prevent was a grant everyone believed had been made.
+
+   A deployment that sets no reader roles says so loudly rather than succeeding
+   quietly: an unconfigured one reproduces the original outage exactly. And the
+   task must run as an identity with grant option on the schema; without it the
+   run fails with `InsufficientPrivilege` rather than being caught.
 
    ```sql
    GRANT USAGE ON SCHEMA marginalia_gold TO "<app-service-principal>";

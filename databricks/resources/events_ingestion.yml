@@ -141,6 +141,11 @@ resources:
           depends_on:
             - task_key: sync_serving
             - task_key: sync_recommendations
+          # Whether or not both syncs succeeded. One sync failing does not make
+          # the table the other one created readable, and skipping the grant
+          # because a neighbour failed is how a table stays unreadable for as
+          # long as that neighbour keeps failing.
+          run_if: ALL_DONE
           spark_python_task:
             python_file: ../src/serving_grants.py
             parameters:
@@ -148,6 +153,9 @@ resources:
               - --database=${var.lakebase_database}
               - --schema=${var.lakebase_schema}
               - --readers=${var.app_service_principals}
+              # Named rather than discovered, so a table that has not synced yet
+              # is a line in the log instead of a shorter list nobody counted.
+              - --tables=reader_interest_profile,book_engagement,recommendation_candidates,intellectual_frontier
           environment_key: serving
 
       environments:
