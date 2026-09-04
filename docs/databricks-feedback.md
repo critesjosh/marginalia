@@ -8,6 +8,62 @@ data, or other secrets.
 
 ## Entries
 
+### 2026-09-04: show titles without hiding the stable book id
+
+- Surface used: AI/BI dashboard, Lakeview API, SQL Statement Execution API
+- Goal: add a human-readable book title beside the stable `book_id` in the engagement table.
+- Result: the engagement dataset, widget query fields, and table columns now include both values, and the dashboard was republished with the scoped and fully qualified definition. The live serialized dashboard contains both fields and the aggregate query succeeds.
+- Friction: only 4 of the 6 current engagement rows have a non-null title, so the new column also makes an upstream metadata gap visible rather than silently solving it.
+- Workaround or follow-up: keep `book_id` visible for unambiguous identity; separately decide whether to display an explicit unavailable-title fallback or backfill the two missing titles from consented library events.
+
+### 2026-09-04: pull working dashboard edits back from Lakeview
+
+- Surface used: AI/BI dashboard editor, Lakeview API
+- Goal: preserve the dashboard changes made in the workspace by bringing its live draft definition back into source control.
+- Result: the remote definition added `main_query` bindings, explicit widget `data.queryName`, the schema versions accepted by the bar and table widgets, normalized frame descriptions, and fully qualified scoped-table queries. The local `.lvdash.json` now matches the remote serialized draft exactly and all 35 Observatory contract tests pass.
+- Friction: the workspace editor rewrites several related fields together, so reproducing only the visible edit would miss required widget-schema changes that make the definition valid.
+- Workaround or follow-up: compare the complete serialized dashboard from `lakeview get`, normalize both sides as JSON, and require a zero diff rather than translating the UI edits by sight.
+
+### 2026-09-04: dataset defaults did not make dashboard SQL valid
+
+- Surface used: AI/BI dashboards, Lakeview API, SQL Warehouse
+- Goal: fix a published dashboard that was scoped and queryable through SQL but still rendered no widget data.
+- Result: every live dataset carried the correct `catalog` and `schema` metadata, yet its SQL still said `FROM reader_interest_profile` and similar. The publishing step now writes fully qualified three-part identifiers into all three live queries, republishes, and verifies those identifiers. The control center requires active, published, scoped, and fully qualified state before showing green.
+- Friction: a successful publish and correct dataset defaults did not prevent Databricks from reporting invalid widget definitions. A separate SQL acceptance query also passed, because it used fully qualified names and therefore did not exercise the dashboard's actual query text.
+- Workaround or follow-up: validate the serialized live dashboard queries themselves, not only their dataset metadata or equivalent SQL executed by hand. Keep the checked-in dashboard portable and inject the target namespace in the narrow publishing step.
+
+### 2026-09-04: repair and verify the scoped AI/BI dashboard
+
+- Surface used: Lakeview API, AI/BI dashboard publishing, SQL Statement Execution API
+- Goal: repair the stale Marginalia dashboard without deploying unrelated in-progress bundle resources.
+- Result: the existing draft was updated from the checked-in dashboard definition with all three datasets targeted at the per-reader scoped schema, then republished with viewer-owned credentials. The published revision is current, and a SQL acceptance query returned 123 interest rows, 6 engagement rows, and 366 frontier rows through the same scoped views.
+- Friction: an `ACTIVE` draft and an existing published revision had both hidden that the deployed datasets still named the obsolete Gold schema. A full bundle deploy would also have included unrelated branch work, so it was too broad for a dashboard-only repair.
+- Workaround or follow-up: use the dashboard-specific update and publish APIs for a narrow repair, verify the serialized live datasets after publishing, and make the control center require active, published, and correctly scoped metadata before showing green.
+
+### 2026-09-04: an active dashboard can still point at obsolete data
+
+- Surface used: AI/BI dashboards, Lakeview API, Automation Bundles
+- Goal: diagnose whether the control center linked to the wrong dashboard or the deployed dashboard itself was broken.
+- Result: the link uses the documented draft-dashboard route and resolves to the active Marginalia development dashboard. The deployed draft and its published revision still query the Gold schema, while the current bundle targets the per-reader scoped schema with viewer credentials. Gold access was intentionally removed when isolation was added, so an otherwise active dashboard can fail its queries.
+- Friction: `lifecycle_state: ACTIVE` only says the dashboard object is not trashed; it does not prove that datasets resolve, permissions work, or the published revision matches the current bundle. The published-dashboard response also carries no dashboard id, so it must be correlated with the draft id used in the request.
+- Workaround or follow-up: redeploy and republish after the scoped-schema change, link readers to the documented `/dashboardsv3/<id>/published` route, and make dashboard health compare its live dataset catalog/schema with the bundle instead of treating `ACTIVE` as healthy.
+
+### 2026-09-04: at-a-glance control-center states
+
+- Surface used: Databricks CLI metadata APIs through the local control center
+- Goal: prioritize the destinations used most often and distinguish healthy, active, stale or paused, and failed resources at a glance.
+- Result: live status and resource links remained complete after the UI change. Pipeline and synced-table freshness are now evaluated separately from their last successful result, so a completed but old refresh appears stale instead of green.
+- Friction: none from Databricks in this pass.
+- Workaround or follow-up: keep both facts visible: freshness color answers whether data is current, while the detail line preserves the actual last-run result.
+
+### 2026-09-04: a safe control center over live Jobs metadata
+
+- Surface used: Lakeflow Jobs, pipelines, Databricks Apps, SQL warehouse, Lakebase, Model Serving, Vector Search, AI/BI dashboards, Genie, Databricks CLI
+- Goal: show one live operational view with direct workspace links and allow a reader to start only the two non-destructive refresh jobs.
+- Result: the control center reports current and last-run states, duration, schedule state, next run when active, and links to the live resources. Both project schedules are currently paused, which correctly means there is no next run despite their stored cron expressions. Job actions are allowlisted, refuse a duplicate active run, require explicit browser confirmation, and do not expose deletion or stop controls.
+- Friction: `jobs list` omits task details unless `--expand-tasks` is supplied, and most resource APIs return identifiers rather than a ready-to-open workspace URL. A recent job run URL was the reliable source for the workspace origin and account routing parameter; the remaining links use the live resource ids.
+- Workaround or follow-up: keep the server bound to loopback, derive resource links server-side, and return no credentials or reader data. Add controls for another job only by extending the fixed allowlist and documenting its cost and side effects.
+
 ### 2026-09-03: dashboard layout recheck stayed metadata-only
 
 - Surface used: Databricks CLI metadata APIs through the local architecture dashboard

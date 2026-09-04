@@ -6,19 +6,23 @@
       "queryLines": [
         "SELECT concept_id, interest_score, evidence_count, distinct_books,\n",
         "       score_version, computed_at\n",
-        "FROM reader_interest_profile\n",
+        "FROM `marginalia_dev`.`dev_critesjosh_marginalia_scoped`.`reader_interest_profile`\n",
         "ORDER BY interest_score DESC"
-      ]
+      ],
+      "catalog": "marginalia_dev",
+      "schema": "dev_critesjosh_marginalia_scoped"
     },
     {
       "name": "engagement",
       "displayName": "Book engagement",
       "queryLines": [
-        "SELECT book_id, engagement_score, active_minutes, session_count,\n",
+        "SELECT book_id, title, engagement_score, active_minutes, session_count,\n",
         "       current_highlights, questions, completed, computed_at\n",
-        "FROM book_engagement\n",
+        "FROM `marginalia_dev`.`dev_critesjosh_marginalia_scoped`.`book_engagement`\n",
         "ORDER BY engagement_score DESC"
-      ]
+      ],
+      "catalog": "marginalia_dev",
+      "schema": "dev_critesjosh_marginalia_scoped"
     },
     {
       "name": "frontier",
@@ -26,9 +30,11 @@
       "queryLines": [
         "SELECT candidate_concept, frontier_score, neighbour_count,\n",
         "       supporting_work_count, computed_at\n",
-        "FROM intellectual_frontier\n",
+        "FROM `marginalia_dev`.`dev_critesjosh_marginalia_scoped`.`intellectual_frontier`\n",
         "ORDER BY frontier_score DESC"
-      ]
+      ],
+      "catalog": "marginalia_dev",
+      "schema": "dev_critesjosh_marginalia_scoped"
     }
   ],
   "pages": [
@@ -41,7 +47,7 @@
             "name": "interests_bar",
             "queries": [
               {
-                "name": "main",
+                "name": "main_query",
                 "query": {
                   "datasetName": "interests",
                   "fields": [
@@ -59,6 +65,15 @@
               }
             ],
             "spec": {
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "Interest by concept, normalized within this reader",
+                "description": {
+                  "value": "Scores are comparable within a reader only. Check computed_at below for how current this is.",
+                  "fields": []
+                }
+              },
               "version": 3,
               "widgetType": "bar",
               "encodings": {
@@ -66,22 +81,17 @@
                   "fieldName": "concept_id",
                   "scale": {
                     "type": "categorical"
-                  },
-                  "displayName": "Concept"
+                  }
                 },
                 "y": {
                   "fieldName": "interest_score",
                   "scale": {
                     "type": "quantitative"
-                  },
-                  "displayName": "Interest"
+                  }
                 }
               },
-              "frame": {
-                "title": "Interest by concept, normalized within this reader",
-                "showTitle": true,
-                "description": "Scores are comparable within a reader only. Check computed_at below for how current this is.",
-                "showDescription": true
+              "data": {
+                "queryName": "main_query"
               }
             }
           },
@@ -97,13 +107,17 @@
             "name": "engagement_table",
             "queries": [
               {
-                "name": "main",
+                "name": "main_query",
                 "query": {
                   "datasetName": "engagement",
                   "fields": [
                     {
                       "name": "book_id",
                       "expression": "`book_id`"
+                    },
+                    {
+                      "name": "title",
+                      "expression": "`title`"
                     },
                     {
                       "name": "engagement_score",
@@ -127,35 +141,36 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Book engagement"
+              },
+              "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
                   {
-                    "fieldName": "book_id",
-                    "displayName": "Book"
+                    "fieldName": "book_id"
                   },
                   {
-                    "fieldName": "engagement_score",
-                    "displayName": "Engagement"
+                    "fieldName": "title"
                   },
                   {
-                    "fieldName": "current_highlights",
-                    "displayName": "Highlights"
+                    "fieldName": "engagement_score"
                   },
                   {
-                    "fieldName": "questions",
-                    "displayName": "Questions"
+                    "fieldName": "current_highlights"
                   },
                   {
-                    "fieldName": "computed_at",
-                    "displayName": "Source computed at"
+                    "fieldName": "questions"
+                  },
+                  {
+                    "fieldName": "computed_at"
                   }
                 ]
               },
-              "frame": {
-                "title": "Engagement per book, with its source timestamp",
-                "showTitle": true
+              "data": {
+                "queryName": "main_query"
               }
             }
           },
@@ -171,7 +186,7 @@
             "name": "frontier_table",
             "queries": [
               {
-                "name": "main",
+                "name": "main_query",
                 "query": {
                   "datasetName": "frontier",
                   "fields": [
@@ -197,33 +212,30 @@
               }
             ],
             "spec": {
-              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Intellectual frontier"
+              },
+              "version": 2,
               "widgetType": "table",
               "encodings": {
                 "columns": [
                   {
-                    "fieldName": "candidate_concept",
-                    "displayName": "Adjacent concept"
+                    "fieldName": "candidate_concept"
                   },
                   {
-                    "fieldName": "frontier_score",
-                    "displayName": "Frontier score"
+                    "fieldName": "frontier_score"
                   },
                   {
-                    "fieldName": "supporting_work_count",
-                    "displayName": "Supporting works"
+                    "fieldName": "supporting_work_count"
                   },
                   {
-                    "fieldName": "computed_at",
-                    "displayName": "Source computed at"
+                    "fieldName": "computed_at"
                   }
                 ]
               },
-              "frame": {
-                "title": "Concepts adjacent to what has been read",
-                "showTitle": true,
-                "description": "A frontier concept has no direct evidence, so it does not appear under interests.",
-                "showDescription": true
+              "data": {
+                "queryName": "main_query"
               }
             }
           },

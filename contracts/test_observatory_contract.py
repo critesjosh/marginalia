@@ -139,6 +139,21 @@ class SourceTimestamps(unittest.TestCase):
         serialized = json.dumps(DASHBOARD)
         self.assertIn("computed_at", serialized)
 
+    def test_the_engagement_table_identifies_books_by_title_and_id(self):
+        dataset = next(item for item in DASHBOARD["datasets"] if item["name"] == "engagement")
+        query = "".join(dataset["queryLines"])
+        self.assertIn("book_id", query)
+        self.assertIn("title", query)
+
+        widgets = [item["widget"] for page in DASHBOARD["pages"] for item in page["layout"]]
+        engagement = next(widget for widget in widgets if widget["name"] == "engagement_table")
+        fields = engagement["queries"][0]["query"]["fields"]
+        columns = engagement["spec"]["encodings"]["columns"]
+        self.assertIn("book_id", {field["name"] for field in fields})
+        self.assertIn("title", {field["name"] for field in fields})
+        self.assertIn("book_id", {column["fieldName"] for column in columns})
+        self.assertIn("title", {column["fieldName"] for column in columns})
+
 
 class GenieInstructions(unittest.TestCase):
     def test_the_instructions_state_the_grain_of_every_table(self):

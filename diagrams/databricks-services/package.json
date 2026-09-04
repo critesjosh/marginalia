@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4174",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4174"
+    "preview": "node server.mjs",
+    "publish:dashboard": "node scripts/publish-dashboard.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "6.1.1",
