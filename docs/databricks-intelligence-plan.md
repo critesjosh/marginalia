@@ -668,9 +668,12 @@ component columns to explain the final number.
 
 #### Book engagement v1
 
-One row per `(user_id, book_id)` with active minutes, session count, active days,
-current and maximum progress, current highlight count, question count, completion,
-first/last activity, and engagement score.
+One row per `(user_id, book_id)` with the library's title for the book, active
+minutes, session count, active days, current and maximum progress, current
+highlight count, question count, completion, first/last activity, and engagement
+score. The title comes from the `book_added` event and is null for a book that
+reached Gold without one; it is book metadata, not the reader's own words, which
+is why a surface granted none of those may read it.
 
 ```text
 engagement_score_v1 =

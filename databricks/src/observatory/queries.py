@@ -80,8 +80,11 @@ SELECT
   ) AS computed_at
 """
 
+# `title` before `book_id`, and `book_id` kept rather than replaced: a book that
+# reached Gold without a book_added event has no title, and a table that showed
+# only the title would render those rows as blank.
 READING = """
-SELECT book_id, active_minutes, session_count, active_days, maximum_progress,
+SELECT title, book_id, active_minutes, session_count, active_days, maximum_progress,
        current_progress, current_highlights, questions, completed,
        engagement_score, score_version, first_activity_at, last_activity_at, computed_at
 FROM {scoped}.book_engagement

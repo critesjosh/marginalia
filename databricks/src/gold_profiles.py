@@ -87,6 +87,25 @@ def book_engagement():
         .agg(F.min("effective_event_time").alias("completed_at"))
     )
 
+    # The title the reader's own library holds for a book, from the event that
+    # added it. This is book metadata rather than anything the reader wrote, so
+    # it can sit in Gold and be read by a surface granted none of their words.
+    #
+    # The latest book_added wins, because a re-added book carries the title the
+    # library has now. Null where a book reached Gold without one, which the
+    # Observatory shows as a missing title beside the id rather than filling in
+    # the id and calling it a title.
+    titles = (
+        events.filter(F.col("event_type") == "book_added")
+        .groupBy("user_id", "book_id")
+        .agg(
+            F.max_by(
+                F.get_json_object(F.col("payload_json"), "$.title"),
+                F.col("effective_event_time"),
+            ).alias("title")
+        )
+    )
+
     joined = (
         sessions.join(highlights, ["user_id", "book_id"], "full_outer")
         .join(questions, ["user_id", "book_id"], "full_outer")
@@ -102,6 +121,11 @@ def book_engagement():
                 "questions": 0,
             }
         )
+        # Left, where the others are outer: a title is something a row can
+        # carry, never a reason for the row to exist. Joining it outer would
+        # put a book the reader added and never opened into engagement with
+        # zero of everything.
+        .join(titles, ["user_id", "book_id"], "left")
     )
 
     completed = F.col("completed_at").isNotNull()
