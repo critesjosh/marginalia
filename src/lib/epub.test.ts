@@ -2,12 +2,15 @@
 import { describe, expect, it } from 'vitest'
 import { hasUnsupportedEncryption } from './epub'
 
-const FONT = 'OEBPS/fonts/book-font.otf'
 const CHAPTER = 'OEBPS/text/chapter1.xhtml'
+const FONT = 'OEBPS/fonts/book-font.otf'
 
 const IDPF = 'http://www.idpf.org/2008/embedding'
 const ADOBE = 'http://ns.adobe.com/pdf/enc#RC'
 const AES = 'http://www.w3.org/2001/04/xmlenc#aes256-cbc'
+
+/** What book.resolve() hands back for a spine item: ZIP-root, leading slash. */
+const SPINE = ['/OEBPS/text/chapter1.xhtml', '/OEBPS/text/chapter2.xhtml']
 
 function encryptionXml(entries: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -30,20 +33,17 @@ function encryptedData(uri: string, algorithm?: string): string {
   </enc:EncryptedData>`
 }
 
+function check(xml: string, spine: string[] = SPINE): boolean {
+  return hasUnsupportedEncryption(xml, spine)
+}
+
 describe('EPUB encryption detection', () => {
-  it('rejects content encrypted with an algorithm we cannot read', () => {
-    expect(hasUnsupportedEncryption(encryptionXml(encryptedData(CHAPTER, AES)))).toBe(
-      true,
-    )
+  it('rejects a spine document encrypted with an algorithm we cannot read', () => {
+    expect(check(encryptionXml(encryptedData(CHAPTER, AES)))).toBe(true)
   })
 
-  it('rejects encrypted content that declares no algorithm', () => {
-    expect(hasUnsupportedEncryption(encryptionXml(encryptedData(CHAPTER)))).toBe(true)
-  })
-
-  it('rejects a book whose package document is encrypted', () => {
-    const xml = encryptionXml(encryptedData('OEBPS/content.opf', AES))
-    expect(hasUnsupportedEncryption(xml)).toBe(true)
+  it('rejects an encrypted spine document that declares no algorithm', () => {
+    expect(check(encryptionXml(encryptedData(CHAPTER)))).toBe(true)
   })
 
   it('rejects real-world Adobe ADEPT encryption', () => {
@@ -59,14 +59,14 @@ describe('EPUB encryption detection', () => {
     </CipherData>
   </EncryptedData>
 </encryption>`
-    expect(hasUnsupportedEncryption(xml)).toBe(true)
+    expect(check(xml)).toBe(true)
   })
 
   it('rejects a book that mixes font obfuscation with encrypted content', () => {
     const xml = encryptionXml(
       encryptedData(FONT, IDPF) + encryptedData(CHAPTER, AES),
     )
-    expect(hasUnsupportedEncryption(xml)).toBe(true)
+    expect(check(xml)).toBe(true)
   })
 
   it('reads the algorithm off the entry, not the wrapped key', () => {
@@ -81,47 +81,52 @@ describe('EPUB encryption detection', () => {
         <enc:CipherReference URI="${CHAPTER}" />
       </enc:CipherData>
     </enc:EncryptedData>`)
-    expect(hasUnsupportedEncryption(xml)).toBe(true)
+    expect(check(xml)).toBe(true)
+  })
+
+  it('matches spine paths whichever side is percent-encoded', () => {
+    const xml = encryptionXml(encryptedData('OEBPS/text/chapter%201.xhtml', AES))
+    expect(check(xml, ['/OEBPS/text/chapter 1.xhtml'])).toBe(true)
   })
 
   it('accepts the standard IDPF font-obfuscation algorithm', () => {
-    expect(hasUnsupportedEncryption(encryptionXml(encryptedData(FONT, IDPF)))).toBe(
-      false,
-    )
+    expect(check(encryptionXml(encryptedData(FONT, IDPF)))).toBe(false)
   })
 
   it('accepts the legacy Adobe font-obfuscation algorithm', () => {
-    expect(hasUnsupportedEncryption(encryptionXml(encryptedData(FONT, ADOBE)))).toBe(
-      false,
-    )
+    expect(check(encryptionXml(encryptedData(FONT, ADOBE)))).toBe(false)
   })
 
-  it('accepts encryption applied to resources other than the content', () => {
+  it('accepts encryption on resources outside the spine', () => {
     const xml = encryptionXml(
       encryptedData(FONT, AES) + encryptedData('OEBPS/images/cover.jpg', AES),
     )
-    expect(hasUnsupportedEncryption(xml)).toBe(false)
+    expect(check(xml)).toBe(false)
   })
 
-  it('matches percent-encoded resource paths', () => {
-    const xml = encryptionXml(encryptedData('OEBPS/text/chapter%201.xhtml', AES))
-    expect(hasUnsupportedEncryption(xml)).toBe(true)
+  it('accepts an encrypted document the book no longer uses', () => {
+    const xml = encryptionXml(encryptedData('OEBPS/text/removed-sample.xhtml', AES))
+    expect(check(xml)).toBe(false)
   })
 
   it('accepts an entry that names no resource', () => {
     const xml = encryptionXml(`<enc:EncryptedData>
       <enc:EncryptionMethod Algorithm="${AES}" />
     </enc:EncryptedData>`)
-    expect(hasUnsupportedEncryption(xml)).toBe(false)
+    expect(check(xml)).toBe(false)
   })
 
   it('accepts an encryption.xml with no encrypted resources', () => {
-    expect(hasUnsupportedEncryption(encryptionXml(''))).toBe(false)
+    expect(check(encryptionXml(''))).toBe(false)
   })
 
   it('accepts malformed encryption metadata rather than blocking the book', () => {
-    expect(hasUnsupportedEncryption('<encryption><EncryptedData>')).toBe(false)
-    expect(hasUnsupportedEncryption('\n  ')).toBe(false)
-    expect(hasUnsupportedEncryption('<!-- nothing here -->')).toBe(false)
+    expect(check('<encryption><EncryptedData>')).toBe(false)
+    expect(check('\n  ')).toBe(false)
+    expect(check('<!-- nothing here -->')).toBe(false)
+  })
+
+  it('accepts anything when the spine is unknown', () => {
+    expect(check(encryptionXml(encryptedData(CHAPTER, AES)), [])).toBe(false)
   })
 })

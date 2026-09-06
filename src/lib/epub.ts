@@ -90,11 +90,19 @@ function looksLikeZip(buffer: ArrayBuffer): boolean {
 }
 
 /**
- * Resources whose encryption actually stops us: the readable content. Anything
- * else in encryption.xml — fonts, images, stylesheets — can stay encrypted and
- * the book still opens, so it is not grounds for turning a reader away.
+ * Paths in encryption.xml and in epub.js both point at ZIP entries, but only
+ * one of them arrives with a leading slash and percent-encoding intact.
  */
-const READABLE_CONTENT = /\.(x?html?|opf|ncx)$/i
+function normalizePath(path: string): string {
+  const withoutQuery = path.split(/[?#]/)[0]
+  let decoded = withoutQuery
+  try {
+    decoded = decodeURIComponent(withoutQuery)
+  } catch {
+    // A malformed escape is not worth failing over; compare the raw path.
+  }
+  return decoded.replace(/^\.?\//, '')
+}
 
 function directChild(parent: Element, localName: string): Element | undefined {
   return Array.from(parent.children).find((el) => el.localName === localName)
@@ -105,39 +113,52 @@ function encryptedTarget(entry: Element): string | undefined {
   const cipherData = directChild(entry, 'CipherData')
   const reference = cipherData && directChild(cipherData, 'CipherReference')
   const uri = reference?.getAttribute('URI')
-  if (!uri) return undefined
-
-  const path = uri.split(/[?#]/)[0]
-  try {
-    return decodeURIComponent(path)
-  } catch {
-    return path
-  }
+  return uri ? normalizePath(uri) : undefined
 }
 
 /**
- * Returns true only when encryption.xml gives positive evidence that the book's
- * readable content is encrypted with something we cannot read. Everything short
- * of that — font obfuscation, encrypted images, an unparseable file, an entry
- * naming no resource — is let through: a book that renders is worth more than a
- * confident refusal, and epub.js will fail loudly enough if it truly cannot
- * read the content.
+ * Returns true only when encryption.xml says a document the reader actually
+ * has to render — one in the spine — is encrypted with something we cannot
+ * read. epub.js decrypts nothing, so there is no book we turn away here that
+ * we could have opened anyway.
+ *
+ * Everything else is let through: font obfuscation, encrypted images, an
+ * unparseable file, an entry naming no resource, and encrypted documents that
+ * are not in the spine (stale metadata for a file the book no longer uses is
+ * no reason to refuse the book).
  */
-export function hasUnsupportedEncryption(xml: string): boolean {
+export function hasUnsupportedEncryption(
+  xml: string,
+  spinePaths: Iterable<string>,
+): boolean {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
   if (doc.getElementsByTagName('parsererror').length > 0) return false
+
+  const spine = new Set(Array.from(spinePaths, normalizePath))
+  if (spine.size === 0) return false
 
   const entries = Array.from(doc.getElementsByTagNameNS('*', 'EncryptedData'))
 
   return entries.some((entry) => {
     const target = encryptedTarget(entry)
-    if (!target || !READABLE_CONTENT.test(target)) return false
+    if (!target || !spine.has(target)) return false
 
     // Read the algorithm off the entry itself: an <EncryptionMethod> nested in
     // <KeyInfo> describes how the key is wrapped, not the resource.
     const algorithm = directChild(entry, 'EncryptionMethod')?.getAttribute('Algorithm')
     return !algorithm || !FONT_OBFUSCATION_ALGORITHMS.has(algorithm)
   })
+}
+
+/** Spine documents as ZIP-relative paths, to match encryption.xml's URIs. */
+function spinePaths(book: EpubBook): string[] {
+  const spine = book.spine as unknown as { items?: { href?: string }[] }
+  const paths: string[] = []
+  for (const item of spine.items ?? []) {
+    const resolved = item.href && book.resolve(item.href)
+    if (resolved) paths.push(resolved)
+  }
+  return paths
 }
 
 /** Detects encryption that prevents Marginalia from reading EPUB content. */
@@ -147,7 +168,7 @@ async function hasDrm(book: EpubBook): Promise<boolean> {
       getText(url: string): Promise<string | undefined>
     }
     const xml = await archive.getText('/META-INF/encryption.xml')
-    return Boolean(xml && hasUnsupportedEncryption(xml))
+    return Boolean(xml && hasUnsupportedEncryption(xml, spinePaths(book)))
   } catch {
     return false
   }
