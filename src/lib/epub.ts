@@ -5,6 +5,11 @@ import { newId } from './id'
 
 export class EpubImportError extends Error {}
 
+/**
+ * Font obfuscation scrambles embedded fonts, not prose. epub.js does not
+ * deobfuscate, so these books open with a fallback typeface rather than not
+ * at all.
+ */
 const FONT_OBFUSCATION_ALGORITHMS = new Set([
   'http://www.idpf.org/2008/embedding',
   'http://ns.adobe.com/pdf/enc#RC',
@@ -85,20 +90,52 @@ function looksLikeZip(buffer: ArrayBuffer): boolean {
 }
 
 /**
- * Returns true when encryption.xml contains encryption beyond the standard
- * EPUB font-obfuscation schemes. Font obfuscation protects embedded font files
- * but does not encrypt the book's readable content.
+ * Resources whose encryption actually stops us: the readable content. Anything
+ * else in encryption.xml — fonts, images, stylesheets — can stay encrypted and
+ * the book still opens, so it is not grounds for turning a reader away.
+ */
+const READABLE_CONTENT = /\.(x?html?|opf|ncx)$/i
+
+function directChild(parent: Element, localName: string): Element | undefined {
+  return Array.from(parent.children).find((el) => el.localName === localName)
+}
+
+/** The resource an <EncryptedData> entry covers, per its <CipherReference>. */
+function encryptedTarget(entry: Element): string | undefined {
+  const cipherData = directChild(entry, 'CipherData')
+  const reference = cipherData && directChild(cipherData, 'CipherReference')
+  const uri = reference?.getAttribute('URI')
+  if (!uri) return undefined
+
+  const path = uri.split(/[?#]/)[0]
+  try {
+    return decodeURIComponent(path)
+  } catch {
+    return path
+  }
+}
+
+/**
+ * Returns true only when encryption.xml gives positive evidence that the book's
+ * readable content is encrypted with something we cannot read. Everything short
+ * of that — font obfuscation, encrypted images, an unparseable file, an entry
+ * naming no resource — is let through: a book that renders is worth more than a
+ * confident refusal, and epub.js will fail loudly enough if it truly cannot
+ * read the content.
  */
 export function hasUnsupportedEncryption(xml: string): boolean {
   const doc = new DOMParser().parseFromString(xml, 'application/xml')
-  if (doc.getElementsByTagName('parsererror').length > 0) return true
+  if (doc.getElementsByTagName('parsererror').length > 0) return false
 
-  const encryptedData = Array.from(doc.getElementsByTagNameNS('*', 'EncryptedData'))
-  if (encryptedData.length === 0) return false
+  const entries = Array.from(doc.getElementsByTagNameNS('*', 'EncryptedData'))
 
-  return encryptedData.some((entry) => {
-    const method = entry.getElementsByTagNameNS('*', 'EncryptionMethod')[0]
-    const algorithm = method?.getAttribute('Algorithm')
+  return entries.some((entry) => {
+    const target = encryptedTarget(entry)
+    if (!target || !READABLE_CONTENT.test(target)) return false
+
+    // Read the algorithm off the entry itself: an <EncryptionMethod> nested in
+    // <KeyInfo> describes how the key is wrapped, not the resource.
+    const algorithm = directChild(entry, 'EncryptionMethod')?.getAttribute('Algorithm')
     return !algorithm || !FONT_OBFUSCATION_ALGORITHMS.has(algorithm)
   })
 }
