@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/book-deleted.schema.json",
+  "title": "book_deleted payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "removedAt"
+  ],
+  "properties": {
+    "removedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "highlightsRemoved": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "conversationsRemoved": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

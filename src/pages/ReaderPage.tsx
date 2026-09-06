@@ -30,6 +30,12 @@ import AudiobookPlayer from '../components/AudiobookPlayer'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import { BackIcon, ChatIcon, HeadphonesIcon, ListIcon, TypeIcon } from '../components/Icons'
 import { isTwilightOfTheIdols } from '../lib/audiobooks'
+import {
+  addConversation as addConversationWithEvent,
+  addHighlight as addHighlightWithEvent,
+  removeHighlight as removeHighlightWithEvent,
+  updateHighlight as updateHighlightWithEvent,
+} from '../sync/operations'
 
 /** A pending selection, or an existing highlight the reader tapped. */
 interface ActiveSelection {
@@ -151,7 +157,7 @@ export default function ReaderPage() {
     if (!active || !bookId) return undefined
 
     if (active.highlight) {
-      await db.highlights.update(active.highlight.id, { color })
+      await updateHighlightWithEvent(active.highlight.id, { color })
       setActive(undefined)
       return { ...active.highlight, color }
     }
@@ -168,7 +174,7 @@ export default function ReaderPage() {
       color,
       createdAt: Date.now(),
     }
-    await db.highlights.add(highlight)
+    await addHighlightWithEvent(highlight)
     clearSelection()
     setActive(undefined)
     return highlight
@@ -177,7 +183,7 @@ export default function ReaderPage() {
   async function deleteHighlight() {
     if (!active?.highlight || !reader.rendition) return
     unpaintHighlight(reader.rendition, active.highlight.cfiRange)
-    await db.highlights.delete(active.highlight.id)
+    await removeHighlightWithEvent(active.highlight.id)
     setActive(undefined)
   }
 
@@ -219,7 +225,7 @@ export default function ReaderPage() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
-    await db.conversations.add(conversation)
+    await addConversationWithEvent(conversation)
     setActive(undefined)
     setChatId(conversation.id)
   }

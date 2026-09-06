@@ -1,0 +1,147 @@
+resources:
+  # The Observatory is a second App, deliberately separate from the serving one.
+  # They differ in every way that matters: this one has a UI and no external
+  # caller, reads through a warehouse rather than Postgres, and is for the
+  # reader looking at their own reading rather than for the browser. Sharing an
+  # app would mean sharing a service principal, and with it a grant on Gold that
+  # the serving app has no business holding.
+  apps:
+    observatory:
+      name: ${var.observatory_app_name}
+      description: >-
+        Eight views over one reader's own intelligence, read from the per-reader
+        views over Gold. No table holding the reader's own words is reachable
+        from it, and no other reader's rows are either.
+      source_code_path: ../src/observatory
+      resources:
+        - name: ops-warehouse
+          description: Reads the per-reader views and the evidence behind them.
+          sql_warehouse:
+            id: ${var.ops_warehouse_id}
+            permission: CAN_USE
+      config:
+        # The command lives here rather than in an app.yaml beside the source.
+        # A committed app.yaml is deployed as-is and the bundle's config is not
+        # merged into it, so an app.yaml carrying only a command silently cost
+        # this app every environment variable below, and the Observatory
+        # rendered "Not configured" instead of a reader's intelligence.
+        command: ["streamlit", "run", "app.py", "--server.port", "8000", "--server.address", "0.0.0.0"]
+        env:
+          - name: MARGINALIA_CATALOG
+            value: ${var.catalog}
+          # The per-reader views, not Gold. The app's service principal has no
+          # grant on Gold or Silver at all, so which rows it can see is decided
+          # by the principal mapping rather than by the predicate below.
+          - name: MARGINALIA_SCOPED_SCHEMA
+            value: ${resources.schemas.scoped.name}
+          - name: MARGINALIA_WAREHOUSE_HTTP_PATH
+            value: /sql/1.0/warehouses/${var.ops_warehouse_id}
+          # Still supplied, and now the second of two independent limits
+          # rather than the only one: the view decides what exists, this decides
+          # what is asked for. Without it the Observatory refuses rather than
+          # picking whichever reader the mapping happens to name.
+          - name: MARGINALIA_TRUSTED_USER_ID
+            value: ${var.trusted_user_id}
+          # Ids, not URLs: the app builds the link from its own host, so no
+          # workspace address is committed or passed at deploy.
+          - name: MARGINALIA_GENIE_SPACE_ID
+            value: ${var.genie_space_id}
+          - name: MARGINALIA_DASHBOARD_ID
+            value: ${var.dashboard_id}
+
+  dashboards:
+    marginalia_dashboard:
+      display_name: ${var.dashboard_name}
+      file_path: ../dashboards/marginalia.lvdash.json
+      warehouse_id: ${var.ops_warehouse_id}
+      # The dashboard file gets no bundle substitution, so its queries name
+      # tables unqualified and these resolve them per target. A namespace
+      # written into the file would have made the dev dashboard read
+      # production.
+      #
+      # They resolve to the scoped views rather than to Gold. A dashboard has
+      # no reader predicate of its own, so pointing it at Gold showed every
+      # reader's rows to whoever opened it.
+      dataset_catalog: ${var.catalog}
+      dataset_schema: ${resources.schemas.scoped.name}
+      # Viewers query as themselves, not as whoever published. The default is
+      # the other way round: a published dashboard runs on the publisher's data
+      # permissions, which would make current_user() the publisher inside every
+      # scoped view and hand each viewer the publisher's reader. The per-reader
+      # boundary is only a boundary because of this line.
+      embed_credentials: false
+      parent_path: ${workspace.file_path}/dashboards
+
+  # Genie answers structured questions over the per-reader views and nothing
+  # else. Its instructions define grain, join keys, score versions, and what it
+  # cannot see; the grants are what make the last of those true rather than
+  # advisory. A data-source list is not an access boundary, which is why the
+  # sources here are views that filter by the querying principal: reaching past
+  # the list now reaches tables Genie's identity is not granted.
+  genie_spaces:
+    marginalia_genie:
+      title: ${var.genie_space_title}
+      description: >-
+        Structured analytical questions over one reader's own profiles,
+        frontier, and recommendations, through per-reader views. No access to
+        any table holding their own words, and none to another reader's rows.
+      warehouse_id: ${var.ops_warehouse_id}
+      parent_path: ${workspace.file_path}/genie
+      # Inline rather than a file, because the table identifiers differ per
+      # target and only an inline body gets bundle substitution. The
+      # instructions and the benchmark answers are generated from
+      # ../genie/marginalia.geniespace.json and ../eval/genie_questions.json,
+      # and a contract test holds this in step with both.
+      serialized_space:
+        version: 2
+        data_sources:
+          tables:
+            - identifier: ${var.catalog}.${resources.schemas.scoped.name}.book_engagement
+            - identifier: ${var.catalog}.${resources.schemas.scoped.name}.intellectual_frontier
+            - identifier: ${var.catalog}.${resources.schemas.scoped.name}.reader_interest_profile
+            - identifier: ${var.catalog}.${resources.schemas.scoped.name}.recommendation_candidates
+        instructions:
+          text_instructions:
+            - id: 735c4c0637c3949919be8e5eaee751c4
+              content:
+                - "You answer structured analytical questions about one reader's own reading, over curated per-reader views of Gold. Answer with SQL over these views and nothing else.\n"
+                - "\n"
+                - "GRAIN. Getting this wrong is the commonest way to be confidently incorrect.\n"
+                - "- reader_interest_profile is one row per user and concept. Counting its rows counts concepts, not evidence.\n"
+                - "- book_engagement is one row per user and book.\n"
+                - "- intellectual_frontier is one row per user and candidate concept.\n"
+                - "- recommendation_candidates is one row per user and candidate work.\n"
+                - "Never sum a score across rows. Every score is normalized within a reader and means nothing added together.\n"
+                - "\n"
+                - "JOIN KEYS.\n"
+                - "- user_id joins every table.\n"
+                - "- reader_interest_profile.concept_id joins intellectual_frontier.candidate_concept only as an anti-join: the frontier is defined as concepts the reader has no direct evidence for, so an inner join between them is empty by construction and is a sign the question was misread.\n"
+                - "- book_engagement.book_id is the reader's own library id. It is not an Open Library or OpenAlex identifier and must never be joined to one.\n"
+                - "- recommendation_candidates.candidate_id is an Open Library work key, because recommendations are books. intellectual_frontier is built from OpenAlex research works, whose ids are a different identifier space. Do not join the two.\n"
+                - "\n"
+                - "SCORES. Report the version alongside any score you report. interest_score is reader_interest_v1, engagement_score is engagement_score_v1, frontier_score is frontier_heuristic_v1, recommendation_score is recommendation_heuristic_v1. A score from one version is not comparable with a score from another.\n"
+                - "\n"
+                - "FRESHNESS. Every table carries computed_at. When asked how current something is, report computed_at from the data. Never report the current time: it is always available and always wrong as an answer to that question.\n"
+                - "\n"
+                - "WHAT YOU MUST NOT READ. Your data sources are the four per-reader views above and nothing else. Each returns only the rows belonging to the reader asking, so a query needs no user_id predicate and adding one for another reader returns nothing rather than their data. Never query, join to, or describe any table holding the reader's own words: not highlight text, not notes, not conversations, not questions, not assistant replies, not book memory, not raw provider responses, and not concept_extractions, whose raw_response column is a model's whole answer to a prompt built from that text. If asked for any of it, say plainly that you will not read it. Do not return an empty result: an empty result reads as the reader having none, which is a different and false claim.\n"
+                - "\n"
+                - "EVIDENCE. reader_interest_profile carries evidence_count, distinct_books, and top_source_ids; intellectual_frontier carries established_concepts, supporting_works, and supporting_work_ids; recommendation_candidates carries matched_concepts and explanation. Prefer returning these over describing them. Never invent a confidence, a citation, or a reason that is not in a column.\n"
+                - "\n"
+                - "UNCERTAINTY. If a question cannot be answered from these tables at this grain, say so and say what is missing. A wrong number is worse than an admission, because the reader has no way to check it.\n"
+        config:
+          sample_questions:
+            - id: a0b942a9458c7c65026a7c6a56320e40
+              question:
+                - "What are my five strongest interests?"
+            - id: a75cf7c2acfd1895c4fc31a9211dfdf9
+              question:
+                - "Which book am I most engaged with?"
+            - id: c526c0a3a10978f420ac7669956276a5
+              question:
+                - "What concepts are at the edge of what I have read?"
+            - id: 95d787808bc3d9a455303bc8b37f6400
+              question:
+                - "What books are recommended to me and why?"
+            - id: 34b7a36272e7eb11c17e11372659caa2
+              question:
+                - "When was my interest profile last computed?"

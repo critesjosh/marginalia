@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/privacy/v1/consent.schema.json",
+  "title": "Marginalia sync consent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "consentVersion",
+    "consentUpdatedAt",
+    "syncEnabled",
+    "shareBookMetadata",
+    "shareHighlightText",
+    "shareHighlightNotes",
+    "shareConversationText",
+    "shareAssistantText",
+    "shareBookMemory",
+    "shareSurroundingContext"
+  ],
+  "properties": {
+    "consentVersion": { "const": 1 },
+    "consentUpdatedAt": { "type": "string", "format": "date-time" },
+    "syncEnabled": { "type": "boolean" },
+    "shareBookMetadata": { "type": "boolean" },
+    "shareHighlightText": { "type": "boolean" },
+    "shareHighlightNotes": { "type": "boolean" },
+    "shareConversationText": { "type": "boolean" },
+    "shareAssistantText": { "type": "boolean" },
+    "shareBookMemory": { "type": "boolean" },
+    "shareSurroundingContext": { "type": "boolean" }
+  }
+}

@@ -1,0 +1,7 @@
+# Pinned, for the same reason the intelligence app is: an app that resolves a
+# different Streamlit on its next deploy is an app whose behaviour changed
+# without anybody deciding it should.
+databricks-sdk==0.133.0
+databricks-sql-connector==4.0.5
+pandas==2.2.3
+streamlit==1.50.0

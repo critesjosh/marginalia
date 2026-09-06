@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/book-archived.schema.json",
+  "title": "book_archived payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["archivedAt"],
+  "properties": {
+    "archivedAt": { "type": "string", "format": "date-time" },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

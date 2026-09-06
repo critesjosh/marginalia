@@ -7,6 +7,7 @@ import LibraryPage from './pages/LibraryPage'
 const ReaderPage = lazy(() => import('./pages/ReaderPage'))
 const ChatsPage = lazy(() => import('./pages/ChatsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const InsightsPage = lazy(() => import('./pages/InsightsPage'))
 
 function Deferred({ children }: { children: ReactNode }) {
   return (
@@ -37,6 +38,14 @@ export const router = createBrowserRouter([
     element: (
       <Deferred>
         <ChatsPage />
+      </Deferred>
+    ),
+  },
+  {
+    path: '/insights',
+    element: (
+      <Deferred>
+        <InsightsPage />
       </Deferred>
     ),
   },

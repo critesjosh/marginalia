@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/highlight-deleted.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deletedAt"],
+  "properties": {
+    "deletedAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,26 +1,42 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
 import { fingerprint } from '../lib/fingerprint'
+import { recordRecommendedBookAdded } from '../sync/recommendations'
+import {
+  recordBookAdded,
+  recordBookArchived,
+  recordBookDeleted,
+  recordBookRestored,
+  recordConversationDeleted,
+} from '../sync/library'
 import {
   DEFAULT_SETTINGS,
   type Book,
   type BookMemory,
   type Conversation,
+  type EventOutboxRow,
   type Highlight,
+  type InsightsCache,
   type Message,
+  type RecommendationFeedback,
   type Settings,
+  type SyncState,
 } from './types'
 
-class MarginaliaDB extends Dexie {
+export class MarginaliaDB extends Dexie {
   books!: EntityTable<Book, 'id'>
   highlights!: EntityTable<Highlight, 'id'>
   conversations!: EntityTable<Conversation, 'id'>
   messages!: EntityTable<Message, 'id'>
   bookMemory!: EntityTable<BookMemory, 'bookId'>
   settings!: EntityTable<Settings, 'id'>
+  eventOutbox!: EntityTable<EventOutboxRow, 'eventId'>
+  syncState!: EntityTable<SyncState, 'id'>
+  insightsCache!: EntityTable<InsightsCache, 'id'>
+  recommendationFeedback!: EntityTable<RecommendationFeedback, 'candidateId'>
 
-  constructor() {
-    super('marginalia')
+  constructor(name = 'marginalia') {
+    super(name)
     this.version(1).stores({
       books: 'id, title, author, addedAt, lastOpenedAt',
       highlights: 'id, bookId, createdAt, [bookId+createdAt]',
@@ -65,6 +81,25 @@ class MarginaliaDB extends Dexie {
       messages:
         'id, conversationId, createdAt, [conversationId+createdAt], [conversationId+externalId]',
     })
+
+    // Intelligence sync stays local in Phase 0. These tables add an atomic
+    // outbox, one installation-scoped sequence, and a future Insights cache;
+    // no existing table is rewritten during this migration.
+    this.version(5).stores({
+      eventOutbox: 'eventId, sequence, nextAttemptAt, status, [status+sequence]',
+      syncState: 'id',
+      insightsCache: 'id, sourceUpdatedAt, cachedAt',
+    })
+
+    // What the reader has already done with a recommendation. The cloud
+    // recomputes its candidate list on its own schedule, so without this a
+    // dismissed book comes back on the next refresh and the reader dismisses
+    // it again. It is a local view of outcomes the events already carry, not a
+    // second record of them: losing it costs a repeated card, not a lost
+    // dismissal.
+    this.version(6).stores({
+      recommendationFeedback: 'candidateId, action, at, bookId',
+    })
   }
 }
 
@@ -99,20 +134,65 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
 }
 
 /** Removes a book and everything anchored to it. */
+/**
+ * Puts a new book on the shelf and records that it arrived, in one transaction.
+ * `origin` says how it got here, which is the difference between a reader
+ * choosing a book and one of the bundled samples being seeded.
+ */
+export async function addBook(
+  book: Book,
+  origin: 'import' | 'sample' | 'gutenberg' | 'koreader',
+  /**
+   * The recommendation this book came from, when it came from one. Optional
+   * because most books do not: a reader importing an EPUB they already had is
+   * the common case, and only an acquisition flow that started from the
+   * Insights list can say otherwise.
+   */
+  fromRecommendation?: { candidateId: string; scoreVersion?: string },
+): Promise<void> {
+  await db.transaction(
+    'rw',
+    [db.books, db.settings, db.syncState, db.eventOutbox, db.recommendationFeedback],
+    async () => {
+      await db.books.add(book)
+      await recordBookAdded(book, origin)
+      if (fromRecommendation) {
+        await recordRecommendedBookAdded(fromRecommendation, book.id)
+      }
+    },
+  )
+}
+
 export async function deleteBook(bookId: string): Promise<void> {
   await db.transaction(
     'rw',
-    [db.books, db.highlights, db.conversations, db.messages, db.bookMemory],
+    [
+      db.books,
+      db.highlights,
+      db.conversations,
+      db.messages,
+      db.bookMemory,
+      db.settings,
+      db.syncState,
+      db.eventOutbox,
+    ],
     async () => {
       const conversationIds = await db.conversations
         .where('bookId')
         .equals(bookId)
         .primaryKeys()
+      const highlightsRemoved = await db.highlights.where('bookId').equals(bookId).count()
       await db.messages.where('conversationId').anyOf(conversationIds).delete()
       await db.conversations.where('bookId').equals(bookId).delete()
       await db.highlights.where('bookId').equals(bookId).delete()
       await db.bookMemory.delete(bookId)
       await db.books.delete(bookId)
+      // Counted before the deletes, queued inside the same transaction: the
+      // record of what was removed cannot survive a rollback of the removal.
+      await recordBookDeleted(bookId, {
+        highlightsRemoved,
+        conversationsRemoved: conversationIds.length,
+      })
     },
   )
 }
@@ -134,12 +214,16 @@ export async function archiveBook(bookId: string): Promise<void> {
     stored.fileHash ??
     (stored.file ? await fingerprint(await stored.file.arrayBuffer()) : undefined)
 
-  await db.books.update(bookId, {
-    archivedAt: Date.now(),
-    fileHash,
-    // Dexie's update only writes the keys it is given, and `undefined` is one
-    // of them: this is what actually reclaims the space.
-    file: undefined,
+  const at = Date.now()
+  await db.transaction('rw', [db.books, db.settings, db.syncState, db.eventOutbox], async () => {
+    await db.books.update(bookId, {
+      archivedAt: at,
+      fileHash,
+      // Dexie's update only writes the keys it is given, and `undefined` is one
+      // of them: this is what actually reclaims the space.
+      file: undefined,
+    })
+    await recordBookArchived(bookId, stored.progress, at)
   })
 }
 
@@ -168,13 +252,30 @@ export async function findArchivedMatch(book: Book): Promise<Book | undefined> {
  */
 export async function restoreBook(bookId: string, imported: Book): Promise<void> {
   const { id: _id, addedAt: _addedAt, ...metadata } = imported
-  await db.books.update(bookId, { ...metadata, archivedAt: undefined })
+  const at = Date.now()
+  await db.transaction('rw', [db.books, db.settings, db.syncState, db.eventOutbox], async () => {
+    await db.books.update(bookId, { ...metadata, archivedAt: undefined })
+    const restored = await db.books.get(bookId)
+    await recordBookRestored(bookId, restored?.progress, at)
+  })
 }
 
 /** Removes a conversation and its messages. */
 export async function deleteConversation(conversationId: string): Promise<void> {
-  await db.transaction('rw', [db.conversations, db.messages], async () => {
-    await db.messages.where('conversationId').equals(conversationId).delete()
-    await db.conversations.delete(conversationId)
-  })
+  await db.transaction(
+    'rw',
+    [db.conversations, db.messages, db.settings, db.syncState, db.eventOutbox],
+    async () => {
+      const conversation = await db.conversations.get(conversationId)
+      const messagesRemoved = await db.messages
+        .where('conversationId')
+        .equals(conversationId)
+        .count()
+      await db.messages.where('conversationId').equals(conversationId).delete()
+      await db.conversations.delete(conversationId)
+      if (conversation) {
+        await recordConversationDeleted(conversation.bookId, conversationId, messagesRemoved)
+      }
+    },
+  )
 }

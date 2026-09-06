@@ -10,6 +10,30 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": true
   },
+  "vars": {
+    "CONFLUENT_TOPIC": "marginalia.events.v1"
+  },
+  // Metadata-only enable/disable flag for the trusted user. Full cloud deletion
+  // sets it before anything is purged, so an installation that still holds the
+  // sync token cannot repopulate what is being deleted.
+  "kv_namespaces": [
+    {
+      "binding": "SYNC_CONTROL",
+      "id": "c9b07304a8a2454b94434a7f7bcaf009"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "EVENTS_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "INTELLIGENCE_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ],
   "routes": [
     {
       "pattern": "marginalia.adjacentpossible.dev",

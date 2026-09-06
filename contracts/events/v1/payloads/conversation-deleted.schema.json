@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/conversation-deleted.schema.json",
+  "title": "conversation_deleted payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deletedAt"],
+  "properties": {
+    "deletedAt": { "type": "string", "format": "date-time" },
+    "messagesRemoved": { "type": "integer", "minimum": 0 }
+  }
+}

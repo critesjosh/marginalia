@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/book-memory-updated.schema.json",
+  "title": "book_memory_updated payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "updatedAt"
+  ],
+  "properties": {
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 20000
+    },
+    "cleared": {
+      "type": "boolean",
+      "description": "The reader emptied the digest. The cloud must stop using the previous one."
+    }
+  }
+}

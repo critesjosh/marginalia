@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/assistant-response-received.schema.json",
+  "title": "assistant_response_received payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["receivedAt", "succeeded"],
+  "properties": {
+    "receivedAt": { "type": "string", "format": "date-time" },
+    "succeeded": { "type": "boolean" },
+    "latencyMs": { "type": "integer", "minimum": 0 },
+    "model": { "type": "string", "maxLength": 120 },
+    "failureCode": { "type": "string", "maxLength": 80 },
+    "content": { "type": "string" }
+  }
+}

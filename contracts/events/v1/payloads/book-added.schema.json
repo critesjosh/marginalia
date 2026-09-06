@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/book-added.schema.json",
+  "title": "book_added payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["addedAt", "origin"],
+  "properties": {
+    "addedAt": { "type": "string", "format": "date-time" },
+    "origin": { "enum": ["import", "sample", "gutenberg", "koreader"] },
+    "title": { "type": "string", "maxLength": 500 },
+    "author": { "type": "string", "maxLength": 300 },
+    "publisher": { "type": "string", "maxLength": 300 },
+    "published": { "type": "string", "maxLength": 60 },
+    "language": { "type": "string", "maxLength": 40 },
+    "description": { "type": "string", "maxLength": 4000 }
+  }
+}

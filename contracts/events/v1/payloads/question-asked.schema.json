@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://marginalia.local/contracts/events/v1/payloads/question-asked.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["createdAt"],
+  "properties": {
+    "createdAt": { "type": "string", "format": "date-time" },
+    "chapter": { "type": "string", "maxLength": 500 },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "content": { "type": "string", "maxLength": 20000 }
+  }
+}

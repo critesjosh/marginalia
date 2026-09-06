@@ -1,0 +1,30 @@
+{
+  "$comment": "The one list of v1 payload contracts. The validator generator, the Python fixture validator, and the browser registry all derive from this; a test fails if any of them drifts.",
+  "payloads": {
+    "privacy_consent_changed": "privacy-consent-changed.schema.json",
+    "highlight_created": "highlight-created.schema.json",
+    "highlight_updated": "highlight-updated.schema.json",
+    "highlight_deleted": "highlight-deleted.schema.json",
+    "conversation_started": "conversation-started.schema.json",
+    "question_asked": "question-asked.schema.json",
+    "book_opened": "book-opened.schema.json",
+    "book_closed": "book-closed.schema.json",
+    "reading_progressed": "reading-progressed.schema.json",
+    "chapter_entered": "chapter-entered.schema.json",
+    "book_completed": "book-completed.schema.json",
+    "book_reopened": "book-reopened.schema.json",
+    "book_added": "book-added.schema.json",
+    "book_archived": "book-archived.schema.json",
+    "book_restored": "book-restored.schema.json",
+    "book_memory_updated": "book-memory-updated.schema.json",
+    "conversation_deleted": "conversation-deleted.schema.json",
+    "book_deleted": "book-deleted.schema.json",
+    "assistant_response_received": "assistant-response-received.schema.json",
+    "conversation_resumed": "conversation-resumed.schema.json",
+    "recommendation_dismissed": "recommendation-dismissed.schema.json",
+    "recommendation_shown": "recommendation-shown.schema.json",
+    "recommendation_opened": "recommendation-opened.schema.json",
+    "recommended_book_added": "recommended-book-added.schema.json",
+    "recommended_book_started": "recommended-book-started.schema.json"
+  }
+}

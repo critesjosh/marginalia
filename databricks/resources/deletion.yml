@@ -1,0 +1,131 @@
+resources:
+  jobs:
+    # Run for one request, by request id, as soon as the App has recorded it.
+    # Not on a schedule: a reader who asked to be deleted should not wait for the
+    # next quarter hour to find out it started.
+    cloud_deletion:
+      name: marginalia-cloud-deletion
+      parameters:
+        - name: request_id
+          # Overridden per run. The default sweeps every active request, which
+          # is what the scheduled replay purge below wants.
+          default: ""
+      tasks:
+        - task_key: purge
+          spark_python_task:
+            python_file: ../src/deletion.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --bronze_schema=${resources.schemas.bronze.name}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --ops_schema=${resources.schemas.ops.name}
+              - --stage=purge
+              - --request_id={{job.parameters.request_id}}
+              - --librarian_experiment=${var.librarian_experiment}
+          environment_key: deletion
+
+        # The derived layers are materialized views over sources the reader is
+        # now absent from. A full refresh is what makes that absence real in
+        # them, rather than waiting for an incremental update to notice.
+        - task_key: recompute_silver
+          depends_on:
+            - task_key: purge
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.events_silver.id}
+            full_refresh: true
+        # The Librarian's passages are a table a job writes rather than a
+        # materialized view, so a refresh does not empty them. Rebuilding from
+        # a Silver the reader is now absent from does, and the sync it waits
+        # for is what removes them from the index, which has no delete of its
+        # own.
+        - task_key: rebuild_librarian_passages
+          depends_on:
+            - task_key: recompute_silver
+          spark_python_task:
+            python_file: ../src/librarian_passages.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --ops_schema=${resources.schemas.ops.name}
+              - --index_name=${resources.vector_search_indexes.librarian_passages.name}
+              - --index_endpoint=${resources.vector_search_endpoints.librarian_index_endpoint.name}
+              - --wait_for_sync=true
+          environment_key: librarian
+
+        - task_key: recompute_gold
+          depends_on:
+            - task_key: recompute_silver
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.gold_profiles.id}
+            full_refresh: true
+        - task_key: recompute_frontier
+          depends_on:
+            - task_key: recompute_gold
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.frontier_gold.id}
+            full_refresh: true
+
+        # Serving last. Verifying before the synced tables have caught up would
+        # pass while the browser could still read the reader's profile.
+        - task_key: sync_serving
+          depends_on:
+            - task_key: recompute_frontier
+            - task_key: rebuild_librarian_passages
+          spark_python_task:
+            python_file: ../src/serving_sync.py
+            parameters:
+              - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name},${resources.synced_database_tables.recommendation_candidates.name},${resources.synced_database_tables.intellectual_frontier.name}
+          environment_key: serving
+        - task_key: verify
+          depends_on:
+            - task_key: sync_serving
+          spark_python_task:
+            python_file: ../src/deletion.py
+            parameters:
+              - --catalog=${var.catalog}
+              - --bronze_schema=${resources.schemas.bronze.name}
+              - --silver_schema=${resources.schemas.silver.name}
+              - --gold_schema=${resources.schemas.gold.name}
+              - --ops_schema=${resources.schemas.ops.name}
+              - --stage=verify
+              - --request_id={{job.parameters.request_id}}
+              - --librarian_experiment=${var.librarian_experiment}
+              - --librarian_index=${resources.vector_search_indexes.librarian_passages.name}
+              - --synced_tables=${resources.synced_database_tables.reader_interest_profile.name},${resources.synced_database_tables.book_engagement.name},${resources.synced_database_tables.recommendation_candidates.name},${resources.synced_database_tables.intellectual_frontier.name}
+          environment_key: deletion
+      environments:
+        - environment_key: deletion
+          spec:
+            client: "3"
+            # MLflow is here because a trace holds the passages the model was
+            # shown, and deleting those needs the client that wrote them; the
+            # SDK because verification asks the Vector Search index directly
+            # whether the reader is still in it.
+            dependencies:
+              - mlflow==3.6.0
+              - databricks-sdk==0.133.0
+        - environment_key: librarian
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-sdk==0.133.0
+        # See events_ingestion.yml: the runtime SDK has no Lakebase API.
+        - environment_key: serving
+          spec:
+            client: "3"
+            dependencies:
+              - databricks-sdk==0.133.0
+
+    # The connector can put a deleted reader back into Bronze for as long as the
+    # topic retains their records. This sweeps every request that is still
+    # waiting out that window, and is what eventually moves one to completed.
+    deletion_replay_purge:
+      name: marginalia-deletion-replay-purge
+      schedule:
+        quartz_cron_expression: 0 30 3 * * ?
+        timezone_id: UTC
+      tasks:
+        - task_key: purge_and_verify
+          run_job_task:
+            job_id: ${resources.jobs.cloud_deletion.id}

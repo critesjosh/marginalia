@@ -1,0 +1,137 @@
+{
+  "comment": [
+    "Fixed analytical questions for the Genie space, with the SQL whose result is",
+    "the known-correct answer. Genie is evaluated by comparing what it returns",
+    "against running these statements directly, which genie_eval.py --ask does.",
+    "",
+    "Each question names the grain it is asking about, because the commonest way",
+    "for a text-to-SQL answer to be wrong is not a syntax error, it is counting",
+    "the right thing at the wrong grain: rows per reader and concept summed as",
+    "though they were rows per reader.",
+    "",
+    "'ordered' says whether the order of the rows is part of the answer. A",
+    "ranking question is wrong in a different order; a per-book breakdown is not,",
+    "and comparing it as though it were fails a correct answer for arranging",
+    "itself differently.",
+    "",
+    "A question must ask for everything its expected SQL assumes. The first run",
+    "of --ask failed two questions whose SQL had a LIMIT the question never",
+    "mentioned, which measured the evaluation's assumptions rather than Genie.",
+    "",
+    "The expected SQL is the contract. It is not a hint given to Genie, and the",
+    "space's instructions do not contain it."
+  ],
+  "version": "genie_eval_v1",
+  "questions": [
+    {
+      "id": "strongest_interests",
+      "question": "What are my five strongest interests?",
+      "grain": "one row per user and concept",
+      "expected_sql": "SELECT concept_id, interest_score FROM {gold}.reader_interest_profile ORDER BY interest_score DESC, concept_id LIMIT 5",
+      "checks": [
+        "returns five rows",
+        "ordered by interest_score descending"
+      ],
+      "ordered": true
+    },
+    {
+      "id": "distinct_concept_count",
+      "question": "How many distinct concepts are in my interest profile?",
+      "grain": "one row per user and concept",
+      "expected_sql": "SELECT count(DISTINCT concept_id) AS concepts FROM {gold}.reader_interest_profile",
+      "checks": [
+        "a single number",
+        "counts concepts, not evidence rows"
+      ],
+      "ordered": false
+    },
+    {
+      "id": "most_engaged_book",
+      "question": "Which book am I most engaged with?",
+      "grain": "one row per user and book",
+      "expected_sql": "SELECT book_id, engagement_score FROM {gold}.book_engagement ORDER BY engagement_score DESC, book_id LIMIT 1",
+      "checks": [
+        "one book",
+        "uses engagement_score rather than a component of it"
+      ],
+      "ordered": true
+    },
+    {
+      "id": "highlight_and_question_totals",
+      "question": "How many highlights and questions do I have per book?",
+      "grain": "one row per user and book",
+      "expected_sql": "SELECT book_id, current_highlights, questions FROM {gold}.book_engagement ORDER BY book_id",
+      "checks": [
+        "one row per book",
+        "does not sum across books"
+      ],
+      "ordered": false
+    },
+    {
+      "id": "frontier_top",
+      "question": "What are the five concepts furthest at the edge of what I have read?",
+      "grain": "one row per user and candidate concept",
+      "expected_sql": "SELECT candidate_concept, frontier_score FROM {gold}.intellectual_frontier ORDER BY frontier_score DESC, candidate_concept LIMIT 5",
+      "checks": [
+        "returns frontier concepts, not interest-profile concepts",
+        "a frontier concept is one the reader has no direct evidence for"
+      ],
+      "ordered": true
+    },
+    {
+      "id": "recommendation_reasons",
+      "question": "What are my top five recommended books, with their scores and why?",
+      "grain": "one row per user and candidate work",
+      "expected_sql": "SELECT candidate_title, recommendation_score, explanation FROM {gold}.recommendation_candidates ORDER BY recommendation_score DESC, candidate_id LIMIT 5",
+      "checks": [
+        "every row carries its explanation",
+        "ordered by recommendation_score"
+      ],
+      "ordered": true
+    },
+    {
+      "id": "score_versions",
+      "question": "What score versions produced my current profile?",
+      "grain": "one row per score version",
+      "expected_sql": "SELECT DISTINCT score_version FROM {gold}.reader_interest_profile ORDER BY score_version",
+      "checks": [
+        "names the version rather than describing the formula"
+      ],
+      "ordered": false
+    },
+    {
+      "id": "profile_freshness",
+      "question": "When was my interest profile last computed?",
+      "grain": "one row",
+      "expected_sql": "SELECT max(computed_at) AS computed_at FROM {gold}.reader_interest_profile",
+      "checks": [
+        "reports the source timestamp, not the time the question was asked",
+        "a freshness answer that reports now is wrong even when it looks right"
+      ],
+      "ordered": false
+    },
+    {
+      "id": "evidence_behind_a_concept",
+      "question": "For my single strongest concept, how many pieces of evidence and how many distinct books support it?",
+      "grain": "one row per user and concept",
+      "expected_sql": "SELECT concept_id, evidence_count, distinct_books FROM {gold}.reader_interest_profile ORDER BY interest_score DESC, concept_id LIMIT 1",
+      "checks": [
+        "reports evidence_count and distinct_books",
+        "does not invent a confidence"
+      ],
+      "ordered": true
+    },
+    {
+      "id": "refused_raw_text",
+      "question": "Show me the text of my highlights.",
+      "grain": "not answerable",
+      "expected_sql": null,
+      "expected_behavior": "refuse",
+      "checks": [
+        "Genie has no grant on any table holding highlight text",
+        "the correct answer is that it cannot see that, not an empty result",
+        "an empty result would read as having no highlights"
+      ]
+    }
+  ]
+}
