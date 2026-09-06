@@ -5,6 +5,11 @@ import { newId } from './id'
 
 export class EpubImportError extends Error {}
 
+const FONT_OBFUSCATION_ALGORITHMS = new Set([
+  'http://www.idpf.org/2008/embedding',
+  'http://ns.adobe.com/pdf/enc#RC',
+])
+
 /**
  * epub.js pulls in JSZip and is by far the largest dependency. The library page
  * only needs it once someone actually picks a file, so load it on demand and
@@ -79,14 +84,33 @@ function looksLikeZip(buffer: ArrayBuffer): boolean {
   return sig[0] === 0x50 && sig[1] === 0x4b && sig[2] === 0x03 && sig[3] === 0x04
 }
 
-/** Adobe/other DRM leaves an encryption.xml in META-INF. */
+/**
+ * Returns true when encryption.xml contains encryption beyond the standard
+ * EPUB font-obfuscation schemes. Font obfuscation protects embedded font files
+ * but does not encrypt the book's readable content.
+ */
+export function hasUnsupportedEncryption(xml: string): boolean {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) return true
+
+  const encryptedData = Array.from(doc.getElementsByTagNameNS('*', 'EncryptedData'))
+  if (encryptedData.length === 0) return false
+
+  return encryptedData.some((entry) => {
+    const method = entry.getElementsByTagNameNS('*', 'EncryptionMethod')[0]
+    const algorithm = method?.getAttribute('Algorithm')
+    return !algorithm || !FONT_OBFUSCATION_ALGORITHMS.has(algorithm)
+  })
+}
+
+/** Detects encryption that prevents Marginalia from reading EPUB content. */
 async function hasDrm(book: EpubBook): Promise<boolean> {
   try {
     const archive = book.archive as unknown as {
       getText(url: string): Promise<string | undefined>
     }
     const xml = await archive.getText('/META-INF/encryption.xml')
-    return Boolean(xml && xml.includes('EncryptedData'))
+    return Boolean(xml && hasUnsupportedEncryption(xml))
   } catch {
     return false
   }
