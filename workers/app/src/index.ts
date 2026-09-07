@@ -1,8 +1,10 @@
+import { handleGutenbergRequest } from '../../../shared/gutenberg.ts'
 import { handleRelayRequest } from '../../../shared/relay.ts'
 
 const CONTENT_SECURITY_POLICY =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; " +
-  "img-src 'self' data: blob:; font-src 'self' data: blob:; connect-src 'self' " +
+  "img-src 'self' data: blob: https://www.gutenberg.org; font-src 'self' data: blob:; " +
+  "connect-src 'self' " +
   'https://api.openai.com https://marginalia-audiobooks.cloudflare-cdd.workers.dev; ' +
   "media-src 'self' blob: https://marginalia-audiobooks.cloudflare-cdd.workers.dev; " +
   "frame-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'"
@@ -38,6 +40,12 @@ export default {
           { apiKey: env.OPENROUTER_API_KEY, siteUrl: url.origin },
           { ip: request.headers.get('CF-Connecting-IP') ?? '' },
         )
+      }
+
+      if (url.pathname === '/api/gutenberg') {
+        return await handleGutenbergRequest(request, {
+          ip: request.headers.get('CF-Connecting-IP') ?? '',
+        })
       }
 
       if (url.pathname.startsWith('/api/')) {

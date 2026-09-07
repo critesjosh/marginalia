@@ -7,6 +7,8 @@ import LibraryPage from './pages/LibraryPage'
 const ReaderPage = lazy(() => import('./pages/ReaderPage'))
 const ChatsPage = lazy(() => import('./pages/ChatsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+// Reached only from a share sheet, so it never needs to be in the first load.
+const AddSharedPage = lazy(() => import('./pages/AddSharedPage'))
 
 function Deferred({ children }: { children: ReactNode }) {
   return (
@@ -24,6 +26,14 @@ function Deferred({ children }: { children: ReactNode }) {
 
 export const router = createBrowserRouter([
   { path: '/', element: <LibraryPage /> },
+  {
+    path: '/add',
+    element: (
+      <Deferred>
+        <AddSharedPage />
+      </Deferred>
+    ),
+  },
   {
     path: '/book/:bookId',
     element: (
