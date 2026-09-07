@@ -1,11 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { archiveBook, db, deleteBook, findArchivedMatch, restoreBook } from '../db/db'
+import { archiveBook, db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
-import { EpubImportError, parseEpubFile } from '../lib/epub'
+import { EpubImportError } from '../lib/epub'
+import {
+  downloadGutenbergBook,
+  parseGutenbergRef,
+  searchGutenberg,
+  type CatalogBook,
+} from '../lib/gutenberg'
+import { importEpub } from '../lib/importBook'
 import { seedSampleBooks } from '../lib/sampleBook'
 import { useBlobUrl } from '../lib/useBlobUrl'
+import { useModal } from '../lib/useModal'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import { GearIcon, PlusIcon, TrashIcon } from '../components/Icons'
 
@@ -15,6 +23,7 @@ export default function LibraryPage() {
   const [seeding, setSeeding] = useState(true)
   const [error, setError] = useState<string>()
   const [confirmRemove, setConfirmRemove] = useState<Book>()
+  const [showAddBook, setShowAddBook] = useState(false)
 
   // Most recently read first, so the book in progress is the one under the
   // thumb. A book that has never been opened falls back to when it arrived,
@@ -61,13 +70,7 @@ export default function LibraryPage() {
     const failures: string[] = []
     for (const file of Array.from(files)) {
       try {
-        const book = await parseEpubFile(file, file.name)
-        // Importing the same file as a book that was removed but kept picks its
-        // shelf back up, rather than standing a second, empty copy next to the
-        // notes it belongs to.
-        const archivedMatch = await findArchivedMatch(book)
-        if (archivedMatch) await restoreBook(archivedMatch.id, book)
-        else await db.books.add(book)
+        await importEpub(file)
       } catch (err) {
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
@@ -91,12 +94,12 @@ export default function LibraryPage() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => fileInput.current?.click()}
+              onClick={() => setShowAddBook(true)}
               disabled={importing}
               className="flex items-center gap-1.5 rounded-full bg-amber-500 px-3.5 py-2 text-sm font-medium text-stone-950 disabled:opacity-50"
             >
               <PlusIcon className="h-4 w-4" />
-              {importing ? 'Importing…' : 'Add EPUB'}
+              {importing ? 'Importing…' : 'Add book'}
             </button>
             <Link
               to="/settings"
@@ -126,7 +129,7 @@ export default function LibraryPage() {
         )}
 
         {books && books.length === 0 && !seeding && (
-          <EmptyState onPick={() => fileInput.current?.click()} />
+          <EmptyState onPick={() => setShowAddBook(true)} />
         )}
 
         {books && books.length === 0 && seeding && (
@@ -155,6 +158,17 @@ export default function LibraryPage() {
         )}
       </main>
 
+      {showAddBook && (
+        <AddBookDialog
+          onClose={() => setShowAddBook(false)}
+          onChooseFile={() => {
+            setShowAddBook(false)
+            fileInput.current?.click()
+          }}
+          onImport={importEpub}
+        />
+      )}
+
       {confirmRemove && (
         <RemoveBookDialog
           book={confirmRemove}
@@ -171,6 +185,262 @@ export default function LibraryPage() {
   )
 }
 
+/** How long a search may run before the dialog admits it is being slow. */
+const SLOW_SEARCH_MS = 5_000
+
+function AddBookDialog({
+  onClose,
+  onChooseFile,
+  onImport,
+}: {
+  onClose: () => void
+  onChooseFile: () => void
+  onImport: (file: File) => Promise<string>
+}) {
+  const navigate = useNavigate()
+  // Searching is why the dialog opens, so focus lands in the field.
+  const ref = useModal<HTMLElement>(onClose, 'input[type="search"]')
+  const [query, setQuery] = useState('')
+  // A pasted link resolves to a book on its own; a bare number is ambiguous
+  // and gets offered alongside the search rather than instead of it.
+  const pastedRef = parseGutenbergRef(query)
+  const [results, setResults] = useState<CatalogBook[]>([])
+  const [searching, setSearching] = useState(false)
+  const [slow, setSlow] = useState(false)
+  const [addingId, setAddingId] = useState<number>()
+  // Kept apart because only one of them is worth offering a Retry for.
+  const [searchError, setSearchError] = useState<string>()
+  const [addError, setAddError] = useState<string>()
+  // Bumped by Retry to re-run the effect on an unchanged query.
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    const trimmed = query.trim()
+    // Searching Gutendex for the text of a URL can only ever return nothing.
+    if (pastedRef?.source === 'url' || trimmed.length < 2) {
+      setResults([])
+      setSearching(false)
+      setSlow(false)
+      setSearchError(undefined)
+      return
+    }
+
+    const controller = new AbortController()
+    // Set before the debounce, not inside it: during those 350 ms the results
+    // are empty, and a `searching` of false there renders "No EPUBs found."
+    // for a search that has not run yet.
+    setSearching(true)
+    setSlow(false)
+    setSearchError(undefined)
+
+    const timer = window.setTimeout(() => {
+      void searchGutenberg(trimmed, controller.signal)
+        .then((books) => setResults(books))
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setResults([])
+          setSearchError(err instanceof Error ? err.message : 'Search failed.')
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setSearching(false)
+            setSlow(false)
+          }
+        })
+    }, 350)
+
+    // Gutendex regularly takes many seconds to answer. Saying so is the
+    // difference between a wait a reader will sit through and a spinner they
+    // cannot tell apart from a hang.
+    const slowTimer = window.setTimeout(() => setSlow(true), SLOW_SEARCH_MS)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.clearTimeout(slowTimer)
+      controller.abort()
+    }
+  }, [query, attempt, pastedRef?.source])
+
+  // A download the reader walked away from must not pull them into the reader
+  // when it lands. The controller cancels the transfer as the dialog closes;
+  // the guards cover the window between the bytes arriving and the import
+  // finishing, when there is no longer a dialog to report back to.
+  const download = useRef<AbortController | null>(null)
+  useEffect(() => () => download.current?.abort(), [])
+
+  async function addBook(book: { id: number; title?: string }) {
+    const controller = new AbortController()
+    download.current = controller
+    setAddingId(book.id)
+    setAddError(undefined)
+    try {
+      const file = await downloadGutenbergBook(book, controller.signal)
+      const bookId = await onImport(file)
+      if (controller.signal.aborted) return
+      onClose()
+      navigate(`/book/${bookId}`)
+    } catch (err) {
+      if (controller.signal.aborted) return
+      setAddError(
+        err instanceof EpubImportError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not add that book.',
+      )
+      setAddingId(undefined)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-30 flex items-end sm:items-center sm:justify-center" role="presentation">
+      <div className="absolute inset-0 bg-black/70" onClick={onClose} aria-hidden />
+      <section
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-book-title"
+        className="relative max-h-[88vh] w-full overflow-y-auto rounded-t-2xl border border-stone-800 bg-stone-950 p-4 shadow-2xl sm:max-w-xl sm:rounded-2xl"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 id="add-book-title" className="text-lg font-semibold text-stone-100">
+              Add a book
+            </h2>
+            <p className="text-xs text-stone-500">Search free public-domain EPUBs or import your own.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-2xl leading-none text-stone-400 hover:bg-stone-800 hover:text-stone-100"
+          >
+            ×
+          </button>
+        </div>
+
+        <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-stone-500">
+          Project Gutenberg
+        </label>
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by title or author"
+          className="mt-2 w-full rounded-xl border border-stone-700 bg-stone-900 px-3.5 py-3 text-base text-stone-100 outline-none placeholder:text-stone-600 focus:border-amber-500"
+        />
+        <p className="mt-2 text-xs text-stone-500">
+          Or paste a book link from{' '}
+          <a
+            href="https://www.gutenberg.org/ebooks/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-500 underline underline-offset-2"
+          >
+            gutenberg.org
+          </a>
+          .
+        </p>
+
+        {pastedRef && (
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-stone-800 bg-stone-900/50 p-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-stone-200">Project Gutenberg #{pastedRef.id}</p>
+              <p className="mt-0.5 text-xs text-stone-500">
+                {pastedRef.source === 'url'
+                  ? 'From the link you pasted.'
+                  : 'Add this book id directly.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={addingId !== undefined}
+              onClick={() => void addBook({ id: pastedRef.id })}
+              className="shrink-0 rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-stone-950 disabled:opacity-50"
+            >
+              {addingId === pastedRef.id ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        )}
+
+        {searching && (
+          <p className="mt-3 text-sm text-stone-500">
+            {slow
+              ? 'Still searching — Project Gutenberg is slow right now…'
+              : 'Searching Project Gutenberg…'}
+          </p>
+        )}
+        {searchError && (
+          <div className="mt-3 flex items-start justify-between gap-3">
+            <p className="text-sm text-red-300">{searchError}</p>
+            <button
+              type="button"
+              onClick={() => setAttempt((n) => n + 1)}
+              className="shrink-0 rounded-full border border-stone-700 px-3 py-1 text-xs font-medium text-stone-300 hover:bg-stone-800 hover:text-stone-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {addError && <p className="mt-3 text-sm text-red-300">{addError}</p>}
+        {!searching && !pastedRef && query.trim().length >= 2 && !searchError && results.length === 0 && (
+          <p className="mt-3 text-sm text-stone-500">No EPUBs found.</p>
+        )}
+
+        {results.length > 0 && (
+          <ul className="mt-3 divide-y divide-stone-800 rounded-xl border border-stone-800 bg-stone-900/50">
+            {results.map((book) => (
+              <li key={book.id} className="flex gap-3 p-3">
+                <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-stone-800">
+                  {book.coverUrl ? (
+                    <img src={book.coverUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center px-1 text-center text-[10px] text-stone-500">
+                      No cover
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 text-sm font-medium text-stone-200">{book.title}</p>
+                  <p className="mt-0.5 line-clamp-1 text-xs text-stone-500">{book.author}</p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-stone-600">
+                      {book.languages.join(', ').toUpperCase() || 'EPUB'}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={addingId !== undefined}
+                      onClick={() => void addBook(book)}
+                      className="rounded-full bg-amber-500 px-3 py-1.5 text-xs font-semibold text-stone-950 disabled:opacity-50"
+                    >
+                      {addingId === book.id ? 'Adding…' : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="my-5 flex items-center gap-3 text-xs text-stone-600">
+          <div className="h-px flex-1 bg-stone-800" />
+          or
+          <div className="h-px flex-1 bg-stone-800" />
+        </div>
+
+        <button
+          type="button"
+          onClick={onChooseFile}
+          className="w-full rounded-xl border border-stone-700 bg-stone-900 px-4 py-3 text-sm font-medium text-stone-200 hover:bg-stone-800"
+        >
+          Choose an EPUB from this device
+        </button>
+        <p className="mt-2 text-center text-xs text-stone-600">Books stay stored on this device.</p>
+      </section>
+    </div>
+  )
+}
+
 function EmptyState({ onPick }: { onPick: () => void }) {
   return (
     <div className="mt-24 text-center">
@@ -179,13 +449,13 @@ function EmptyState({ onPick }: { onPick: () => void }) {
       </div>
       <h2 className="text-base font-medium text-stone-300">Your library is empty</h2>
       <p className="mx-auto mt-1 max-w-xs text-sm text-stone-500">
-        Add a DRM-free EPUB to start reading. Books are stored on this device only.
+        Search Project Gutenberg or add a DRM-free EPUB to start reading.
       </p>
       <button
         onClick={onPick}
         className="mt-5 rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-100"
       >
-        Choose a file
+        Add a book
       </button>
     </div>
   )
