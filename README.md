@@ -20,6 +20,10 @@ Milestones M1 to M5 from `epub-chat-reader-plan.md` are implemented and verified
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
 
+## Product development
+
+Marginalia's product decisions are tracked publicly alongside the code. See [`PRODUCT_WORKFLOW.md`](PRODUCT_WORKFLOW.md) for the issue types, prioritization model, project-board conventions, definition of ready, and validation process. New work can start from structured GitHub issue forms for user problems, features, experiments, and bugs.
+
 ## Running it
 
 ```bash

@@ -1,0 +1,60 @@
+name: Feature or improvement
+description: Propose a solution tied to a user problem and a measurable outcome.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem being addressed
+      description: Link a user-problem issue when possible. Describe the user need, not only the requested feature.
+    validations:
+      required: true
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: If we make this change, what user outcome do we expect and why?
+      placeholder: If we..., then readers will..., because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the smallest useful change. Include UX or technical notes only where they constrain the product decision.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else could solve the problem? Why is this approach preferable right now?
+
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: What observable behavior or metric would tell us this worked?
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: What is explicitly out of scope?
+
+  - type: textarea
+    id: technical
+    attributes:
+      label: Technical considerations
+      description: Dependencies, security/privacy concerns, platform constraints, migration risks, or architectural implications.
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: How should this be tested with real usage after shipping?

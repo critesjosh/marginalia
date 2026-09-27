@@ -1,0 +1,53 @@
+name: Bug
+description: Report a reproducible problem with the reader, chat, import, sync, or deployment.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+      description: Describe the behavior you observed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open...
+        2. Tap...
+        3. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: What does this prevent or make difficult for the reader?
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Device, OS, browser/app version, and deployment if relevant.
+      placeholder: Pixel 9 / Android 16 / Chrome 153 / marginalia.adjacentpossible.dev
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots, logs, or other evidence
+      description: Attach anything that makes the failure easier to understand.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
