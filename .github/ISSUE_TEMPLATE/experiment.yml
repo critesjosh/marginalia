@@ -1,0 +1,61 @@
+name: Experiment or spike
+description: Test a product or technical assumption before committing to a larger build.
+title: "[Experiment] "
+body:
+  - type: textarea
+    id: decision
+    attributes:
+      label: Decision this experiment should inform
+      description: What decision becomes easier once we have the result?
+    validations:
+      required: true
+
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis
+      description: State what you currently expect to be true.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and uncertainty
+      description: What do we know already, and what is still uncertain?
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Experiment design
+      description: What is the smallest test that can meaningfully reduce the uncertainty?
+    validations:
+      required: true
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Measures
+      description: Define the primary measure, useful guardrails, and any qualitative evidence to collect.
+    validations:
+      required: true
+
+  - type: textarea
+    id: threshold
+    attributes:
+      label: Decision rule
+      description: What result would make us ship, iterate, choose another approach, or stop?
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: Result
+      description: Fill this in when the experiment is complete.
+
+  - type: textarea
+    id: next
+    attributes:
+      label: Decision and next step
+      description: Fill this in after reviewing the result. Record the decision even when the answer is "do not build."
