@@ -1,6 +1,6 @@
 # Segmentation and packaging. Enough to run --dry-run and --backend silence.
 lxml==6.1.1
-numpy==2.4.6
+numpy==2.5.3
 
 # The kokoro backend. Pulls in torch; install the CUDA build for your card first
 # if you do not already have one.
