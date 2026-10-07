@@ -31,7 +31,7 @@
     "check": "npm run lint && npm run typecheck && npm run test:coverage"
   },
   "dependencies": {
-    "dexie": "^4.4.4",
+    "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "epubjs": "^0.3.93",
     "react": "^19.2.7",
