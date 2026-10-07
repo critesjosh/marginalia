@@ -35,6 +35,8 @@ OPENROUTER_API_KEY=<a key from openrouter.ai/keys>
 
 A Vite plugin serves `/api/chat` in dev using the same handler the deployed edge function runs, so `npm run dev` exercises the real relay — no Netlify CLI needed.
 
+To use the deployed relay and its key instead, set `CHAT_RELAY_URL=https://marginalia.adjacentpossible.dev` in `.env.local`. Dev chat is then billed to the production key.
+
 ```bash
 npm run build     # production build + service worker
 npm run lint      # oxlint
