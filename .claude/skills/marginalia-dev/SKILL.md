@@ -41,8 +41,8 @@ died, so read `/tmp/vite.log`.
 
 ## Get a test book
 
-`public/books/` ships three EPUBs that are imported automatically on a first run, so an
-empty profile already has a shelf: Moby Dick, Meditations and The Genealogy of Morals.
+`public/books/` ships four EPUBs that are imported automatically on a first run, so an
+empty profile already has a shelf: Moby Dick, Meditations, The Genealogy of Morals and the King James Bible.
 They are Gutenberg's `.images` variants deliberately, not `.noimages`: late-loading
 images are what reflow the paginated strip and break navigation, so these are the builds
 that exercise `goToSettled` in `src/lib/useReader.ts`. Testing on `.noimages` hides that
@@ -50,7 +50,7 @@ whole class of bug. Moby Dick is still the one to reach for when a check needs a
 book: 146 TOC entries against Meditations' 23 and The Genealogy of Morals' 13.
 
 The auto-import is one-shot — `sampleBookSeeded` in settings stops it coming back after
-a delete, and it is only set once all three land, so a partial first run retries. To
+a delete, and it is only set once all four land, so a partial first run retries. To
 re-test seeding, clear the `marginalia` IndexedDB database.
 
 To test the import path itself, use a different EPUB through the UI (Add book, then "Choose an EPUB from this device") rather

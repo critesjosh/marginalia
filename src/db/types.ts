@@ -136,7 +136,7 @@ export interface Settings {
   sampleBookSeeded?: boolean
   /**
    * Which bundled books have been offered, while some still have not been.
-   * A first run that seeds two of three and fails on the last leaves the books
+   * A first run that seeds three of four and fails on the last leaves the books
    * it did add on the shelf, and the reader may delete one before the retry
    * succeeds; without this the retry cannot tell that row from one that never
    * arrived, and puts the deleted book back.

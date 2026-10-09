@@ -32,7 +32,8 @@ interface SampleBook {
 /**
  * Public-domain shelf shipped in `public/` so a first-time visitor has
  * something to read without finding an EPUB first. Moby Dick is Project
- * Gutenberg #2701, Meditations #2680, The Genealogy of Morals #52319.
+ * Gutenberg #2701, Meditations #2680, The Genealogy of Morals #52319,
+ * the King James Bible #10.
  *
  * Listed in the order they should appear on the shelf.
  */
@@ -45,6 +46,7 @@ const SAMPLE_BOOKS: SampleBook[] = [
     title: 'The Genealogy of Morals',
     author: 'Friedrich Nietzsche',
   },
+  { id: 'sample-king-james-bible', filename: 'king-james-bible.epub' },
 ]
 
 const SAMPLE_IDS = new Set(SAMPLE_BOOKS.map((sample) => sample.id))
@@ -72,8 +74,8 @@ async function run(): Promise<boolean> {
     if (settings.sampleBookSeeded) return false
 
     // Someone arriving with a library already built does not need the samples.
-    // Rows this function put there do not count, or a run that seeded two of
-    // three and failed on the last one would call the library built and set the
+    // Rows this function put there do not count, or a run that seeded three of
+    // four and failed on the last one would call the library built and set the
     // flag on its retry, stranding the book that never arrived.
     const existing = await db.books.toCollection().primaryKeys()
     if (existing.some((id) => !SAMPLE_IDS.has(id))) {

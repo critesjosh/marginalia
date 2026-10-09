@@ -19,7 +19,7 @@ npm run setup
 npm run dev -- --host 127.0.0.1
 ```
 
-The PWA runs at `http://127.0.0.1:5173`, needs no login, and seeds three sample
+The PWA runs at `http://127.0.0.1:5173`, needs no login, and seeds four sample
 books. Reading works without external services. For local chat, copy
 `.env.example` to `.env.local` and set `OPENROUTER_API_KEY`. Without a key,
 `/api/chat` returns 503; do not mistake this for a reader failure.
