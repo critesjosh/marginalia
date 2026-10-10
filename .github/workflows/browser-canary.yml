@@ -58,7 +58,7 @@ jobs:
       - id: version
         run: node scripts/qa-browsers.mjs >> "$GITHUB_OUTPUT"
       - run: npm run ${{ matrix.qa }}
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: browser-canary-${{ matrix.leg }}
