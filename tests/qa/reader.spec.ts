@@ -1,3 +1,4 @@
+import { settle } from './book.js'
 import { expect, test } from './fixtures.js'
 import { expectBookScriptsBlocked } from './hostileBook.js'
 
@@ -27,7 +28,7 @@ test('an in-book link lands on the page that holds its target', async ({ page })
   const contents = page.getByRole('dialog', { name: 'Table of contents' })
   await contents.getByRole('button', { name: 'Paragraphs with First Lines' }).click()
   await expect(contents).not.toBeVisible()
-  await page.waitForTimeout(2000)
+  await settle(page)
 
   // A link into another section, on the visible page. The book is one wide
   // strip of columns, so most links in the frame are off screen; Playwright's
@@ -44,7 +45,7 @@ test('an in-book link lands on the page that holds its target', async ({ page })
     break
   }
   expect(target, 'a cross-section link on the visible page').toBeDefined()
-  await page.waitForTimeout(2000)
+  await settle(page)
 
   // The target is an empty anchor opening its paragraph; the paragraph's box
   // starts in the column that holds it.
@@ -60,9 +61,14 @@ test("a book's own scripts never run", async ({ page }) => {
 })
 
 test('an unconfigured relay fails safely', async ({ request }) => {
-  const response = await request.post('/api/chat', {
-    data: { messages: [{ role: 'user', content: 'Synthetic fixture' }] },
-  })
+  // No messages: the key check comes first, so the unkeyed local relay still
+  // answers 503, while a keyed or proxied relay rejects the body before any
+  // billed model call.
+  const response = await request.post('/api/chat', { data: { messages: [] } })
+  const body = await response.json()
+  expect(body.error?.message, 'answered by the unkeyed local relay').toBe(
+    'This deployment has no inference key configured.',
+  )
   expect(response.status()).toBe(503)
-  expect(JSON.stringify(await response.json())).not.toContain('apiKey')
+  expect(JSON.stringify(body)).not.toContain('apiKey')
 })

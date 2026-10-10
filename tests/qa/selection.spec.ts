@@ -1,4 +1,5 @@
 import type { BrowserContext, Page } from '@playwright/test'
+import { openChapterOne } from './book.js'
 import { expect, test } from './fixtures.js'
 
 // A passage can be selected across a page break (issue #111). epub.js shows a
@@ -39,20 +40,11 @@ const frame = (page: Page) => page.locator('.epub-view iframe').first()
 const scrollLeft = (page: Page) =>
   page.locator('.epub-container').evaluate((element) => element.scrollLeft)
 
-async function openChapterOne(page: Page) {
-  await page.goto('/')
-  await page.getByRole('button', { name: /^Moby Dick/ }).click()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
-  await contents.getByRole('button', { name: /Loomings/i }).click()
-  await expect(contents).not.toBeVisible()
-  await expect(frame(page)).toBeVisible()
-  // Images and layout settle after the first paint.
-  await page.waitForTimeout(2000)
+async function openChapterOneClear(page: Page) {
+  const box = await openChapterOne(page)
 
   // Off the section's first page, then hide the toolbars, which sit over the
   // page's first and last lines.
-  const box = (await page.locator('.epub-container').boundingBox())!
   const start = await scrollLeft(page)
   await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2)
   await expect.poll(() => scrollLeft(page)).toBeGreaterThan(start)
@@ -204,7 +196,7 @@ test('a selection dragged to the page edge runs onto the next page', async ({
   browserName,
   isMobile,
 }) => {
-  const box = await openChapterOne(page)
+  const box = await openChapterOneClear(page)
   const line = await lastLine(page)
   const input = await pointer(context, page, browserName, isMobile)
   const start = await scrollLeft(page)
@@ -236,7 +228,7 @@ test('a tap at the page edge carries a selection to the next page', async ({
   browserName,
   isMobile,
 }) => {
-  const box = await openChapterOne(page)
+  const box = await openChapterOneClear(page)
   const line = await lastLine(page)
   const input = await pointer(context, page, browserName, isMobile)
 
