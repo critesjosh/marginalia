@@ -22,7 +22,9 @@ npm run dev -- --host 127.0.0.1
 The PWA runs at `http://127.0.0.1:5173`, needs no login, and seeds four sample
 books. Reading works without external services. For local chat, copy
 `.env.example` to `.env.local` and set `OPENROUTER_API_KEY`. Without a key,
-`/api/chat` returns 503; do not mistake this for a reader failure.
+`/api/chat` returns 503; do not mistake this for a reader failure. With
+`CHAT_RELAY_URL` set, dev chat goes to the deployed relay and is billed;
+`npm run test:qa` blanks both variables.
 
 Validation commands, also from the root:
 
@@ -56,8 +58,8 @@ node scripts/bundle-budget.mjs # after build
 ```
 
 Setup installs the repository's pre-commit hook. Coverage includes untested core
-modules: current global floors are 30% statements/lines, 40% branches, and 25%
-functions, not a claim of comprehensive UI coverage. The complexity limit is 45
+modules: current global floors are 55% statements/lines/branches and 50%
+functions, not a claim of comprehensive UI coverage. Raise them as coverage grows. The complexity limit is 45
 for TypeScript/Lua; production modules are capped at 750 lines. Increase tests
 or split modules, not these limits.
 

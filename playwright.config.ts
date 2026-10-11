@@ -23,6 +23,8 @@ export default defineConfig({
     command: 'npm run dev',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: false,
-    env: { OPENROUTER_API_KEY: '' },
+    // Shell values beat .env.local, so neither the local key nor a hosted relay
+    // can turn the QA server's chat into a billed request.
+    env: { OPENROUTER_API_KEY: '', CHAT_RELAY_URL: '' },
   },
 })

@@ -16,7 +16,7 @@ export default defineConfig({
       include: ['src/lib/**/*.ts', 'src/db/**/*.ts', 'shared/**/*.ts'],
       exclude: ['**/*.test.ts', 'src/lib/use*.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
-      thresholds: { statements: 30, branches: 40, functions: 25, lines: 30 },
+      thresholds: { statements: 55, branches: 55, functions: 50, lines: 55 },
     },
   },
 })

@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures.js'
+import { openChapterOne } from './book.js'
 import { expectBookScriptsBlocked } from './hostileBook.js'
 
 // Every iPad browser is WebKit, and WebKit never runs listeners the app adds to
@@ -10,21 +11,6 @@ test.beforeEach(async ({ context }) => {
   // QA must never contact hosted services.
   await context.route(/https:\/\/(?!127\.0\.0\.1)/, (route) => route.abort())
 })
-
-async function openChapterOne(page: Page) {
-  await page.goto('/')
-  await page.getByRole('button', { name: /^Moby Dick/ }).click()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
-  await contents.getByRole('button', { name: /Loomings/i }).click()
-  await expect(contents).not.toBeVisible()
-  await expect(page.frameLocator('.epub-view iframe').first().locator('body')).toContainText(
-    'Call me Ishmael',
-  )
-  // Images and layout settle after the first paint.
-  await page.waitForTimeout(1500)
-  return (await page.locator('.epub-container').boundingBox())!
-}
 
 // What the long press needs of the frame; QA code is typed without the DOM lib.
 interface BookFrame {

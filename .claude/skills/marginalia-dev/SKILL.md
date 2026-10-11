@@ -114,6 +114,10 @@ Left alone the error accumulates without bound: paging back and forth inside one
 reached 80px after 200 turns and kept climbing, until the viewport straddled two columns
 and showed half of each page. Any change near navigation should assert that remainder
 over a few hundred turns, since a handful of turns looks perfectly fine.
+`tests/qa/drift.spec.ts` does this for 200 turns in the `mobile` project. An emulated
+viewport is whole CSS pixels, so the pitch is too and nothing drifts; the spec zooms the
+app's document (not the book frame) to 1.05 for a fractional pitch. Desktop, WebKit and
+Firefox still do not drift with `snapToPage` removed, so the test runs only there.
 
 ## The other unbounded drift: resizing
 
@@ -142,6 +146,7 @@ the rendered page, since the damage is what gets written, and check that the hea
 names the chapter — suppressing those relocations too eagerly leaves the chrome showing
 the author fallback after a reopen. A deliberate move must still win over a pending
 re-anchor: turn a page or take a TOC jump ~2s into a reopen and confirm it is not undone.
+`tests/qa/drift.spec.ts` runs the ten round-trips in every QA project.
 
 ## Checking a reader interaction
 
@@ -244,7 +249,10 @@ Chat defaults to the built-in provider, which POSTs to `/api/chat`. In dev that 
 served by the `marginalia-chat-relay` Vite plugin in `vite.config.ts`, running the same
 `shared/relay.ts` handler the Cloudflare Worker runs in production. It needs
 `OPENROUTER_API_KEY` in gitignored `.env.local`; without it the relay answers 503 and
-the chat sheet shows the message.
+the chat sheet shows the message. If `.env.local` sets `CHAT_RELAY_URL`, Vite instead
+proxies `/api/chat` to that deployed relay, and every request is billed to its key.
+`playwright.config.ts` blanks both variables for QA; do the same for any dev server a
+check drives, since `context.route` blocks only the browser's requests, not the proxy's.
 
 Vite restarts when `vite.config.ts` or `shared/relay.ts` changes, so relay edits take a
 second to land. Check the relay directly before blaming the UI:
@@ -280,12 +288,9 @@ find . -type f -not -path "./node_modules/*" -not -path "./.git/*" -not -path ".
 ```
 
 The `or` branch catches OpenRouter keys, which is what `.env.local` now holds and what
-the deployed relay holds as a Worker secret. Keep placeholder keys out of docs
-for the same reason the pattern above is split: a placeholder that matches the scan
-buries the real hit.
-
-The pattern is split so this file does not match itself; searching for the joined
-literal instead makes every scan report this doc and bury the real hit.
+the deployed relay holds as a Worker secret. The pattern is split so this file does not
+match itself, and placeholder keys stay out of docs for the same reason: a doc that
+matches the scan buries the real hit.
 
 That should list `./.env.local` and nothing else. Scan staged content the same way, and
 include a positive control (grep for a word you know is in the diff) to prove the
