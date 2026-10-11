@@ -46,7 +46,10 @@ export default function ReaderPage() {
   const [removing, setRemoving] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const book = useLiveQuery(() => (bookId ? db.books.get(bookId) : undefined), [bookId])
+  const book = useLiveQuery(
+    () => (bookId ? db.books.get(bookId).then((found) => found ?? null) : null),
+    [bookId],
+  )
   const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
   const highlights = useLiveQuery(
     () => (bookId ? db.highlights.where('bookId').equals(bookId).toArray() : []),
@@ -265,6 +268,10 @@ export default function ReaderPage() {
         its{' '}
         <Link to={`/book/${book.id}/chats`} className="text-rubric underline underline-offset-2">
           conversations and memory
+        </Link>
+        .{' '}
+        <Link to="/" className="text-rubric underline underline-offset-2">
+          Back to library
         </Link>
         .
       </CenteredNote>
