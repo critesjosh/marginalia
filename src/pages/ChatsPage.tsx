@@ -29,14 +29,15 @@ export default function ChatsPage() {
   )
   const memory = useLiveQuery(() => (bookId ? db.bookMemory.get(bookId) : undefined), [bookId])
   const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
+  const readerAvailable = Boolean(book && !book.archivedAt)
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
       <header className="pt-safe sticky top-0 z-10 border-b border-rule bg-paper/90 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center gap-2 px-2 pt-2 pb-1">
           <Link
-            to={bookId ? `/book/${bookId}` : '/'}
-            aria-label="Back to reader"
+            to={bookId && readerAvailable ? `/book/${bookId}` : '/'}
+            aria-label={readerAvailable ? 'Back to reader' : 'Back to library'}
             className={iconButton}
           >
             <BackIcon />
