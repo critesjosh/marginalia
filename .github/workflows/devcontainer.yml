@@ -31,7 +31,7 @@ jobs:
         run: devcontainer up --workspace-folder "$GITHUB_WORKSPACE"
       - name: Validate and exercise the application inside the container
         run: devcontainer exec --workspace-folder "$GITHUB_WORKSPACE" --remote-env CI=true --remote-env WRANGLER_SEND_METRICS=false sh .devcontainer/smoke.sh
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: devcontainer-smoke
