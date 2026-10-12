@@ -145,7 +145,8 @@ stored, logged, or sent to PostHog.
 | Everywhere else                       | On      | Informs                            | No general consent requirement                      |
 | Any, with GPC or Do Not Track         | Off     | None                               | Respecting the signal                               |
 
-Events captured before the region is known are held and sent only if the
+The notice is a bar at the foot of whichever page the reader opens first, so
+a direct link to a book or a shared link shows it too. Events captured before the region is known are held and sent only if the
 default turns out to be on. Either button on the notice records a choice, so
 it shows once.
 

@@ -30,8 +30,8 @@ construction, not by convention at each call site.
   covering JavaScript that sends data from the device, and analytics is not
   exempt. Elsewhere, including the UK under PECR's statistical-purposes
   exception (in force 5 February 2026), it is opt-out with notice. Events are
-  held, unsent, until the region is known. A one-time notice in the library
-  asks (opt-in) or informs with a Turn off button (opt-out); declining is as
+  held, unsent, until the region is known. A one-time notice, shown on
+  whichever page the reader lands, asks (opt-in) or informs with a Turn off button (opt-out); declining is as
   easy as accepting. Global Privacy Control or Do Not Track keeps it off with
   no notice. `VITE_TELEMETRY_DEFAULT=off` makes it opt-in everywhere. The
   Settings toggle changes it at any time and drops queued events.

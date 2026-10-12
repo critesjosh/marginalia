@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import {
   currentInstallContext,
   dismissInstall,
@@ -6,6 +6,7 @@ import {
   promptInstall,
   subscribeInstallPrompt,
 } from '../lib/install'
+import { telemetry } from '../lib/telemetry'
 import Mark from './Mark'
 import { CloseIcon } from './Icons'
 import { button, iconButton } from './ui'
@@ -22,7 +23,9 @@ export default function InstallBanner() {
     return unsubscribe
   }, [])
 
-  if (!offer) return null
+  // The usage-data notice takes the same spot; one bar at a time.
+  const notice = useSyncExternalStore(telemetry.subscribe, telemetry.notice)
+  if (!offer || notice) return null
 
   return (
     <>

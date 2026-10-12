@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import './index.css'
 import AppErrorBoundary from './components/AppErrorBoundary'
+import UsageDataNotice from './components/UsageDataNotice'
 import { noteBuild } from './lib/diagnostics'
 import { listenForInstallPrompt } from './lib/install'
 import { shouldReloadForPreloadError } from './lib/preloadRecovery'
@@ -31,6 +32,8 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppErrorBoundary>
       <RouterProvider router={router} />
+      {/* Outside the routes, so a visitor who lands on any page sees it. */}
+      <UsageDataNotice />
     </AppErrorBoundary>
   </StrictMode>,
 )
