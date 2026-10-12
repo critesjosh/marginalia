@@ -6,6 +6,7 @@ import {
   searchGutenberg,
   type CatalogBook,
 } from '../lib/gutenberg'
+import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
 import { button, iconButton } from './ui'
 import { CloseIcon } from './Icons'
@@ -144,11 +145,13 @@ export default function AddBookDialog({
       const file = await downloadGutenbergBook(book, controller.signal)
       if (controller.signal.aborted) return
       const bookId = await onImport(file)
+      telemetry.recordImport('gutenberg')
       if (controller.signal.aborted) return
       onClose()
       navigate(`/book/${bookId}`)
     } catch (err) {
       if (controller.signal.aborted) return
+      telemetry.recordImport('gutenberg', err)
       setAddError(err instanceof Error ? err.message : 'Could not add that book.')
       setAddingId(undefined)
     }

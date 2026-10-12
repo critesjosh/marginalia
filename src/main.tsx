@@ -6,10 +6,12 @@ import AppErrorBoundary from './components/AppErrorBoundary'
 import { noteBuild } from './lib/diagnostics'
 import { listenForInstallPrompt } from './lib/install'
 import { shouldReloadForPreloadError } from './lib/preloadRecovery'
+import { installTelemetry } from './lib/telemetry'
 import { router } from './router'
 
 listenForInstallPrompt()
 noteBuild()
+installTelemetry()
 
 window.addEventListener('vite:preloadError', (event) => {
   if (!navigator.onLine) return

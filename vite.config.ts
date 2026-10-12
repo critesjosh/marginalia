@@ -9,6 +9,7 @@ import { handleCoverRequest } from './shared/covers.ts'
 import { handleThreadPage } from './shared/threadPage.ts'
 import { handleThreadsRequest } from './shared/threads.ts'
 import { handleBookCover, handleBooksRequest } from './shared/books.ts'
+import { handleTelemetryRegionRequest } from './shared/telemetryRegion.ts'
 import { memoryLinkStore, type PublishOptions } from './shared/publishing.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { execFileSync } from 'node:child_process'
@@ -168,6 +169,10 @@ function buildCommit(): string {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const remoteRelay = env.CHAT_RELAY_URL?.trim()
+  // VITE_ variables ship to every browser; a PostHog personal key must never be one.
+  if (env.VITE_POSTHOG_KEY && !env.VITE_POSTHOG_KEY.startsWith('phc_')) {
+    throw new Error('VITE_POSTHOG_KEY must be a public PostHog project key (phc_...).')
+  }
 
   return {
     plugins: [
@@ -178,6 +183,10 @@ export default defineConfig(({ mode }) => {
         : [chatRelay(env.OPENROUTER_API_KEY ?? '', env.CHAT_ENABLED !== 'false')]),
       getRelay('/api/gutenberg', handleGutenbergRequest),
       getRelay('/api/covers', handleCoverRequest),
+      // Dev has no Cloudflare country; TELEMETRY_DEV_COUNTRY tries a region's default.
+      getRelay('/api/telemetry/region', async (request) =>
+        handleTelemetryRegionRequest(request, env.TELEMETRY_DEV_COUNTRY),
+      ),
       publishing({
         enabled: env.THREADS_ENABLED !== 'false',
         turnstileSecret: env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA',

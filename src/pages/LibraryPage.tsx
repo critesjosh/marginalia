@@ -6,10 +6,12 @@ import type { Book } from '../db/types'
 import { EpubImportError } from '../lib/epub'
 import { importEpub } from '../lib/importBook'
 import { seedSampleBooks } from '../lib/sampleBook'
+import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
 import AddBookDialog from '../components/AddBookDialog'
 import CoverPickerDialog from '../components/CoverPickerDialog'
 import InstallBanner from '../components/InstallBanner'
+import UsageDataNotice from '../components/UsageDataNotice'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import ShareBookDialog from '../components/ShareBookDialog'
 import BookCover from '../components/BookCover'
@@ -77,7 +79,13 @@ export default function LibraryPage() {
     for (const file of Array.from(files)) {
       try {
         await importEpub(file)
+        telemetry.recordImport('file')
       } catch (err) {
+        telemetry.recordImport(
+          'file',
+          err,
+          err instanceof EpubImportError ? 'invalid_epub' : undefined,
+        )
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
         )
@@ -125,6 +133,7 @@ export default function LibraryPage() {
       />
 
       <main className="mx-auto max-w-page px-4 pt-10 pb-16 sm:px-8 sm:pt-16 sm:pb-24">
+        <UsageDataNotice />
         <section className="mb-8 flex items-end justify-between gap-6">
           <div>
             <p className="eyebrow mb-2">Your library</p>

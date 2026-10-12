@@ -58,6 +58,21 @@ paths:
         "429": {description: Best-effort isolate-local throttle, separate from chat}
         "502": {description: Upstream refused, returned no body, or sent a record for another book}
         "504": {description: Upstream headers exceeded 20 seconds}
+  /api/telemetry/region:
+    get:
+      summary: Which telemetry default applies to this reader (decision 0008)
+      description: From Cloudflare's country for the request, read and dropped, never stored or logged. EU, EEA and Switzerland, or unknown, answer opt_in; elsewhere opt_out.
+      responses:
+        "200":
+          description: The consent mode only, not cached
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [consent]
+                properties:
+                  consent: {type: string, enum: [opt_in, opt_out]}
+        "405": {description: Not a GET}
   /api/covers:
     get:
       summary: Same-origin Open Library cover search and image relay

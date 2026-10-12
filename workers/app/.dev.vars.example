@@ -8,3 +8,6 @@ THREADS_ENABLED=true
 # with `wrangler secret put TURNSTILE_SECRET_KEY`.
 TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
 TURNSTILE_SITE_KEY=1x00000000000000000000AA
+# Optional PostHog ingestion origin the CSP allows for telemetry (decision 0008),
+# e.g. https://eu.i.posthog.com. Leave empty to block telemetry at the CSP.
+TELEMETRY_ORIGIN=

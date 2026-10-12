@@ -7,9 +7,13 @@ The OpenRouter key is a server-side secret.
 The browser holds no API keys; chat goes through the relay. Never export keys or
 access tokens.
 
-The app has no third-party telemetry. Workers log only the operation metrics
-described below; read them in Cloudflare Workers observability. Builds do not
-emit source maps.
+Product telemetry (decision 0008) is off unless a build sets `VITE_POSTHOG_KEY`
+and `VITE_POSTHOG_HOST` and the Worker sets `TELEMETRY_ORIGIN`; production sets
+none of them until privacy review. Event schema, PostHog project settings,
+retention, and dashboards are in [telemetry.md](telemetry.md). To stop it in an
+emergency, unset `TELEMETRY_ORIGIN` (the CSP then blocks sends) and rebuild
+without the key. Workers log only the operation metrics described below; read
+them in Cloudflare Workers observability. Builds do not emit source maps.
 
 Lost stored files and app updates are logged on the device in localStorage
 (`src/lib/diagnostics.ts`), each stamped with the exact build. Nothing is sent:

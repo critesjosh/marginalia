@@ -4,6 +4,7 @@ import { readSharedBook } from '../lib/bookLink'
 import { parseGutenbergRef } from '../lib/gutenberg'
 import { addGutenbergBook } from '../lib/importBook'
 import { PublishError } from '../lib/publish'
+import { telemetry } from '../lib/telemetry'
 import { button } from '../components/ui'
 
 /**
@@ -50,11 +51,13 @@ export default function AddSharedPage() {
         }
         if (gutenbergId === undefined) return
         const bookId = await addGutenbergBook(gutenbergId, controller.signal)
+        telemetry.recordImport('shared_link')
         if (controller.signal.aborted) return
         // Replace, so going back does not re-run the import.
         navigate(`/book/${bookId}`, { replace: true })
       } catch (err) {
         if (controller.signal.aborted) return
+        telemetry.recordImport('shared_link', err)
         setError(failure(err))
       }
     })()

@@ -1,5 +1,5 @@
 import { createBrowserRouter } from 'react-router-dom'
-import { AppErrorPage, AppNotFoundPage } from './components/AppErrorBoundary'
+import { AppNotFoundPage, RouteErrorPage } from './components/AppErrorBoundary'
 import Deferred from './components/Deferred'
 import LibraryPage from './pages/LibraryPage'
 import { AddSharedPage, ChatsPage, ReaderPage, SettingsPage } from './pages/LazyPages'
@@ -7,7 +7,7 @@ import { AddSharedPage, ChatsPage, ReaderPage, SettingsPage } from './pages/Lazy
 // epub.js and JSZip account for most of the bundle and are only needed once a
 // book is open, so everything past the library loads on demand.
 export const router = createBrowserRouter([
-  { path: '/', element: <LibraryPage />, errorElement: <AppErrorPage /> },
+  { path: '/', element: <LibraryPage />, errorElement: <RouteErrorPage /> },
   {
     path: '/add',
     element: (
@@ -15,7 +15,7 @@ export const router = createBrowserRouter([
         <AddSharedPage />
       </Deferred>
     ),
-    errorElement: <AppErrorPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: '/b/:linkId',
@@ -24,7 +24,7 @@ export const router = createBrowserRouter([
         <AddSharedPage />
       </Deferred>
     ),
-    errorElement: <AppErrorPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: '/book/:bookId',
@@ -33,7 +33,7 @@ export const router = createBrowserRouter([
         <ReaderPage />
       </Deferred>
     ),
-    errorElement: <AppErrorPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: '/book/:bookId/chats',
@@ -42,7 +42,7 @@ export const router = createBrowserRouter([
         <ChatsPage />
       </Deferred>
     ),
-    errorElement: <AppErrorPage />,
+    errorElement: <RouteErrorPage />,
   },
   {
     path: '/settings',
@@ -51,7 +51,7 @@ export const router = createBrowserRouter([
         <SettingsPage />
       </Deferred>
     ),
-    errorElement: <AppErrorPage />,
+    errorElement: <RouteErrorPage />,
   },
   { path: '*', element: <AppNotFoundPage /> },
 ])

@@ -9,6 +9,7 @@ import { LONG_PRESS_MS, MOVE_TOLERANCE_PX, longPressToSelect } from './touchSele
 import { TAP_TURN_ZONE, mouseEdgeTurn, type TurnPage } from './selectionEdge'
 import { keepFrameInPlace, neutralizeScripts } from './bookScripts'
 import { readBookFile } from './storedFile'
+import { telemetry } from './telemetry'
 
 interface ReaderLocation {
   cfi: string
@@ -252,6 +253,7 @@ export function useReader(
         void loadLocations(epubBook, bookId, stored.locations, () => canceled)
       } catch (err) {
         if (canceled) return
+        telemetry.captureError('reader', 'open_book', err)
         setError(err instanceof Error ? err.message : 'Could not open this book.')
       }
     }

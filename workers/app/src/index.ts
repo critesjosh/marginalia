@@ -10,21 +10,41 @@ import { isCrossOrigin } from '../../../shared/http-guards.ts'
 import type { LinkStore, PublishOptions } from '../../../shared/publishing.ts'
 import { handleRelayRequest } from '../../../shared/relay.ts'
 import { operationMetric } from '../../../shared/telemetry.ts'
+import { handleTelemetryRegionRequest } from '../../../shared/telemetryRegion.ts'
 import { handleThreadPage } from '../../../shared/threadPage.ts'
 import { handleThreadsRequest } from '../../../shared/threads.ts'
 
 /** Turnstile's challenge for publishing a thread (docs/decisions/0006). */
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com'
 
-const CONTENT_SECURITY_POLICY =
-  `default-src 'self'; script-src 'self' ${TURNSTILE_ORIGIN}; style-src 'self' 'unsafe-inline' blob:; ` +
-  "img-src 'self' data: blob: https://www.gutenberg.org; font-src 'self' data: blob:; " +
-  "connect-src 'self'; " +
-  `frame-src 'self' blob: data: ${TURNSTILE_ORIGIN}; object-src 'none'; base-uri 'self'; form-action 'self'`
+/**
+ * The PostHog ingestion origin the PWA may send telemetry to (decision 0008).
+ * Unset, the CSP blocks it even if a build was configured to send.
+ */
+function telemetryOrigin(value: string | undefined): string {
+  if (!value) return ''
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && url.origin === value.replace(/\/$/, '')
+      ? ` ${url.origin}`
+      : ''
+  } catch {
+    return ''
+  }
+}
 
-function withSecurityHeaders(response: Response): Response {
+function contentSecurityPolicy(env: Env): string {
+  return (
+    `default-src 'self'; script-src 'self' ${TURNSTILE_ORIGIN}; style-src 'self' 'unsafe-inline' blob:; ` +
+    "img-src 'self' data: blob: https://www.gutenberg.org; font-src 'self' data: blob:; " +
+    `connect-src 'self'${telemetryOrigin(env.TELEMETRY_ORIGIN)}; ` +
+    `frame-src 'self' blob: data: ${TURNSTILE_ORIGIN}; object-src 'none'; base-uri 'self'; form-action 'self'`
+  )
+}
+
+function withSecurityHeaders(response: Response, env: Env): Response {
   const headers = new Headers(response.headers)
-  headers.set('Content-Security-Policy', CONTENT_SECURITY_POLICY)
+  headers.set('Content-Security-Policy', contentSecurityPolicy(env))
   headers.set('X-Content-Type-Options', 'nosniff')
   headers.set('Referrer-Policy', 'no-referrer')
 
@@ -152,6 +172,10 @@ const worker = {
         )
       }
 
+      if (url.pathname === '/api/telemetry/region') {
+        return handleTelemetryRegionRequest(request, request.cf?.country as string | undefined)
+      }
+
       if (url.pathname === '/api/gutenberg') {
         return await gutenbergWithCache(request, ctx)
       }
@@ -173,28 +197,28 @@ const worker = {
       }
 
       if (url.pathname.startsWith('/t/')) {
-        return withSecurityHeaders(await handleThreadPage(request, linkStore(env)))
+        return withSecurityHeaders(await handleThreadPage(request, linkStore(env)), env)
       }
 
       if (/^\/b\/[^/]+\/cover$/.test(url.pathname)) {
-        return withSecurityHeaders(await handleBookCover(request, linkStore(env)))
+        return withSecurityHeaders(await handleBookCover(request, linkStore(env)), env)
       }
 
       if (url.pathname.startsWith('/b/')) {
-        return withSecurityHeaders(await bookPage(request, env))
+        return withSecurityHeaders(await bookPage(request, env), env)
       }
 
       if (url.pathname.startsWith('/api/')) {
         return apiError(404, 'API route not found.')
       }
 
-      return withSecurityHeaders(await env.ASSETS.fetch(request))
+      return withSecurityHeaders(await env.ASSETS.fetch(request), env)
     } catch {
       console.error(JSON.stringify(operationMetric('app', 500, performance.now() - started)))
 
       return url.pathname.startsWith('/api/')
         ? apiError(500, 'Internal server error.')
-        : withSecurityHeaders(new Response('Internal server error.', { status: 500 }))
+        : withSecurityHeaders(new Response('Internal server error.', { status: 500 }), env)
     }
   },
 } satisfies ExportedHandler<Env>
