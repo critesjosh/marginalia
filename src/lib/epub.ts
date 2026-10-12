@@ -1,6 +1,7 @@
 import type { Book as EpubBook } from 'epubjs'
 import type { Book } from '../db/types'
 import { fingerprint } from './fingerprint'
+import { gutenbergIdFromIdentifier } from './gutenberg'
 import { newId } from './id'
 
 export class EpubImportError extends Error {}
@@ -99,6 +100,23 @@ export async function readEpubCover(file: Blob): Promise<Blob | undefined> {
   }
 }
 
+/** The Project Gutenberg book this EPUB was generated from, when it says so. */
+export async function readGutenbergId(buffer: ArrayBuffer): Promise<number | undefined> {
+  if (!looksLikeZip(buffer)) return undefined
+
+  const ePub = await loadEpubJs()
+  const book = ePub(buffer)
+  try {
+    await book.opened
+    const meta = await book.loaded.metadata
+    return gutenbergIdFromIdentifier(meta.identifier)
+  } catch {
+    return undefined
+  } finally {
+    book.destroy()
+  }
+}
+
 /** EPUBs are ZIPs; check the local file header before handing it to epub.js. */
 function looksLikeZip(buffer: ArrayBuffer): boolean {
   if (buffer.byteLength < 4) return false
@@ -175,7 +193,7 @@ function spinePaths(book: EpubBook): string[] {
   return paths
 }
 
-/** Detects encryption that prevents Marginalia from reading EPUB content. */
+/** Detects encryption that prevents Rami from reading EPUB content. */
 async function hasDrm(book: EpubBook): Promise<boolean> {
   try {
     const archive = book.archive as unknown as {

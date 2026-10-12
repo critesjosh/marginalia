@@ -1,7 +1,8 @@
 import { db } from '../db/db'
 import type { Book } from '../db/types'
+import { idleDays, logDiagnostic } from './diagnostics'
 import { readEpubCover } from './epub'
-import { fetchSampleBook } from './sampleBook'
+import { fetchSampleBook, isSampleBookId } from './sampleBook'
 
 /**
  * WebKit keeps a stored Blob's bytes in a file beside the database, and on iOS
@@ -34,6 +35,7 @@ export async function repairLostCover(book: Book): Promise<void> {
     await recoverLostFile(book)
     return
   }
+  logDiagnostic({ type: 'lost-cover', book: bookKind(book), idleDays: idleDays(book) })
   await db.books.update(book.id, { cover: book.file && (await readEpubCover(book.file)) })
 }
 
@@ -49,15 +51,26 @@ export async function readBookFile(stored: Book, file: Blob): Promise<ArrayBuffe
 
 /**
  * A bundled book is fetched again, as long as it is still the edition the
- * reading position and highlights were taken in. Anything else is shelved as
- * removed but kept, which is what it now is: importing the same EPUB again
- * matches it by fingerprint and puts the notes back with it.
+ * reading position and highlights were taken in. Anything else stays on the
+ * shelf, marked as missing its EPUB: the reader did not remove it, so it must
+ * not disappear (#122). Importing the same EPUB again matches it by
+ * fingerprint and puts the file back under its notes.
  */
 async function recoverLostFile(stored: Book): Promise<ArrayBuffer> {
+  const log = (outcome: 'restored' | 'unrecoverable' | 'offline', coverLost = false) =>
+    logDiagnostic({
+      type: 'lost-file',
+      book: bookKind(stored),
+      outcome,
+      coverLost,
+      idleDays: idleDays(stored),
+    })
+
   let sample: Book | undefined
   try {
     sample = await fetchSampleBook(stored.id)
   } catch {
+    log('offline')
     throw new Error(
       'This book could not be read from this device. Try again when you are online to download it again.',
     )
@@ -73,15 +86,21 @@ async function recoverLostFile(stored: Book): Promise<ArrayBuffer> {
       file: sample.file,
       cover: stored.cover && !coverLost ? stored.cover : sample.cover,
     })
+    log('restored', coverLost)
     return sample.file.arrayBuffer()
   }
 
+  log('unrecoverable', coverLost)
   await db.books.update(stored.id, {
-    archivedAt: Date.now(),
+    missingFileAt: Date.now(),
     file: undefined,
     ...(coverLost && { cover: undefined }),
   })
   throw new Error(
-    'This book could not be read from this device. It is now under Removed books with its notes; import the EPUB again to keep reading.',
+    'This device lost the EPUB for this book. Add the same EPUB again to keep reading; your highlights and conversations are safe.',
   )
+}
+
+function bookKind(book: Book): 'bundled' | 'imported' {
+  return isSampleBookId(book.id) ? 'bundled' : 'imported'
 }

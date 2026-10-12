@@ -1,7 +1,7 @@
 --[[--
 Bounds on the per-book digest.
 
-A port of `src/lib/digest.ts`. Both ends of Marginalia keep a rolling summary of
+A port of `src/lib/digest.ts`. Both ends of Rami keep a rolling summary of
 what a reader and the model have worked out about a book, and both need the same
 two guards on it, for the same two reasons.
 

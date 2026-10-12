@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeBuild } from './buildInfo'
+import { buildId, describeBuild } from './buildInfo'
 
 describe('describeBuild', () => {
   it('shows the commit and build date with a link to the commit', () => {
@@ -19,5 +19,14 @@ describe('describeBuild', () => {
   it('falls back to dev without a commit', () => {
     expect(describeBuild(undefined, undefined)).toEqual({ label: 'dev' })
     expect(describeBuild('', '2026-10-09T12:00:00.000Z')).toEqual({ label: 'dev · 2026-10-09' })
+  })
+})
+
+describe('buildId', () => {
+  it('names the exact commit and build time', () => {
+    expect(buildId('a1b2c3d-dirty', '2026-10-09T12:00:00.000Z')).toBe(
+      'a1b2c3d-dirty built 2026-10-09T12:00:00.000Z',
+    )
+    expect(buildId(undefined, undefined)).toBe('dev built unknown')
   })
 })

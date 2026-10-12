@@ -151,7 +151,7 @@ async function callOpenRouter(
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         ...(siteUrl ? { 'HTTP-Referer': siteUrl } : {}),
-        'X-Title': 'Marginalia',
+        'X-Title': 'Rami',
       },
       body: JSON.stringify({
         model: route.model,

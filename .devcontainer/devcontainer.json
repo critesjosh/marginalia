@@ -1,5 +1,5 @@
 {
-  "name": "Marginalia local development",
+  "name": "Rami local development",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:24-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}

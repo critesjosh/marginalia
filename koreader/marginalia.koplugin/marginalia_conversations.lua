@@ -100,9 +100,7 @@ function Conversations:show(on_select)
     if #threads == 0 then
         local InfoMessage = require("ui/widget/infomessage")
         UIManager:show(InfoMessage:new({
-            text = _(
-                "No conversations in this book yet. Select a passage and choose Ask Marginalia."
-            ),
+            text = _("No conversations in this book yet. Select a passage and choose Ask Rami."),
         }))
         return
     end

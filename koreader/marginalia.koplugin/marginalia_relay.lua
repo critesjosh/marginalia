@@ -1,5 +1,5 @@
 --[[--
-The client for Marginalia's inference relay.
+The client for Rami's inference relay.
 
 The relay (`shared/relay.ts` in the web app) holds the OpenRouter key server
 side and pins the model, so this plugin needs no key of its own and cannot
@@ -85,15 +85,15 @@ local function status_message(code, body)
         return from_relay
     end
     if code == 429 then
-        return "Marginalia is rate limiting this device. Wait a minute and try again."
+        return "Rami is rate limiting this device. Wait a minute and try again."
     elseif code == 503 then
-        return "That Marginalia deployment has no inference key configured."
+        return "That Rami deployment has no inference key configured."
     elseif code == 403 then
-        return "Marginalia refused the request."
+        return "Rami refused the request."
     elseif code == 404 then
-        return "No relay at that address. Check the endpoint in the Marginalia settings."
+        return "No relay at that address. Check the endpoint in the Rami settings."
     end
-    return string.format("Marginalia answered with status %s.", tostring(code))
+    return string.format("Rami answered with status %s.", tostring(code))
 end
 
 --[[--
@@ -186,7 +186,7 @@ function Relay.post(endpoint, messages, cafile, plugin_version)
     -- whitespace, but this does not depend on that.
     local ok, decoded = pcall(rapidjson.decode, (body:gsub("^%s+", "")))
     if not ok or type(decoded) ~= "table" then
-        return { ok = false, error = "Marginalia sent a reply this plugin could not read." }
+        return { ok = false, error = "Rami sent a reply this plugin could not read." }
     end
 
     local choice = decoded.choices and decoded.choices[1]
@@ -229,7 +229,7 @@ function Relay.transport_message(err)
     if err == "response too large" then
         return "The reply was too large to read."
     end
-    return "Could not reach Marginalia: " .. err
+    return "Could not reach Rami: " .. err
 end
 
 return Relay

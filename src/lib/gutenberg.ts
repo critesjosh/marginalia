@@ -111,3 +111,15 @@ export function parseGutenbergRef(input: string): GutenbergRef | undefined {
   const id = match?.[1] ?? match?.[2]
   return id ? { id: Number(id), source: 'url' } : undefined
 }
+
+/**
+ * The Gutenberg book an EPUB was built from, read from the `dc:identifier`
+ * Gutenberg writes into every file it generates ("http://www.gutenberg.org/2701").
+ * Undefined for any other identifier, such as an ISBN or a UUID.
+ */
+export function gutenbergIdFromIdentifier(identifier: string | undefined): number | undefined {
+  const match = identifier
+    ?.trim()
+    .match(/^https?:\/\/(?:www\.)?gutenberg\.org\/(?:ebooks\/)?(\d{1,8})\/?$/i)
+  return match ? Number(match[1]) : undefined
+}

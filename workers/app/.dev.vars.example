@@ -1,3 +1,10 @@
 OPENROUTER_API_KEY=replace-with-a-local-development-key
 # Set to false with `wrangler secret put CHAT_ENABLED` to stop paid chat.
 CHAT_ENABLED=true
+# Set to false with `wrangler secret put THREADS_ENABLED` to stop publishing thread links.
+THREADS_ENABLED=true
+# Turnstile widget for publishing. These are Cloudflare's always-pass test keys and
+# override the real site key in wrangler.jsonc; production sets the real secret
+# with `wrangler secret put TURNSTILE_SECRET_KEY`.
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+TURNSTILE_SITE_KEY=1x00000000000000000000AA

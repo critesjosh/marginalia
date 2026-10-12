@@ -209,13 +209,13 @@ the point if the request can be made in the clear.
 --]]
 function TLS.check_endpoint(url)
     if type(url) ~= "string" or url == "" then
-        return false, "No Marginalia endpoint is set."
+        return false, "No Rami endpoint is set."
     end
     if url:match("^http://") then
-        return false, "The Marginalia endpoint must be an https:// address."
+        return false, "The Rami endpoint must be an https:// address."
     end
     if not url:match("^https://") then
-        return false, "The Marginalia endpoint must start with https://."
+        return false, "The Rami endpoint must start with https://."
     end
     if not url:match("^https://[^/]+") then
         return false, "That does not look like a URL."

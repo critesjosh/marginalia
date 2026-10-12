@@ -1,4 +1,4 @@
-import type { Role, Settings } from '../db/types'
+import type { Role } from '../db/types'
 
 export interface ChatMessage {
   role: Role
@@ -14,59 +14,25 @@ export class InferenceError extends Error {
   }
 }
 
-/** Raised when the reader picked their own OpenAI key but has not entered one. */
-class MissingKeyError extends InferenceError {}
-
-/**
- * Where a request goes. `hosted` is this site's own relay, which holds an
- * OpenRouter key server-side and pins the model, so visitors need no setup.
- */
-export type Target = { provider: 'hosted' } | { provider: 'openai'; apiKey: string; model: string }
-
 const HOSTED_ENDPOINT = '/api/chat'
-const OPENAI_ENDPOINT = 'https://api.openai.com/v1/chat/completions'
 
 /** Model shown in the UI; the relay pins the real value server-side. */
 export const HOSTED_MODEL_LABEL = 'Gemma 4 26B (via OpenRouter)'
 
-export function targetFor(settings: Settings, kind: 'chat' | 'summary' = 'chat'): Target {
-  if (settings.provider !== 'openai') return { provider: 'hosted' }
-
-  if (!settings.apiKey) {
-    throw new MissingKeyError(
-      'Add your OpenAI API key in Settings, or switch back to the built-in model.',
-    )
-  }
-  return {
-    provider: 'openai',
-    apiKey: settings.apiKey,
-    model: kind === 'summary' ? settings.summaryModel || settings.model : settings.model,
-  }
-}
-
 interface RequestOptions {
-  target: Target
   messages: ChatMessage[]
   signal?: AbortSignal
 }
 
-function post({ target, messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
-  if (target.provider === 'hosted') {
-    return fetch(HOSTED_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, stream }),
-      signal,
-    })
-  }
-
-  return fetch(OPENAI_ENDPOINT, {
+/**
+ * Every request goes to this site's own relay, which holds an OpenRouter key
+ * server-side and pins the model, so visitors need no setup.
+ */
+function post({ messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
+  return fetch(HOSTED_ENDPOINT, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${target.apiKey}`,
-    },
-    body: JSON.stringify({ model: target.model, messages, stream }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages, stream }),
     signal,
   })
 }
@@ -141,7 +107,7 @@ export async function streamChat({
   // frame; flush it rather than dropping the last of the answer.
   if (buffer.trim()) consume(buffer)
 
-  // Both OpenAI and OpenRouter close the stream with [DONE]. Reaching EOF
+  // OpenRouter closes the stream with [DONE]. Reaching EOF
   // without it means the connection dropped mid-answer, so `full` is a
   // fragment. Returning it would store a truncated reply that looks complete.
   if (!complete) {
@@ -160,13 +126,6 @@ export async function completeChat(options: RequestOptions): Promise<string> {
   if (!response.ok) throw new InferenceError(await errorMessage(response), response.status)
   const data = await response.json()
   return data.choices?.[0]?.message?.content ?? ''
-}
-
-export async function verifyKey(apiKey: string, model: string): Promise<void> {
-  await completeChat({
-    target: { provider: 'openai', apiKey, model },
-    messages: [{ role: 'user', content: 'Reply with the single word: ok' }],
-  })
 }
 
 async function errorMessage(response: Response): Promise<string> {

@@ -4,6 +4,14 @@
   "main": "workers/app/src/index.ts",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
+  // Published thread snapshots (docs/decisions/0006). No id: Wrangler creates
+  // the namespace on the first deploy.
+  "kv_namespaces": [{ "binding": "THREADS" }],
+  // Public Turnstile site key for publishing threads. Its secret is set with
+  // `wrangler secret put TURNSTILE_SECRET_KEY`.
+  "vars": {
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
@@ -23,7 +31,13 @@
   // Worker Previews for PR builds; they do not inherit production vars or secrets.
   // Routes turn workers.dev off by default, so enable preview hostnames explicitly.
   "preview_urls": true,
-  "previews": {},
+  "previews": {
+    // Previews keep test threads out of production's namespace.
+    "kv_namespaces": [{ "binding": "THREADS", "id": "b4bff0c4922a45b3a525901837cc8147" }],
+    "vars": {
+      "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo"
+    }
+  },
   "observability": {
     "enabled": true,
     "logs": {

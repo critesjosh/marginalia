@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures.js'
+import { expect, openContents, test } from './fixtures.js'
 import { expectBookScriptsBlocked } from './hostileBook.js'
 
 test.beforeEach(async ({ context }) => {
@@ -10,8 +10,7 @@ test('public-domain book renders and survives reopening', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
   await expect(page.getByRole('button', { name: 'Table of contents' })).toBeVisible()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
+  const contents = await openContents(page)
   await contents.getByRole('button', { name: /Loomings/i }).click()
   await expect(contents).not.toBeVisible()
   await expect(page.locator('iframe').first()).toBeVisible()
@@ -20,25 +19,44 @@ test('public-domain book renders and survives reopening', async ({ page }) => {
   await expect(page.frameLocator('iframe').first().locator('body')).toContainText('Call me Ishmael')
 })
 
+test('the toolbars start hidden and cover only the page margins', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: /^Moby Dick/ }).click()
+  await expect(page.locator('.epub-view iframe')).toBeVisible()
+  const header = page.locator('header')
+  const footer = page.locator('footer')
+  await expect(footer).toHaveCSS('opacity', '0')
+
+  await page.locator('.reader-inset-top').click()
+  await expect(footer).toHaveCSS('opacity', '1')
+  const book = (await page.locator('.epub-container').boundingBox())!
+  const top = (await header.boundingBox())!
+  const bottom = (await footer.boundingBox())!
+  expect(top.y + top.height).toBeLessThanOrEqual(book.y + 0.5)
+  expect(bottom.y).toBeGreaterThanOrEqual(book.y + book.height - 0.5)
+})
+
 test('an in-book link lands on the page that holds its target', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: /^Meditations/ }).click()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
+  const contents = await openContents(page)
   await contents.getByRole('button', { name: 'Paragraphs with First Lines' }).click()
   await expect(contents).not.toBeVisible()
   await page.waitForTimeout(2000)
 
   // A link into another section, on the visible page. The book is one wide
   // strip of columns, so most links in the frame are off screen; Playwright's
-  // boxes are in page coordinates, which tells the two apart.
-  const width = page.viewportSize()!.width
+  // boxes are in page coordinates, which tells the two apart. The page is
+  // capped on wide screens, so the next column can still be inside the window.
+  const visible = (await page.locator('.epub-container').boundingBox())!
+  const left = visible.x
+  const right = visible.x + visible.width
   const book = page.frameLocator('.epub-view iframe')
   const links = book.locator('a[href*=".xhtml#"]')
   let target: string | undefined
   for (const link of await links.all()) {
     const box = await link.boundingBox()
-    if (!box || box.width === 0 || box.x < 0 || box.x + box.width > width) continue
+    if (!box || box.width === 0 || box.x < left || box.x + box.width > right) continue
     target = (await link.getAttribute('href'))!.split('#')[1]
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
     break
@@ -51,8 +69,8 @@ test('an in-book link lands on the page that holds its target', async ({ page })
   const paragraph = book.locator(`[id="${target}"]`).locator('xpath=..')
   await expect(paragraph, 'the target section is still on screen').toHaveCount(1)
   const box = (await paragraph.boundingBox())!
-  expect(box.x).toBeGreaterThanOrEqual(0)
-  expect(box.x).toBeLessThan(width)
+  expect(box.x).toBeGreaterThanOrEqual(left)
+  expect(box.x).toBeLessThan(right)
 })
 
 test("a book's own scripts never run", async ({ page }) => {

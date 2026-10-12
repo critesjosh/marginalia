@@ -13,6 +13,7 @@ import CoverPickerDialog from '../components/CoverPickerDialog'
 import FirstRunHint from '../components/FirstRunHint'
 import InstallBanner from '../components/InstallBanner'
 import RemoveBookDialog from '../components/RemoveBookDialog'
+import ShareBookDialog from '../components/ShareBookDialog'
 import BookCover from '../components/BookCover'
 import Ornament from '../components/Ornament'
 import Ribbon from '../components/Ribbon'
@@ -30,6 +31,7 @@ export default function LibraryPage() {
   const [confirmRemove, setConfirmRemove] = useState<Book>()
   const [showAddBook, setShowAddBook] = useState(false)
   const [changeCover, setChangeCover] = useState<Book>()
+  const [shareBook, setShareBook] = useState<Book>()
 
   // Most recently read first, so the book in progress is the one under the
   // thumb. A book that has never been opened falls back to when it arrived,
@@ -182,6 +184,7 @@ export default function LibraryPage() {
                   key={book.id}
                   book={book}
                   chatCount={chatCounts?.[book.id] ?? 0}
+                  onShare={() => setShareBook(book)}
                   onChangeCover={() => setChangeCover(book)}
                   onDelete={() => setConfirmRemove(book)}
                 />
@@ -240,6 +243,8 @@ export default function LibraryPage() {
         />
       )}
 
+      {shareBook && <ShareBookDialog book={shareBook} onClose={() => setShareBook(undefined)} />}
+
       {changeCover && (
         <CoverPickerDialog book={changeCover} onClose={() => setChangeCover(undefined)} />
       )}
@@ -282,6 +287,12 @@ function plural(count: number, noun: string) {
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
 
 /** "12 minutes ago", "yesterday", "last week": coarse, like a shelf label. */
+function readingStatus(book: Book): string {
+  if (book.missingFileAt) return 'EPUB missing · Add the same file again'
+  if (book.lastOpenedAt) return lastRead(book.lastOpenedAt)
+  return 'Not yet opened'
+}
+
 function lastRead(timestamp: number, now = Date.now()) {
   const minutes = Math.round((timestamp - now) / 60_000)
   if (minutes > -1) return 'just now'
@@ -343,11 +354,13 @@ function EmptyState({ onPick }: { onPick: () => void }) {
 function BookCard({
   book,
   chatCount,
+  onShare,
   onChangeCover,
   onDelete,
 }: {
   book: Book
   chatCount: number
+  onShare: () => void
   onChangeCover: () => void
   onDelete: () => void
 }) {
@@ -378,7 +391,7 @@ function BookCard({
           <p className="mt-0.5 truncate font-ui text-meta text-ink-soft">{book.author}</p>
           {progress > 0 && <Ribbon progress={progress} showPercent={false} className="mt-2" />}
           <span className="mt-1 block font-ui text-caption text-ink-faint">
-            {book.lastOpenedAt ? lastRead(book.lastOpenedAt) : 'Not yet opened'}
+            {readingStatus(book)}
           </span>
         </div>
         <div className="relative -mr-2 shrink-0">
@@ -395,6 +408,7 @@ function BookCard({
             <BookMenu
               onClose={() => setMenuOpen(false)}
               items={[
+                { label: 'Share book', action: onShare },
                 { label: 'Change cover', action: onChangeCover },
                 { label: 'Remove book', action: onDelete },
               ]}

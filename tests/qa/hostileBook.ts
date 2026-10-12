@@ -1,5 +1,6 @@
 import { crc32 } from 'node:zlib'
 import { expect, type Page } from '@playwright/test'
+import { openContents } from './fixtures.js'
 
 // Each vector tries to mark the app's own window. The book frame shares the
 // app's origin, so any script that ran could as easily read IndexedDB.
@@ -113,8 +114,7 @@ export async function expectBookScriptsBlocked(page: Page) {
     await expect(book.locator('body'), id).toContainText('Plain prose follows')
   }
 
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
+  const contents = await openContents(page)
   await contents.getByRole('button', { name: 'Drawing' }).click()
   await expect(book.locator('body')).toContainText('Plain drawing text')
   await page.waitForTimeout(1000)

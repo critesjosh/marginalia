@@ -6,6 +6,10 @@ import { Readable } from 'node:stream'
 import { handleRelayRequest } from './shared/relay.ts'
 import { handleGutenbergRequest } from './shared/gutenberg.ts'
 import { handleCoverRequest } from './shared/covers.ts'
+import { handleThreadPage } from './shared/threadPage.ts'
+import { handleThreadsRequest } from './shared/threads.ts'
+import { handleBookCover, handleBooksRequest } from './shared/books.ts'
+import { memoryLinkStore, type PublishOptions } from './shared/publishing.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { execFileSync } from 'node:child_process'
 
@@ -95,6 +99,53 @@ function getRelay(
   }
 }
 
+/**
+ * Serves published threads and book links in dev with the production handlers
+ * and an in-memory store, so links last until the dev server restarts.
+ * Turnstile defaults to Cloudflare's always-pass test keys. A `/b/<id>` page
+ * falls through to the app; only the Worker adds its preview tags.
+ */
+function publishing(options: Omit<PublishOptions, 'store'>): Plugin {
+  const store = memoryLinkStore()
+  return {
+    name: 'marginalia-publishing',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        const path = req.url?.split('?')[0] ?? ''
+        const threadsApi = path === '/api/threads' || path.startsWith('/api/threads/')
+        const booksApi = path === '/api/books' || path.startsWith('/api/books/')
+        const cover = /^\/b\/[^/]+\/cover$/.test(path)
+        if (!threadsApi && !booksApi && !cover && !path.startsWith('/t/')) return next()
+
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(chunk as Buffer)
+        const headers = new Headers()
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers.set(name, value)
+        }
+        const request = new Request(new URL(req.url ?? '/', `http://${req.headers.host}`), {
+          method: req.method,
+          headers,
+          body: chunks.length ? Buffer.concat(chunks) : undefined,
+        })
+
+        const ip = req.socket.remoteAddress ?? ''
+        let response: Response
+        if (threadsApi)
+          response = await handleThreadsRequest(request, { ...options, store }, { ip })
+        else if (booksApi)
+          response = await handleBooksRequest(request, { ...options, store }, { ip })
+        else if (cover) response = await handleBookCover(request, store)
+        else response = await handleThreadPage(request, store)
+
+        res.statusCode = response.status
+        response.headers.forEach((value, key) => res.setHeader(key, value))
+        res.end(Buffer.from(await response.arrayBuffer()))
+      })
+    },
+  }
+}
+
 function git(...args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
 }
@@ -127,6 +178,11 @@ export default defineConfig(({ mode }) => {
         : [chatRelay(env.OPENROUTER_API_KEY ?? '', env.CHAT_ENABLED !== 'false')]),
       getRelay('/api/gutenberg', handleGutenbergRequest),
       getRelay('/api/covers', handleCoverRequest),
+      publishing({
+        enabled: env.THREADS_ENABLED !== 'false',
+        turnstileSecret: env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA',
+        turnstileSiteKey: env.TURNSTILE_SITE_KEY || '1x00000000000000000000AA',
+      }),
       visualizer({
         filename: 'reports/bundle.html',
         gzipSize: true,
@@ -170,7 +226,8 @@ export default defineConfig(({ mode }) => {
           // small — including the sample EPUB, which is fetched once on first run.
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
           // Relays must never be served from the SPA fallback or a cache.
-          navigateFallbackDenylist: [/^\/api\//],
+          // Published threads are server-rendered pages, not routes of the app.
+          navigateFallbackDenylist: [/^\/api\//, /^\/t\//],
         },
       }),
     ],

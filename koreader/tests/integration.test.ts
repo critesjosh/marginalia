@@ -834,7 +834,7 @@ describe('the plugin driven end to end', () => {
     // The navigation tab, next to the table of contents and the bookmarks —
     // two taps, not four down a tools submenu.
     expect(report).toContain('top_hint=navi')
-    expect(report).toContain('top_text=Marginalia conversations')
+    expect(report).toContain('top_text=Rami conversations')
     expect(report).toContain('opened=true')
     // Without emptying the plugin's own menu of it.
     expect(report).toContain('submenu_hint=more_tools')

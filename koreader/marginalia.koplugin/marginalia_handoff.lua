@@ -1,10 +1,10 @@
 --[[--
-Writing the handoff file the Marginalia web reader imports.
+Writing the handoff file the Rami web reader imports.
 
 The file goes to `<datadir>/marginalia/`, which on a Kindle is
 `/mnt/us/koreader/marginalia/` — a directory that shows up when the device is
 plugged in over USB. That is the whole transport: there is no server to sync
-through, because Marginalia keeps everything in the browser's own storage and
+through, because Rami keeps everything in the browser's own storage and
 has no accounts to sync against.
 
 The expensive part is the SHA-256 of the EPUB, which is how the web app decides
@@ -143,7 +143,7 @@ Exports the open book. Runs inside its own Trapper wrap.
 function Handoff:export()
     if not self:is_exportable() then
         UIManager:show(InfoMessage:new({
-            text = _("Marginalia reads EPUB files, so only EPUBs can be exported."),
+            text = _("Rami reads EPUB files, so only EPUBs can be exported."),
         }))
         return
     end
@@ -233,7 +233,7 @@ function Handoff:export()
         UIManager:show(InfoMessage:new({
             text = T(
                 _(
-                    "Exported %1 highlights to:\n\n%2\n\nOpen Marginalia, go to Settings, and import this file."
+                    "Exported %1 highlights to:\n\n%2\n\nOpen Rami, go to Settings, and import this file."
                 ),
                 highlight_count,
                 destination

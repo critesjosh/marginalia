@@ -3,5 +3,10 @@
     "purpose": "Emergency kill switch for paid hosted inference, not a temporary experiment",
     "owners": ["@critesjosh"],
     "consumers": ["vite.config.ts", "workers/app/src/index.ts"]
+  },
+  "THREADS_ENABLED": {
+    "purpose": "Kill switch for publishing thread links, for spam or abuse",
+    "owners": ["@critesjosh"],
+    "consumers": ["vite.config.ts", "workers/app/src/index.ts"]
   }
 }

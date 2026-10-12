@@ -1,7 +1,7 @@
-import { db, getSettings } from '../db/db'
+import { db } from '../db/db'
 import type { Message } from '../db/types'
 import { normalizeSummary } from './digest'
-import { completeChat, targetFor } from './inference'
+import { completeChat } from './inference'
 import { buildSummaryMessages } from './prompt'
 
 /** Fold a conversation into the book's digest after this many new messages. */
@@ -71,9 +71,6 @@ export function updateBookMemory(bookId: string, conversationId: string): Promis
 }
 
 async function runUpdate(bookId: string, conversationId: string): Promise<void> {
-  const settings = await getSettings()
-  const target = targetFor(settings, 'summary')
-
   const [book, conversation, existing, messages] = await Promise.all([
     db.books.get(bookId),
     db.conversations.get(conversationId),
@@ -87,7 +84,6 @@ async function runUpdate(bookId: string, conversationId: string): Promise<void> 
   const fresh = withinBudget(pending)
 
   const generated = await completeChat({
-    target,
     messages: buildSummaryMessages({
       book,
       existingSummary: existing?.summary,

@@ -14,7 +14,7 @@ import { newId } from './id'
  * Two properties are worth stating because the import relies on them:
  *
  * - **A book is identified by the SHA-256 of its bytes**, the same rule
- *   `findArchivedMatch` follows. Title and author would match a different
+ *   `findRestorableMatch` follows. Title and author would match a different
  *   edition, whose sections are numbered differently, and hand it highlights
  *   that land on arbitrary text.
  * - **Import is additive.** Every record carries the id it had on the device,
@@ -140,7 +140,7 @@ export function parseHandoff(text: string): Handoff {
 
   const root = asRecord(payload, 'the file')
   if (root.format !== HANDOFF_FORMAT) {
-    throw new HandoffError('That is not a Marginalia export from KOReader.')
+    throw new HandoffError('That is not a Rami export from KOReader.')
   }
   if (root.version !== HANDOFF_VERSION) {
     throw new HandoffError(

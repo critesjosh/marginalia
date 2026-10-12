@@ -457,7 +457,7 @@ Asks for the question, then runs the exchange.
 function Ask:prompt_for_question(snapshot, thread, index)
     local dialog
     dialog = InputDialog:new({
-        title = thread and _("Ask a follow-up") or _("Ask Marginalia"),
+        title = thread and _("Ask a follow-up") or _("Ask Rami"),
         -- Quoted back so it is clear what the question will be about, but only
         -- as much of it as leaves somewhere to type: the passage sits in the
         -- title bar, and the box below is sized from whatever the title bar and
@@ -589,7 +589,7 @@ function Ask:run(snapshot, thread, question, index)
 
             local completed, result = Trapper:dismissableRunInSubprocess(function()
                 return Relay.post(endpoint, messages, cafile, version)
-            end, _("Asking Marginalia…"))
+            end, _("Asking Rami…"))
 
             if not completed then
                 logger.dbg("marginalia: request dismissed by the reader")
@@ -598,7 +598,7 @@ function Ask:run(snapshot, thread, question, index)
 
             if type(result) ~= "table" or not result.ok then
                 local message = type(result) == "table" and result.error
-                    or _("Marginalia could not answer that.")
+                    or _("Rami could not answer that.")
                 UIManager:show(InfoMessage:new({ text = message, timeout = 8 }))
                 return
             end

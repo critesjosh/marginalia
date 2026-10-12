@@ -70,7 +70,7 @@ export default function KoreaderImport() {
     }
 
     // Adding the same EPUB twice while it is already on the shelf makes a
-    // second row: `findArchivedMatch` only reclaims books that were removed.
+    // second row: `findRestorableMatch` only reclaims books removed or missing their EPUB.
     // Picking one of them arbitrarily would put the highlights on whichever
     // happened to sort first, which is the failure the hash rule exists to
     // prevent — so say so instead.
@@ -123,9 +123,9 @@ export default function KoreaderImport() {
     <section className={card}>
       <h2 className="font-book text-heading font-medium">Import from KOReader</h2>
       <p className="mt-1 font-ui text-body text-ink-soft">
-        Highlights made on an e-reader running KOReader, brought in through the Marginalia plugin's
-        export file. Each passage is found again by its text, so the import needs the same EPUB file
-        that is on the e-reader.
+        Highlights made on an e-reader running KOReader, brought in through the Rami plugin's export
+        file. Each passage is found again by its text, so the import needs the same EPUB file that
+        is on the e-reader.
       </p>
 
       <input

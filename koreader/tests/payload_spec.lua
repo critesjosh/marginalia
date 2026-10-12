@@ -98,7 +98,7 @@ do
     H.nil_(Payload.to_iso(nil, "-0500"), "missing input yields nothing")
 end
 
--- KOReader has nine highlight colors and Marginalia has four. Every one has to
+-- KOReader has nine highlight colors and Rami has four. Every one has to
 -- land somewhere valid, and `gray` — KOReader's default — must not fall through.
 do
     H.equal(Payload.color("gray"), "yellow", "the default color lands on yellow")

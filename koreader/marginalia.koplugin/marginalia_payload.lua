@@ -1,5 +1,5 @@
 --[[--
-Builds the handoff document the Marginalia web reader imports.
+Builds the handoff document the Rami web reader imports.
 
 The shape is `format: "marginalia-koreader"`, version 1. Two things about it are
 load-bearing and worth stating here rather than discovering later.
@@ -32,7 +32,7 @@ Payload.FORMAT = "marginalia-koreader"
 Payload.VERSION = 1
 
 --[[--
-KOReader offers nine highlight colors; Marginalia has four.
+KOReader offers nine highlight colors; Rami has four.
 
 `gray` is KOReader's default drawer color, so it is much the most common value
 and has to land somewhere sensible rather than on whatever sorts first.

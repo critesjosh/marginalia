@@ -16,7 +16,13 @@ export function describeBuild(commit: string | undefined, builtAt: string | unde
   }
 }
 
-export const BUILD: BuildInfo = describeBuild(
-  import.meta.env.APP_COMMIT as string | undefined,
-  import.meta.env.APP_BUILT_AT as string | undefined,
-)
+/** The exact build, for logs: `a1b2c3d built 2026-10-09T14:03:12.345Z`. */
+export function buildId(commit: string | undefined, builtAt: string | undefined): string {
+  return `${commit || 'dev'} built ${builtAt ?? 'unknown'}`
+}
+
+const COMMIT = import.meta.env.APP_COMMIT as string | undefined
+const BUILT_AT = import.meta.env.APP_BUILT_AT as string | undefined
+
+export const BUILD: BuildInfo = describeBuild(COMMIT, BUILT_AT)
+export const BUILD_ID = buildId(COMMIT, BUILT_AT)

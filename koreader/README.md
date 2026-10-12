@@ -1,20 +1,20 @@
-# Marginalia for KOReader
+# Rami for KOReader
 
 A [KOReader](https://koreader.rocks/) plugin that brings the two halves of
-Marginalia to an e-reader:
+Rami to an e-reader:
 
-- **Ask Marginalia** — long-press a passage, ask a question, get an answer on the
+- **Ask Rami** — long-press a passage, ask a question, get an answer on the
   device. The reply is seeded with the book's metadata, your chapter, roughly
   where you are, and the prose around the passage, exactly as it is in the
   browser. Follow-ups continue the same thread, and threads are kept in the
   book's sidecar so they survive a restart.
-- **Marginalia conversations** — a list of everything you have asked, most
+- **Rami conversations** — a list of everything you have asked, most
   recently active first; pick one to read it and carry it on. In the navigation
   menu, next to the bookmarks.
-- **Notes on this book** — a running summary of what you and Marginalia have
+- **Notes on this book** — a running summary of what you and Rami have
   worked out, sent with every question so a later one can build on an earlier one.
-- **Export highlights for Marginalia** — writes a JSON file that the web reader
-  imports, turning KOReader's highlights and threads into real Marginalia
+- **Export highlights for Rami** — writes a JSON file that the web reader
+  imports, turning KOReader's highlights and threads into real Rami
   highlights and conversations.
 
 No account, no API key. Questions go to the same relay the web app uses, which
@@ -30,13 +30,13 @@ cp -r marginalia.koplugin <KOReader>/plugins/
 
 `<KOReader>` is `/mnt/us/koreader` on a Kindle, `.adds/koreader` on a Kobo, and
 `koreader/` in internal storage on Android. Restart KOReader. The plugin appears
-under **☰ → More tools → Marginalia**, its conversation list under **☰ →
-Marginalia conversations**, and **Ask Marginalia** joins the popup that appears
+under **☰ → More tools → Rami**, its conversation list under **☰ →
+Rami conversations**, and **Ask Rami** joins the popup that appears
 when you select text.
 
 ## Asking a question
 
-Long-press a passage, choose **Ask Marginalia**, type a question. The passage is
+Long-press a passage, choose **Ask Rami**, type a question. The passage is
 highlighted when — and only when — you actually ask something, so opening the
 dialog and changing your mind leaves no mark.
 
@@ -57,10 +57,10 @@ with **Highlight options** next to it for everything KOReader normally offers
 there. A highlight with no conversation behaves exactly as it always did.
 
 **Long-press the passage again.** The button in the selection menu reads
-*Continue conversation* rather than *Ask Marginalia* when there is one, and
+*Continue conversation* rather than *Ask Rami* when there is one, and
 opens it instead of a question box.
 
-**☰ → Marginalia conversations.** A list of every conversation, most recently
+**☰ → Rami conversations.** A list of every conversation, most recently
 active first, each row showing the chapter, how far through, and how many turns.
 Choosing one opens it with **Ask a follow-up** on it. This is the only one of the
 three that does not need you to find the passage first, and it is the way back to
@@ -71,8 +71,8 @@ It sits in the navigation menu — the first tab, and the one ☰ opens on unles
 left it on another, below the table of contents, the bookmarks and the book map —
 because it belongs with them: it is a list of places in this book you meant to
 come back to. The same row is under **More tools
-→ Marginalia** with the rest of the plugin. If you would rather not go through the
-menu at all, *Marginalia conversations* is a dispatcher action, so it can be bound
+→ Rami** with the rest of the plugin. If you would rather not go through the
+menu at all, *Rami conversations* is a dispatcher action, so it can be bound
 to a gesture or put in a profile under **Taps and gestures**.
 
 Conversations live in the book's sidecar, so they travel with the book, and the
@@ -119,14 +119,14 @@ same way from the same kind of material; they are two notebooks, not one.
 
 ## Exporting to the web reader
 
-**More tools → Marginalia → Export highlights for Marginalia** writes a file to
+**More tools → Rami → Export highlights for Rami** writes a file to
 `<KOReader>/marginalia/`, and tells you the full path. On a Kindle that folder
 is visible when the device is plugged in over USB.
 
-In Marginalia, open **Settings → Import from KOReader** and choose that file.
+In Rami, open **Settings → Import from KOReader** and choose that file.
 
 The import needs **the same EPUB file** that is on the e-reader — not another
-copy of the same book. Marginalia identifies an edition by the SHA-256 of its
+copy of the same book. Rami identifies an edition by the SHA-256 of its
 bytes and refuses to match on title and author, because two editions share those
 while numbering their sections differently, and a highlight given to the wrong
 one lands on unrelated text.
@@ -152,16 +152,16 @@ Not exported: the book file itself, and the notes — the web app builds its own
 from the conversations it receives.
 
 Nothing goes to the web reader over the network — the file is the whole
-transport. Marginalia has no accounts and keeps everything in the browser's own
+transport. Rami has no accounts and keeps everything in the browser's own
 storage, so there is no server to sync through.
 
 ## Settings
 
-**More tools → Marginalia**:
+**More tools → Rami**:
 
 - **Avoid spoilers** — on by default. Asks the model not to reveal anything past
   where you are.
-- **Relay** — where questions are sent, `https://marginalia.adjacentpossible.dev/api/chat`
+- **Relay** — where questions are sent, `https://rami.agenticpossible.com/api/chat`
   by default. Change it only if you host your own. It must be `https://`.
 
 ## Connections

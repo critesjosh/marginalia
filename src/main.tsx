@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router-dom'
 import './index.css'
 import AppErrorBoundary from './components/AppErrorBoundary'
+import { noteBuild } from './lib/diagnostics'
 import { listenForInstallPrompt } from './lib/install'
 import { shouldReloadForPreloadError } from './lib/preloadRecovery'
 import { router } from './router'
 
 listenForInstallPrompt()
+noteBuild()
 
 window.addEventListener('vite:preloadError', (event) => {
   if (!navigator.onLine) return

@@ -1,16 +1,19 @@
-import type { MouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import type { SelectionRect } from '../lib/highlights'
 import { TAP_TURN_ZONE, type PageDirection } from '../lib/selectionEdge'
-import { ChatIcon, TrashIcon } from './Icons'
+import type { ShareOutcome } from '../lib/share'
+import { ChatIcon, ShareIcon, TrashIcon } from './Icons'
 import { button, iconButton } from './ui'
 
 const BAR_HEIGHT = 70
+/** How long "Copied" shows before the bar closes. */
+const COPIED_MS = 1200
 
 export default function SelectionBar({
   rect,
   existing,
   onChat,
-  onCopy,
+  onShare,
   onDelete,
   onDismiss,
   onTurn,
@@ -20,7 +23,8 @@ export default function SelectionBar({
   /** Set when the bar was opened by tapping an existing highlight. */
   existing?: boolean
   onChat: () => void
-  onCopy: () => void
+  /** Shares the passage; the bar closes once it has gone somewhere. */
+  onShare: () => Promise<ShareOutcome>
   onDelete?: () => void
   onDismiss: () => void
   /** Turns the page under the selection, keeping it, from a tap at a page edge. */
@@ -28,6 +32,18 @@ export default function SelectionBar({
   /** The reader's page, which edge taps are measured against; it is centered and capped on wide screens. */
   page?: HTMLElement | null
 }) {
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(copiedTimer.current), [])
+
+  async function share() {
+    const outcome = await onShare()
+    if (outcome === 'shared') onDismiss()
+    if (outcome !== 'copied') return
+    setCopied(true)
+    copiedTimer.current = setTimeout(onDismiss, COPIED_MS)
+  }
+
   // Prefer sitting above the selection; drop below when it would clip the top.
   const above = rect.top > BAR_HEIGHT + 60
   const top = above ? rect.top - BAR_HEIGHT - 8 : rect.bottom + 12
@@ -67,8 +83,9 @@ export default function SelectionBar({
           <ChatIcon />
           Ask about this
         </button>
-        <button onClick={onCopy} className={button.secondary}>
-          Copy
+        <button onClick={() => void share()} className={button.secondary}>
+          <ShareIcon />
+          <span aria-live="polite">{copied ? 'Copied' : 'Share'}</span>
         </button>
       </div>
     </>

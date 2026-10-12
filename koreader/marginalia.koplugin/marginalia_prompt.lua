@@ -1,5 +1,5 @@
 --[[--
-The Marginalia system prompt, in Lua.
+The Rami system prompt, in Lua.
 
 A deliberate line-for-line mirror of `src/lib/prompt.ts` in the web app, so that
 asking about a passage on an e-reader and asking about it in the browser produce

@@ -28,13 +28,17 @@ export default function RemoveBookDialog({
   const archived = Boolean(book.archivedAt)
   const [choice, setChoice] = useState<Choice>(archived ? 'purge' : 'keep')
   const [working, setWorking] = useState(false)
+  const [error, setError] = useState<string>()
   // Cancel is the safe default, so focus lands there rather than on Remove.
   const ref = useModal<HTMLDivElement>(onCancel, '[data-cancel]')
 
   async function confirm() {
     setWorking(true)
+    setError(undefined)
     try {
       await onRemove(choice)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove the book.')
     } finally {
       setWorking(false)
     }
@@ -74,6 +78,8 @@ export default function RemoveBookDialog({
             />
           </fieldset>
         )}
+
+        {error && <p className="mt-3 font-ui text-meta text-danger">{error}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
           <button data-cancel onClick={onCancel} className={button.secondary}>

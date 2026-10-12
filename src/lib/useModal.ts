@@ -1,5 +1,12 @@
 import { useEffect, useRef } from 'react'
 
+/**
+ * Open modals, newest last. Every modal listens on the document in the capture
+ * phase, so without this a dialog opened over a sheet would hand Escape and Tab
+ * to the sheet as well, and one Escape would close both.
+ */
+const openModals: object[] = []
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -39,7 +46,11 @@ export function useModal<T extends HTMLElement>(
       container.focus()
     }
 
+    const self = {}
+    openModals.push(self)
+
     const onKeyDown = (event: KeyboardEvent) => {
+      if (openModals.at(-1) !== self) return
       if (event.key === 'Escape') {
         event.stopPropagation()
         closeRef.current()
@@ -66,6 +77,7 @@ export function useModal<T extends HTMLElement>(
     document.addEventListener('keydown', onKeyDown, true)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
+      openModals.splice(openModals.indexOf(self), 1)
       // Restore focus unless it has genuinely moved somewhere else. By the time
       // this runs the focused child is usually already detached, so the browser
       // has reset activeElement to <body>; that still counts as "nothing else

@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Marginalia APIs
+  title: Rami APIs
   version: 1.0.0
 paths:
   /api/chat:
@@ -78,6 +78,160 @@ paths:
         "429": {description: Best-effort isolate-local throttle, separate from chat and Gutenberg}
         "502": {description: Upstream refused, or returned a non-raster or oversized image}
         "504": {description: Upstream headers exceeded 20 seconds}
+  /api/threads:
+    get:
+      summary: Turnstile site key for publishing a thread
+      responses:
+        "200": {description: 'Public site key', content: {application/json: {schema: {type: object, properties: {siteKey: {type: string}}}}}}
+        "403": {description: Cross-origin browser request}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+    post:
+      summary: Publish a thread snapshot at an unlisted link
+      description: Requires a passing Turnstile token. The link expires one year after its last publish.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [thread, turnstileToken]
+              properties:
+                turnstileToken: {type: string}
+                thread:
+                  type: object
+                  required: [book, messages]
+                  properties:
+                    book:
+                      type: object
+                      required: [title, author]
+                      properties:
+                        title: {type: string, minLength: 1, maxLength: 300}
+                        author: {type: string, maxLength: 300}
+                    chapter: {type: string, maxLength: 300}
+                    passage: {type: string, maxLength: 2000}
+                    messages:
+                      type: array
+                      minItems: 1
+                      maxItems: 200
+                      items:
+                        type: object
+                        required: [role, content]
+                        properties:
+                          role: {enum: [user, assistant]}
+                          content: {type: string}
+              description: At most 64 KB. Unlisted fields are dropped.
+      responses:
+        "201":
+          description: 'Link created: id, url, ownerToken (shown once; the server keeps only its hash), expiresAt'
+          content:
+            application/json: {schema: {type: object}}
+        "400": {description: Invalid JSON or limits}
+        "403": {description: Cross-origin browser request or failed Turnstile check}
+        "429": {description: Best-effort isolate-local throttle}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+  /api/threads/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}}
+    put:
+      summary: Republish a thread to its existing link
+      description: 'Authorization: Bearer <ownerToken>. Same body as POST, without the Turnstile token. Restarts the one-year expiry.'
+      responses:
+        "200": {description: 'id, url, expiresAt'}
+        "400": {description: Invalid JSON or limits}
+        "401": {description: Missing owner token}
+        "404": {description: No such thread, or the token does not own it}
+        "429": {description: Best-effort isolate-local throttle}
+    delete:
+      summary: Remove a published thread
+      description: 'Authorization: Bearer <ownerToken>.'
+      responses:
+        "204": {description: Removed}
+        "401": {description: Missing owner token}
+        "404": {description: No such thread, or the token does not own it}
+  /t/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      summary: Read-only page for a published thread
+      description: Static HTML, no scripts, noindex. Not cached by HTTP; Workers KV can serve a removed link for up to a minute in other locations.
+      responses:
+        "200": {description: The thread, content: {text/html: {schema: {type: string}}}}
+        "404": {description: Expired, removed, or unknown link}
+  /api/books:
+    post:
+      summary: Share a Project Gutenberg book at a link that adds it for the recipient
+      description: Requires a passing Turnstile token (site key from GET /api/threads). The link expires one year after its last publish. The EPUB itself is never sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book, turnstileToken]
+              properties:
+                turnstileToken: {type: string}
+                book:
+                  type: object
+                  required: [title, author, gutenbergId]
+                  properties:
+                    title: {type: string, minLength: 1, maxLength: 300}
+                    author: {type: string, maxLength: 300}
+                    gutenbergId: {type: integer, minimum: 1, maximum: 99999999}
+                cover: {type: string, format: byte, description: Base64 JPEG of at most 256 KB}
+              description: At most 400 KB. Unlisted fields are dropped.
+      responses:
+        "201":
+          description: 'Link created: id, url (/b/<id>), ownerToken (shown once; the server keeps only its hash), expiresAt'
+          content:
+            application/json: {schema: {type: object}}
+        "400": {description: Invalid JSON, not a Gutenberg book, or a cover that is not a small JPEG}
+        "403": {description: Cross-origin browser request or failed Turnstile check}
+        "405": {description: Not a POST}
+        "429": {description: Best-effort isolate-local throttle, separate from threads}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+  /api/books/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}}
+    get:
+      summary: What the app needs to add a shared book
+      responses:
+        "200": {description: 'book (title, author, gutenbergId) and cover (whether one is stored)', content: {application/json: {schema: {type: object}}}}
+        "403": {description: Cross-origin browser request}
+        "404": {description: Expired, removed, or unknown link}
+    put:
+      summary: Update a shared book's card, such as a changed cover
+      description: 'Authorization: Bearer <ownerToken>. Same body as POST, without the Turnstile token. A missing cover removes the stored one. Restarts the one-year expiry.'
+      responses:
+        "200": {description: 'id, url, expiresAt'}
+        "400": {description: Invalid JSON or limits}
+        "401": {description: Missing owner token}
+        "404": {description: No such link, or the token does not own it}
+        "429": {description: Best-effort isolate-local throttle}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+    delete:
+      summary: Remove a shared book link
+      description: 'Authorization: Bearer <ownerToken>. Works while publishing is disabled.'
+      responses:
+        "204": {description: Removed}
+        "401": {description: Missing owner token}
+        "404": {description: No such link, or the token does not own it}
+  /b/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      summary: The app, with the shared book's preview tags
+      description: The PWA's index.html with Open Graph tags (title, author, cover image) added, noindex. The app then adds the book. An unknown link gets the app unchanged, which reports it as gone.
+      responses:
+        "200": {description: The app shell, content: {text/html: {schema: {type: string}}}}
+  /b/{id}/cover:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      summary: A shared book's cover, the preview card image
+      responses:
+        "200": {description: JPEG, cached for five minutes, content: {image/jpeg: {schema: {type: string, format: binary}}}}
+        "404": {description: Expired, removed, or unknown link, or no cover stored}
+        "405": {description: Not a GET or HEAD}
   /health:
     get:
       summary: Worker liveness, no provider or storage requests

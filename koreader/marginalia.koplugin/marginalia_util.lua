@@ -69,7 +69,7 @@ local HASH_CHUNK = 64 * 1024
 --[[--
 SHA-256 of a file, chunk by chunk.
 
-This is the hash Marginalia identifies a book by (`src/lib/fingerprint.ts`), and
+This is the hash Rami identifies a book by (`src/lib/fingerprint.ts`), and
 it has to be the whole file: the app deliberately refuses to reattach notes on
 title and author, because two editions share those while numbering their
 sections differently.

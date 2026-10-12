@@ -1,7 +1,7 @@
 --[[--
 The rolling per-book digest.
 
-What makes Marginalia more than a chat box: the model is told what you and it
+What makes Rami more than a chat box: the model is told what you and it
 have already worked out about this book, so a question asked in chapter thirty
 can build on one asked in chapter three. A port of `src/lib/memory.ts`, with the
 scheduling changed because an e-reader has nowhere to put background work.

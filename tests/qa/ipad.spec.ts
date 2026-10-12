@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, openContents, test } from './fixtures.js'
 import { expectBookScriptsBlocked } from './hostileBook.js'
 
 // Every iPad browser is WebKit, and WebKit never runs listeners the app adds to
@@ -14,8 +14,7 @@ test.beforeEach(async ({ context }) => {
 async function openChapterOne(page: Page) {
   await page.goto('/')
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
+  const contents = await openContents(page)
   await contents.getByRole('button', { name: /Loomings/i }).click()
   await expect(contents).not.toBeVisible()
   await expect(page.frameLocator('.epub-view iframe').first().locator('body')).toContainText(
@@ -35,6 +34,9 @@ interface BookFrame {
   } | null
   getBoundingClientRect(): { left: number; top: number }
 }
+
+// Down the page into "Call me Ishmael", below the chapter heading.
+const TEXT_Y = 0.6
 
 const scrollLeft = (page: Page) =>
   page.locator('.epub-container').evaluate((element) => element.scrollLeft)
@@ -94,7 +96,7 @@ async function longPress(
 
 test('a long press selects the word under the finger', async ({ page }) => {
   const box = await openChapterOne(page)
-  const word = await longPress(page, { x: box.x + box.width / 2, y: box.y + box.height * 0.4 })
+  const word = await longPress(page, { x: box.x + box.width / 2, y: box.y + box.height * TEXT_Y })
 
   expect(word.trim()).not.toBe('')
   await expect(page.getByRole('toolbar', { name: 'Selection actions' })).toBeVisible()
@@ -104,7 +106,7 @@ test('a long press selects the word under the finger', async ({ page }) => {
 test('a touch selection is drawn over the text it covers', async ({ page }) => {
   const box = await openChapterOne(page)
   const x = box.x + box.width / 2
-  const y = box.y + box.height * 0.4
+  const y = box.y + box.height * TEXT_Y
   // Drag a few lines down, so the selection spans several.
   const text = await longPress(page, { x, y }, { x, y: y + 100 })
   expect(text.trim().split(/\s+/).length).toBeGreaterThan(5)
@@ -128,7 +130,7 @@ test('a touch selection is drawn over the text it covers', async ({ page }) => {
   expect(Math.max(...boxes.map((b) => b.right))).toBeCloseTo(range.right)
   expect(Math.max(...boxes.map((b) => b.bottom))).toBeCloseTo(range.bottom)
 
-  await page.getByRole('button', { name: 'Copy' }).click()
+  await page.getByRole('button', { name: 'Share' }).click()
   await expect(marks).toHaveCount(0)
 })
 
@@ -151,7 +153,7 @@ interface HostWindow {
 
 test('a tap on a highlight opens its thread and keeps it open', async ({ page }) => {
   const box = await openChapterOne(page)
-  await longPress(page, { x: box.x + box.width * 0.4, y: box.y + box.height * 0.4 })
+  await longPress(page, { x: box.x + box.width * 0.4, y: box.y + box.height * TEXT_Y })
   await page.getByRole('button', { name: 'Ask about this' }).click()
   const thread = page.getByRole('dialog').filter({ hasText: 'Thread' })
   await page.getByRole('button', { name: 'Close thread' }).click()

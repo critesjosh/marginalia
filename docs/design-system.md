@@ -156,7 +156,7 @@ From `src/components/ui.ts`:
 - `button.danger` for destructive actions, with an explicit verb such as
   “Remove book”, never “OK”.
 - `iconButton` for round, icon-only chrome. Always give it an `aria-label`.
-- `field` for inputs and selects; `card` for a settings group.
+- `card` for a settings group.
 
 All controls are at least 44px tall.
 

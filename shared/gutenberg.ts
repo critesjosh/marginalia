@@ -14,7 +14,7 @@
 import { createRateLimiter, fetchUpstream, isCrossOrigin, json } from './http-guards.ts'
 
 const GUTENBERG_URL = 'https://www.gutenberg.org/ebooks'
-const USER_AGENT = 'Marginalia/1.0 (+https://github.com/critesjosh/marginalia)'
+const USER_AGENT = 'Rami/1.0 (+https://github.com/critesjosh/marginalia)'
 
 /**
  * Best-effort per-IP throttle, separate from the chat relay's so that searching

@@ -1,30 +1,36 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { downloadGutenbergBook, parseGutenbergRef } from '../lib/gutenberg'
-import { importEpub } from '../lib/importBook'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { readSharedBook } from '../lib/bookLink'
+import { parseGutenbergRef } from '../lib/gutenberg'
+import { addGutenbergBook } from '../lib/importBook'
+import { PublishError } from '../lib/publish'
 import { button } from '../components/ui'
 
 /**
- * Where a shared link lands. The manifest registers this route as a share
- * target, so a Gutenberg book page shared out of the browser arrives here as a
- * query string. The reader already decided what they wanted by choosing
- * Marginalia from the share sheet, so this page just does it and opens the
- * book — there is nothing left to confirm.
+ * Where a shared link lands, in one of two ways:
+ *
+ * - `/b/<id>`: a book another reader shared from Rami (`shared/books.ts`).
+ * - `/add`: the manifest registers this as a share target, so a Gutenberg book
+ *   page shared out of the browser arrives here as a query string.
+ *
+ * Either way the reader already decided what they wanted by opening the link,
+ * so this page just adds the book and opens it. There is nothing to confirm.
  */
 export default function AddSharedPage() {
+  const { linkId } = useParams()
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const [error, setError] = useState<string>()
+  const [title, setTitle] = useState<string>()
 
   // Share sheets disagree about which field carries a link. Android browsers
   // commonly put it in `text`, often after the page title, so take the first
   // URL found there.
   const shared = params.get('url') ?? params.get('text') ?? ''
-  const ref = parseGutenbergRef(shared.match(/https?:\/\/\S+/i)?.[0] ?? shared)
-  const id = ref?.id
+  const id = parseGutenbergRef(shared.match(/https?:\/\/\S+/i)?.[0] ?? shared)?.id
 
   useEffect(() => {
-    if (id === undefined) {
+    if (!linkId && id === undefined) {
       setError(shared ? 'That link is not a Project Gutenberg book page.' : 'No link was shared.')
       return
     }
@@ -35,37 +41,58 @@ export default function AddSharedPage() {
     const controller = new AbortController()
     void (async () => {
       try {
-        const file = await downloadGutenbergBook({ id }, controller.signal)
-        if (controller.signal.aborted) return
-        const bookId = await importEpub(file)
+        let gutenbergId = id
+        if (linkId) {
+          const link = await readSharedBook(linkId, controller.signal)
+          if (controller.signal.aborted) return
+          setTitle(link.book.title)
+          gutenbergId = link.book.gutenbergId
+        }
+        if (gutenbergId === undefined) return
+        const bookId = await addGutenbergBook(gutenbergId, controller.signal)
         if (controller.signal.aborted) return
         // Replace, so going back does not re-run the import.
         navigate(`/book/${bookId}`, { replace: true })
       } catch (err) {
         if (controller.signal.aborted) return
-        setError(err instanceof Error ? err.message : 'Could not add that book.')
+        setError(failure(err))
       }
     })()
 
     return () => controller.abort()
-  }, [id, shared, navigate])
+  }, [linkId, id, shared, navigate])
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 bg-paper px-6 text-center text-ink">
       {error ? (
         <>
           <p className="font-ui text-meta text-danger">{error}</p>
-          <p className="max-w-xs font-ui text-meta text-ink-soft">
-            Share a book page such as https://www.gutenberg.org/ebooks/2701, or add the book from
-            the library.
-          </p>
+          {!linkId && (
+            <p className="max-w-xs font-ui text-meta text-ink-soft">
+              Share a book page such as https://www.gutenberg.org/ebooks/2701, or add the book from
+              the library.
+            </p>
+          )}
         </>
       ) : (
-        <p className="font-ui text-meta text-ink-soft">Adding book #{id} from Project Gutenberg…</p>
+        <p className="font-ui text-meta text-ink-soft">{progress(linkId, title, id)}</p>
       )}
       <Link to="/" className={button.secondary}>
         Go to library
       </Link>
     </div>
   )
+}
+
+function progress(linkId?: string, title?: string, gutenbergId?: number): string {
+  if (!linkId) return `Adding book #${gutenbergId} from Project Gutenberg…`
+  if (title) return `Adding ${title} to your library…`
+  return 'Opening the shared book…'
+}
+
+function failure(err: unknown): string {
+  if (err instanceof PublishError && err.status === 404) {
+    return 'This link is no longer available. It expired or its owner removed it.'
+  }
+  return err instanceof Error ? err.message : 'Could not add that book.'
 }

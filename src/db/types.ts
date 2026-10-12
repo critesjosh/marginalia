@@ -8,9 +8,9 @@ export interface Book {
   language?: string
   cover?: Blob
   /**
-   * The EPUB itself. Absent once the book has been archived: the file is the
-   * only large part of the record, and dropping it is the point of removing a
-   * book while keeping its highlights, conversations and memory.
+   * The EPUB itself. Absent once the book has been archived, which reclaims
+   * the space while keeping its highlights, conversations and memory, or once
+   * the browser lost its bytes (`missingFileAt`).
    */
   file?: Blob
   /**
@@ -24,6 +24,8 @@ export interface Book {
   addedAt: number
   /** Set when the reader removed the book but kept the notes anchored to it. */
   archivedAt?: number
+  /** Set when the browser lost the stored EPUB; the book stays on the shelf until it is imported again. */
+  missingFileAt?: number
   lastOpenedAt?: number
   lastCfi?: string
   /** 0..1, epub.js locations-based progress at lastCfi. */
@@ -35,6 +37,8 @@ export interface Book {
    * Set only from the Memory tab, never from an import.
    */
   instructions?: string
+  /** Set while the book is shared at a link (`src/lib/bookLink.ts`). */
+  sharedLink?: PublishedBookLink
 }
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
@@ -88,6 +92,27 @@ export interface Conversation {
   source?: 'koreader'
   /** That source's own id for it. See `Highlight.externalId`. */
   externalId?: string
+  /** Set while the thread is published at a link (`src/lib/publish.ts`). */
+  published?: PublishedLink
+}
+
+/**
+ * A thread's or book's public link. Not indexed, so adding it needed no Dexie version.
+ * The owner token is what lets this device update or remove the link; it is
+ * left out of exports.
+ */
+export interface PublishedLink {
+  id: string
+  url: string
+  ownerToken: string
+  publishedAt: number
+  expiresAt: number
+}
+
+/** A shared book's link, and which cover it was last sent with. */
+export interface PublishedBookLink extends PublishedLink {
+  /** Fingerprint of the cover the link shows, or `none`. */
+  coverHash: string
 }
 
 export type Role = 'system' | 'user' | 'assistant'
@@ -118,18 +143,8 @@ export type ReaderTheme = 'light' | 'sepia' | 'dark'
 /** Typeface for the book's text inside the reader. */
 export type ReaderFont = 'literata' | 'garamond' | 'charis'
 
-/**
- * `hosted` routes through this site's relay, which holds an OpenRouter key
- * server-side. `openai` sends the reader's own key straight to OpenAI.
- */
-export type Provider = 'hosted' | 'openai'
-
 export interface Settings {
   id: 'settings'
-  provider: Provider
-  apiKey?: string
-  model: string
-  summaryModel: string
   theme: ReaderTheme
   fontSize: number
   readerFont: ReaderFont
@@ -164,9 +179,6 @@ export type Hint = 'library' | 'thread' | 'memory'
 
 export const DEFAULT_SETTINGS: Settings = {
   id: 'settings',
-  provider: 'hosted',
-  model: 'gpt-4o-mini',
-  summaryModel: 'gpt-4o-mini',
   theme: 'light',
   fontSize: 100,
   readerFont: 'literata',

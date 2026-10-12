@@ -1,5 +1,5 @@
 import type { BrowserContext, Page } from '@playwright/test'
-import { expect, test } from './fixtures.js'
+import { expect, openContents, test } from './fixtures.js'
 
 // A passage can be selected across a page break (issue #111). epub.js shows a
 // page-sized window of one wide strip of columns, so the text past the break is
@@ -42,16 +42,14 @@ const scrollLeft = (page: Page) =>
 async function openChapterOne(page: Page) {
   await page.goto('/')
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
-  await page.getByRole('button', { name: 'Table of contents' }).click()
-  const contents = page.getByRole('dialog', { name: 'Table of contents' })
+  const contents = await openContents(page)
   await contents.getByRole('button', { name: /Loomings/i }).click()
   await expect(contents).not.toBeVisible()
   await expect(frame(page)).toBeVisible()
   // Images and layout settle after the first paint.
   await page.waitForTimeout(2000)
 
-  // Off the section's first page, then hide the toolbars, which sit over the
-  // page's first and last lines.
+  // Off the section's first page, then hide the toolbars opened for the contents.
   const box = (await page.locator('.epub-container').boundingBox())!
   const start = await scrollLeft(page)
   await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2)

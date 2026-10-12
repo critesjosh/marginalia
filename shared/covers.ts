@@ -14,7 +14,7 @@ import { createRateLimiter, fetchUpstream, isCrossOrigin, json } from './http-gu
 
 const SEARCH_URL = 'https://openlibrary.org/search.json'
 const COVERS_URL = 'https://covers.openlibrary.org/b/id'
-const USER_AGENT = 'Marginalia/1.0 (+https://github.com/critesjosh/marginalia)'
+const USER_AGENT = 'Rami/1.0 (+https://github.com/critesjosh/marginalia)'
 
 /** How many candidates one search offers. A grid of covers, not a catalog. */
 const MAX_RESULTS = 8

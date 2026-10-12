@@ -1,5 +1,5 @@
 --[[--
-Where a book's Marginalia threads live.
+Where a book's Rami threads live.
 
 In the book's own sidecar, under one `marginalia` key, next to KOReader's
 annotations. That means they travel with the book, survive a restart, are picked
@@ -21,7 +21,7 @@ Store.KEY = "marginalia"
 Store.VERSION = 1
 
 --[[--
-Reads this book's Marginalia data, always returning a usable table.
+Reads this book's Rami data, always returning a usable table.
 --]]
 function Store.read(doc_settings)
     local stored = doc_settings and doc_settings:readSetting(Store.KEY)

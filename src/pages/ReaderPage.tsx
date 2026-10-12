@@ -17,6 +17,7 @@ import {
   type SelectionRect,
 } from '../lib/highlights'
 import { titleFromSeed } from '../lib/prompt'
+import { highlightShare, shareContent } from '../lib/share'
 import TocDrawer from '../components/TocDrawer'
 import DisplaySheet from '../components/DisplaySheet'
 import SelectionBar from '../components/SelectionBar'
@@ -39,7 +40,7 @@ export default function ReaderPage() {
   const { bookId } = useParams<{ bookId: string }>()
   const navigate = useNavigate()
   const [viewer, setViewer] = useState<HTMLDivElement | null>(null)
-  const [chromeVisible, setChromeVisible] = useState(true)
+  const [chromeVisible, setChromeVisible] = useState(false)
   const [panel, setPanel] = useState<'toc' | 'display' | null>(null)
   const [active, setActive] = useState<ActiveSelection>()
   const [chatId, setChatId] = useState<string>()
@@ -230,15 +231,10 @@ export default function ReaderPage() {
     setChatId(conversation.id)
   }
 
-  async function copySelection() {
-    if (!active) return
-    try {
-      await navigator.clipboard.writeText(active.text)
-    } catch {
-      // Clipboard blocked; nothing useful to show for a copy failure.
-    }
-    clearSelection()
-    setActive(undefined)
+  function shareSelection() {
+    if (!active || !book) return Promise.resolve('failed' as const)
+    const chapter = active.highlight?.chapter ?? reader.location?.chapter
+    return shareContent(highlightShare(active.text, book, chapter))
   }
 
   const chromeClasses = useMemo(
@@ -278,6 +274,21 @@ export default function ReaderPage() {
       </CenteredNote>
     )
   }
+  if (book.missingFileAt) {
+    return (
+      <CenteredNote>
+        This device lost the EPUB for “{book.title}”. Add the same EPUB again to keep reading. Your{' '}
+        <Link to={`/book/${book.id}/chats`} className="text-rubric underline underline-offset-2">
+          conversations and memory
+        </Link>{' '}
+        are still here.{' '}
+        <Link to="/" className="text-rubric underline underline-offset-2">
+          Back to library
+        </Link>
+        .
+      </CenteredNote>
+    )
+  }
 
   return (
     <div
@@ -287,7 +298,7 @@ export default function ReaderPage() {
       <header
         className={`pt-safe no-select absolute inset-x-0 top-0 z-30 border-b border-rule bg-paper transition-all duration-300 ease-out motion-reduce:translate-y-0 ${chromeClasses}`}
       >
-        <div className="grid h-14 grid-cols-[1fr_auto] items-center gap-2 px-2.5 sm:h-[70px] sm:grid-cols-[1fr_auto_1fr] sm:px-6">
+        <div className="grid h-12 grid-cols-[1fr_auto] items-center gap-2 px-2.5 sm:h-14 sm:grid-cols-[1fr_auto_1fr] sm:px-6">
           <div className="flex min-w-0 items-center gap-1">
             <Link to="/" aria-label="Back to library" className={iconButton}>
               <BackIcon />
@@ -338,8 +349,23 @@ export default function ReaderPage() {
         </div>
       </header>
 
-      {/* epub.js renders its iframe here; it owns all touch/selection inside. */}
-      <div ref={setViewer} className="mx-auto h-full w-full max-w-[760px]" />
+      {/* Blank margins the bars cover, so they never hide text. A tap shows the bars. */}
+      <div className="mx-auto flex h-full w-full max-w-[760px] flex-col">
+        <button
+          onClick={toggleChrome}
+          tabIndex={-1}
+          aria-hidden
+          className="reader-inset-top no-select"
+        />
+        {/* epub.js renders its iframe here; it owns all touch/selection inside. */}
+        <div ref={setViewer} className="min-h-0 w-full flex-1" />
+        <button
+          onClick={toggleChrome}
+          tabIndex={-1}
+          aria-hidden
+          className="reader-inset-bottom no-select"
+        />
+      </div>
 
       {/* Wide screens leave gutters beside the capped column; they turn pages
           like the edges of the book itself. The footer has the labeled controls. */}
@@ -393,7 +419,7 @@ export default function ReaderPage() {
           rect={active.rect}
           existing={Boolean(active.highlight)}
           onChat={() => void startChat()}
-          onCopy={() => void copySelection()}
+          onShare={shareSelection}
           onDelete={() => void deleteHighlight()}
           onDismiss={() => {
             clearSelection()

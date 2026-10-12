@@ -16,9 +16,5 @@ export const button = {
 export const iconButton =
   'grid h-11 w-11 shrink-0 place-items-center rounded-full text-ink-soft transition-colors duration-150 hover:bg-paper-sunk hover:text-ink [&_svg]:h-5 [&_svg]:w-5'
 
-/** A field: input, select or textarea outside the composer. */
-export const field =
-  'min-h-tap w-full rounded-md border border-rule-strong bg-paper-leaf px-3 font-ui text-control text-ink placeholder:text-ink-faint'
-
 /** A settings group: a raised leaf on the page. */
 export const card = 'rounded-lg border border-rule bg-paper-leaf p-6'

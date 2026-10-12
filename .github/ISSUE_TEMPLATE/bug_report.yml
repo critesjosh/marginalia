@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Marginalia.
+description: Report a reproducible problem in Rami.
 labels: ['bug']
 body:
   - type: dropdown

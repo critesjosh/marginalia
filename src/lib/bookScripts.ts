@@ -7,7 +7,7 @@ const XHTML_NS = 'http://www.w3.org/1999/xhtml'
  * browser, never calls listeners the app adds to a frame sandboxed without
  * `allow-scripts`, so taps, long presses and selection all go dead. With
  * `allow-same-origin` beside it, a book script would run on this origin and
- * could read the API key and every conversation out of IndexedDB. This puts the
+ * could read every note and conversation out of IndexedDB. This puts the
  * book's own code back out of reach.
  *
  * The policy is the guarantee; the rest is a second layer. Script elements are

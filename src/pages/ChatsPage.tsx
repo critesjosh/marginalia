@@ -23,6 +23,7 @@ export default function ChatsPage() {
   const tab = asTab(searchParams.get('tab'))
   const setTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true })
   const [chatId, setChatId] = useState<string>()
+  const [deleteError, setDeleteError] = useState<string>()
 
   const book = useLiveQuery(() => (bookId ? db.books.get(bookId) : undefined), [bookId])
   const conversations = useLiveQuery(
@@ -37,7 +38,7 @@ export default function ChatsPage() {
   )
   const memory = useLiveQuery(() => (bookId ? db.bookMemory.get(bookId) : undefined), [bookId])
   const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
-  const readerAvailable = Boolean(book && !book.archivedAt)
+  const readerAvailable = Boolean(book && !book.archivedAt && !book.missingFileAt)
 
   // Finding the Memory tab is what the memory note was for.
   useEffect(() => {
@@ -83,6 +84,12 @@ export default function ChatsPage() {
               </Empty>
             )}
 
+            {deleteError && (
+              <p role="alert" className="mb-3 font-ui text-meta text-danger">
+                {deleteError}
+              </p>
+            )}
+
             <ul className="space-y-3">
               {conversations?.map((conversation) => (
                 <li
@@ -103,7 +110,14 @@ export default function ChatsPage() {
                     </p>
                   </button>
                   <button
-                    onClick={() => void deleteConversation(conversation.id)}
+                    onClick={() => {
+                      setDeleteError(undefined)
+                      deleteConversation(conversation.id).catch((err: unknown) =>
+                        setDeleteError(
+                          err instanceof Error ? err.message : 'Could not delete the thread.',
+                        ),
+                      )
+                    }}
                     aria-label={`Delete ${conversation.title}`}
                     className={`${iconButton} -mt-2 -mr-2`}
                   >

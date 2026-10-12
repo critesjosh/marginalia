@@ -1,4 +1,4 @@
-# Working on Marginalia
+# Working on Rami
 
 ## Applications and boundaries
 
@@ -73,7 +73,7 @@ For reader layout or touch changes, follow the detailed checks in
 strip: inspect the visible scroll window, not the first text in the iframe.
 
 For KOReader UI changes, follow `koreader/README.md` on a device with KOReader:
-install the plugin, restart, open a book, select text, and choose Ask Marginalia.
+install the plugin, restart, open a book, select text, and choose Ask Rami.
 The fake-host integration harness tests wiring, not the device's real APIs.
 Device chat uses the hosted relay and is billed; ask before testing live chat.
 
@@ -94,6 +94,20 @@ Device chat uses the hosted relay and is billed; ask before testing live chat.
 - Preserve Dexie migrations and edition matching by file hash, not title.
 - Do not enable EPUB scripts or weaken CSP/TLS checks. Book text is untrusted
   and must remain fenced before entering model prompts.
+
+## Planning and decisions
+
+- Read `docs/architecture.md` and its linked decisions before changing a
+  design they cover. Supersede a decision with a new record; do not rewrite it.
+- Share a plan and wait for feedback before changing architecture, the Dexie
+  schema, `docs/api.openapi.yml`, the KOReader handoff, or major dependencies.
+  Routine changes within agreed scope can proceed.
+- Record consequential choices, with alternatives and tradeoffs, by copying
+  `docs/decisions/TEMPLATE.md` and linking it from `docs/architecture.md`.
+- When design docs, tests, and code disagree, report the mismatch before
+  changing any of them.
+- Update affected docs before declaring work done. Lead handoff reports with
+  the outcome, then what passed and what could not run.
 
 ## Privacy and safety
 

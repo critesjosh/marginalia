@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test as base } from '@playwright/test'
+import { test as base, type Page } from '@playwright/test'
 
 export { expect } from '@playwright/test'
 
@@ -43,3 +43,10 @@ export const test = base.extend({
     await provide(context.pages()[0] ?? (await context.newPage()))
   },
 })
+
+/** Shows the reader's bars, hidden while reading, and opens the contents. */
+export async function openContents(page: Page) {
+  await page.locator('.reader-inset-top').click()
+  await page.getByRole('button', { name: 'Table of contents' }).click()
+  return page.getByRole('dialog', { name: 'Table of contents' })
+}

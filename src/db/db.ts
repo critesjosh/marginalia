@@ -1,6 +1,8 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
 import { fingerprint } from '../lib/fingerprint'
+import { unpublishBook } from '../lib/bookLink'
+import { unpublishAll } from '../lib/publish'
 import {
   DEFAULT_SETTINGS,
   type Book,
@@ -77,20 +79,27 @@ class MarginaliaDB extends Dexie {
           delete row.audiobookPositionSeconds
         })
     })
+
+    // The own-OpenAI-key option was removed; every request now goes through
+    // the relay. Drop the key so the secret does not outlive the feature.
+    this.version(6).upgrade(async (tx) => {
+      await tx
+        .table('settings')
+        .toCollection()
+        .modify((row: Record<string, unknown>) => {
+          delete row.provider
+          delete row.apiKey
+          delete row.model
+          delete row.summaryModel
+        })
+    })
   }
 }
 
 export const db = new MarginaliaDB()
 
 export async function getSettings(): Promise<Settings> {
-  const stored = await db.settings.get('settings')
-  const settings = { ...DEFAULT_SETTINGS, ...stored }
-
-  // Records written before the hosted relay existed have a key but no provider;
-  // those readers were using OpenAI directly and should stay on it.
-  if (stored && !stored.provider && stored.apiKey) settings.provider = 'openai'
-
-  return settings
+  return { ...DEFAULT_SETTINGS, ...(await db.settings.get('settings')) }
 }
 
 /**
@@ -102,9 +111,6 @@ export async function getSettings(): Promise<Settings> {
  */
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   await db.transaction('rw', db.settings, async () => {
-    // Through getSettings, not the raw row: it applies the provider migration,
-    // and reading around it would write `hosted` over a reader who is on their
-    // own key the first time they change any unrelated setting.
     const current = await getSettings()
     await db.settings.put({ ...current, ...patch, id: 'settings' })
   })
@@ -119,8 +125,14 @@ export async function markHintSeen(hint: Hint): Promise<void> {
   })
 }
 
-/** Removes a book and everything anchored to it. */
+/**
+ * Removes a book and everything anchored to it. Its published links go first,
+ * so a failure to remove one leaves the book in place.
+ */
 export async function deleteBook(bookId: string): Promise<void> {
+  await unpublishAll(await db.conversations.where('bookId').equals(bookId).toArray())
+  const sharedLink = (await db.books.get(bookId))?.sharedLink
+  if (sharedLink) await unpublishBook(sharedLink)
   await db.transaction(
     'rw',
     [db.books, db.highlights, db.conversations, db.messages, db.bookMemory],
@@ -154,6 +166,7 @@ export async function archiveBook(bookId: string): Promise<void> {
 
   await db.books.update(bookId, {
     archivedAt: Date.now(),
+    missingFileAt: undefined,
     fileHash,
     // Dexie's update only writes the keys it is given, and `undefined` is one
     // of them: this is what actually reclaims the space.
@@ -162,25 +175,27 @@ export async function archiveBook(bookId: string): Promise<void> {
 }
 
 /**
- * The archived book an import is the same file as, if there is one.
+ * The book waiting for this file, if there is one: removed by the reader, or
+ * lost by the browser.
  *
  * Matched on content, never on title and author: two editions share those
  * while numbering their sections differently, so metadata alone would hand a
  * book's highlights and saved position to a different edition that cannot
- * carry them. An archived book with no fingerprint — its file was already gone
- * before one was taken — stays archived, and the import comes in as new.
+ * carry them. A book with no fingerprint (its file was already gone before one
+ * was taken) keeps waiting, and the import comes in as new.
  */
-export async function findArchivedMatch(book: Book): Promise<Book | undefined> {
+export async function findRestorableMatch(book: Book): Promise<Book | undefined> {
   if (!book.fileHash) return undefined
-  const archived = await db.books.where('archivedAt').above(0).toArray()
-  return archived.find((row) => row.fileHash === book.fileHash)
+  return db.books
+    .filter((row) => Boolean(row.archivedAt || row.missingFileAt) && row.fileHash === book.fileHash)
+    .first()
 }
 
 /**
- * Puts an archived book back on the shelf using a freshly imported file.
+ * Gives a removed or file-missing book its EPUB again.
  *
  * Reading position and metadata come back with it. Only ever called for a file
- * whose fingerprint matches the one that was archived, so the CFIs the
+ * whose fingerprint matches the original one, so the CFIs the
  * highlights and the saved position are written in still address the same
  * document they were taken from.
  */
@@ -194,12 +209,15 @@ export async function restoreBook(bookId: string, imported: Book): Promise<void>
       ...metadata,
       cover: stored?.cover ?? metadata.cover,
       archivedAt: undefined,
+      missingFileAt: undefined,
     })
   })
 }
 
-/** Removes a conversation and its messages. */
+/** Removes a conversation and its messages, and its published link first. */
 export async function deleteConversation(conversationId: string): Promise<void> {
+  const conversation = await db.conversations.get(conversationId)
+  if (conversation) await unpublishAll([conversation])
   await db.transaction('rw', [db.conversations, db.messages], async () => {
     await db.messages.where('conversationId').equals(conversationId).delete()
     await db.conversations.delete(conversationId)

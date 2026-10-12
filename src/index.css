@@ -292,6 +292,20 @@ body {
   padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
 }
 
+/* The reader's page margins match its bars (row plus safe area plus border),
+   so the bars cover only the margins and toggling them never hides text. */
+.reader-inset-top {
+  height: calc(max(env(safe-area-inset-top), 0.5rem) + 3rem + 1px);
+}
+.reader-inset-bottom {
+  height: calc(max(env(safe-area-inset-bottom), 0.5rem) + 2.75rem + 1px);
+}
+@media (width >= 40rem) {
+  .reader-inset-top {
+    height: calc(max(env(safe-area-inset-top), 0.5rem) + 3.5rem + 1px);
+  }
+}
+
 /* Selection inside the epub.js iframe is the primary gesture; keep chrome inert. */
 .no-select {
   -webkit-user-select: none;

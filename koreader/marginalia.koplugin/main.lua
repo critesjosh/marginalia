@@ -1,9 +1,9 @@
 --[[--
-Marginalia for KOReader.
+Rami for KOReader.
 
 Two things: ask an AI companion about the passage you just highlighted, and
-export a book's highlights for the Marginalia web reader at
-<https://marginalia.adjacentpossible.dev>.
+export a book's highlights for the Rami web reader at
+<https://rami.agenticpossible.com>.
 
 Questions go to that site's relay, which holds the inference key server-side and
 pins the model, so there is no key to configure here and no account to make. The
@@ -42,7 +42,7 @@ local VERSION = "1.0.0"
 
 --- The public deployment. Editable, because a self-hoster should not have to
 --- patch the plugin.
-local DEFAULT_ENDPOINT = "https://marginalia.adjacentpossible.dev/api/chat"
+local DEFAULT_ENDPOINT = "https://rami.agenticpossible.com/api/chat"
 --- The retired Netlify relay, which older versions saved as the endpoint.
 local RETIRED_ENDPOINT = "https://lexici.netlify.app/api/chat"
 
@@ -97,19 +97,19 @@ function Marginalia:onDispatcherRegisterActions()
     Dispatcher:registerAction("marginalia_export", {
         category = "none",
         event = "MarginaliaExport",
-        title = _("Export highlights for Marginalia"),
+        title = _("Export highlights for Rami"),
         reader = true,
     })
     Dispatcher:registerAction("marginalia_conversations", {
         category = "none",
         event = "MarginaliaConversations",
-        title = _("Marginalia conversations"),
+        title = _("Rami conversations"),
         reader = true,
     })
     Dispatcher:registerAction("marginalia_notes", {
         category = "none",
         event = "MarginaliaNotes",
-        title = _("Marginalia notes on this book"),
+        title = _("Rami notes on this book"),
         reader = true,
     })
 end
@@ -314,7 +314,7 @@ function Marginalia:addToHighlightDialog()
             -- Named for what it will actually do: a passage already asked about
             -- opens its conversation rather than a fresh question box.
             text = self.ask:has_thread(highlight, index) and _("Continue conversation")
-                or _("Ask Marginalia"),
+                or _("Ask Rami"),
             callback = function()
                 self.ask:from_selection(highlight, index)
             end,
@@ -344,7 +344,7 @@ function Marginalia:interceptHighlightTap()
     if type(original) ~= "function" then
         logger.warn(
             "marginalia: no showHighlightNoteOrDialog to wrap; "
-                .. "Ask Marginalia stays under the highlight menu's '…'"
+                .. "Ask Rami stays under the highlight menu's '…'"
         )
         return
     end
@@ -388,7 +388,7 @@ end
 --[[--
 Where the conversation list lives.
 
-Two entries, because they answer two different questions. The Marginalia
+Two entries, because they answer two different questions. The Rami
 submenu under More tools is the plugin's home: settings, export, the notes and
 the ways to correct them — things you go looking for by name, rarely, and are
 content to dig for.
@@ -407,7 +407,7 @@ break, so an unfamiliar KOReader is a cosmetic risk, not a crash.
 --]]
 function Marginalia:addToMainMenu(menu_items)
     menu_items.marginalia_conversations = {
-        text = _("Marginalia conversations"),
+        text = _("Rami conversations"),
         sorting_hint = "navi",
         keep_menu_open = false,
         callback = function()
@@ -419,7 +419,7 @@ function Marginalia:addToMainMenu(menu_items)
     }
 
     menu_items.marginalia = {
-        text = _("Marginalia"),
+        text = _("Rami"),
         sorting_hint = "more_tools",
         sub_item_table = {
             {
@@ -439,7 +439,7 @@ function Marginalia:addToMainMenu(menu_items)
                     self:showNotes()
                 end,
                 help_text = _(
-                    "The running summary of what you and Marginalia have worked out about this book. It is sent with every question, so a later one can build on an earlier one."
+                    "The running summary of what you and Rami have worked out about this book. It is sent with every question, so a later one can build on an earlier one."
                 ),
             },
             {
@@ -454,7 +454,7 @@ function Marginalia:addToMainMenu(menu_items)
                 separator = true,
             },
             {
-                text = _("Export highlights for Marginalia"),
+                text = _("Export highlights for Rami"),
                 keep_menu_open = false,
                 callback = function()
                     self.handoff:export()
@@ -483,7 +483,7 @@ function Marginalia:addToMainMenu(menu_items)
                     self:editEndpoint(touchmenu_instance)
                 end,
                 help_text = _(
-                    "Where questions are sent. The default is the public Marginalia deployment; change it only if you host your own."
+                    "Where questions are sent. The default is the public Rami deployment; change it only if you host your own."
                 ),
             },
         },
@@ -493,7 +493,7 @@ end
 function Marginalia:editEndpoint(touchmenu_instance)
     local dialog
     dialog = InputDialog:new({
-        title = _("Marginalia relay"),
+        title = _("Rami relay"),
         input = self.settings.endpoint or DEFAULT_ENDPOINT,
         input_hint = DEFAULT_ENDPOINT,
         description = _(

@@ -3,15 +3,18 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings, markHintSeen } from '../db/db'
 import { newId } from '../lib/id'
-import { InferenceError, streamChat, targetFor } from '../lib/inference'
+import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
+import { shareContent, threadShare } from '../lib/share'
 import HintNote from './HintNote'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
-import { SendIcon } from './Icons'
+import { LinkIcon, SendIcon, ShareIcon } from './Icons'
+import PublishDialog from './PublishDialog'
+import { button } from './ui'
 
 /** Breathing room left above the pinned question, in pixels. */
 const ANCHOR_GAP = 12
@@ -29,6 +32,8 @@ export default function ChatSheet({
   const [error, setError] = useState<string>()
   // The seed passage sits on one line until tapped, so the thread keeps the room.
   const [passageOpen, setPassageOpen] = useState(false)
+  const [shareNote, setShareNote] = useState<string>()
+  const [publishing, setPublishing] = useState(false)
   const abortRef = useRef<AbortController>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -47,6 +52,10 @@ export default function ChatSheet({
   const messages = useLiveQuery(
     () => db.messages.where('conversationId').equals(conversationId).sortBy('createdAt'),
     [conversationId],
+  )
+  const book = useLiveQuery(
+    () => (conversation ? db.books.get(conversation.bookId) : undefined),
+    [conversation?.bookId],
   )
 
   const bookId = conversation?.bookId
@@ -142,6 +151,15 @@ export default function ChatSheet({
     setPassageOpen(false)
   }
 
+  // Built from what is already loaded, so the share sheet opens inside the tap.
+  async function share() {
+    if (!conversation || !messages || !book) return
+    const outcome = await shareContent(threadShare(conversation, messages, book))
+    if (outcome === 'copied') setShareNote('Copied to the clipboard.')
+    else if (outcome === 'failed') setShareNote('Could not share this thread.')
+    else setShareNote(undefined)
+  }
+
   async function send(text: string) {
     const content = text.trim()
     if (!content || busy || !conversation) return
@@ -158,11 +176,6 @@ export default function ChatSheet({
 
     try {
       const settings = await getSettings()
-      // Throws only when the reader chose their own key and has not entered
-      // one; the built-in provider needs nothing. Thrown here rather than
-      // before the try so a missing key rolls the turn back like any other
-      // failure, keeping the question in the composer.
-      const target = targetFor(settings)
 
       // Only clear the composer once the message is safely stored. Clearing it
       // first loses the text outright if IndexedDB rejects the write.
@@ -189,7 +202,6 @@ export default function ChatSheet({
 
       let acc = ''
       const reply = await streamChat({
-        target,
         signal: controller.signal,
         messages: buildMessages({ book, conversation, history, memory, settings }),
         onDelta: (delta) => {
@@ -315,17 +327,25 @@ export default function ChatSheet({
           <p className="font-ui text-body text-ink-faint italic">Following the thread…</p>
         )}
 
+        {messages && messages.length > 0 && !busy && book && (
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button onClick={() => void share()} className={button.quiet}>
+              <ShareIcon />
+              Share thread
+            </button>
+            <button onClick={() => setPublishing(true)} className={button.quiet}>
+              <LinkIcon />
+              {conversation?.published ? 'Published link' : 'Publish link'}
+            </button>
+            <span aria-live="polite" className="font-ui text-meta text-ink-soft">
+              {shareNote}
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="rounded-md border border-danger bg-paper p-3 font-ui text-meta text-danger">
             {error}
-            {error.includes('Settings') && (
-              <>
-                {' '}
-                <Link to="/settings" className="underline">
-                  Open settings
-                </Link>
-              </>
-            )}
           </div>
         )}
       </div>
@@ -361,6 +381,15 @@ export default function ChatSheet({
           <SendIcon className="h-4.5 w-4.5" />
         </button>
       </form>
+
+      {publishing && conversation && messages && book && (
+        <PublishDialog
+          conversation={conversation}
+          messages={messages}
+          book={book}
+          onClose={() => setPublishing(false)}
+        />
+      )}
     </ReaderPanel>
   )
 }

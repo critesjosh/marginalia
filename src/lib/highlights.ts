@@ -30,9 +30,10 @@ export function selectionRect(contents: Contents, cfiRange: string): SelectionRe
     const range = contents.range(cfiRange)
     if (!range) return undefined
 
-    const container = contents.document.defaultView?.frameElement?.closest(
-      '.epub-container',
-    ) as HTMLElement | null
+    const frame = contents.document.defaultView?.frameElement
+    const container = frame?.closest('.epub-container') as HTMLElement | null
+    // Rects are frame coordinates; the page sits below the reader's top margin.
+    const frameTop = frame?.getBoundingClientRect().top ?? 0
     const scrollLeft = container?.scrollLeft ?? 0
     const scrollRight = scrollLeft + (container?.clientWidth ?? Infinity)
 
@@ -43,8 +44,8 @@ export function selectionRect(contents: Contents, cfiRange: string): SelectionRe
     if (!rect || (rect.width === 0 && rect.bottom === rect.top)) return undefined
 
     return {
-      top: rect.top,
-      bottom: rect.bottom,
+      top: rect.top + frameTop,
+      bottom: rect.bottom + frameTop,
       left: rect.left - scrollLeft,
       width: rect.width,
     }

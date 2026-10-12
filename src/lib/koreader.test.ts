@@ -100,7 +100,7 @@ describe('parseHandoff', () => {
 
   it('refuses anything that is not this format', () => {
     rejects('not json at all', 'valid JSON')
-    rejects(JSON.stringify({ format: 'readwise', version: 1 }), 'not a Marginalia export')
+    rejects(JSON.stringify({ format: 'readwise', version: 1 }), 'not a Rami export')
     rejects(JSON.stringify([1, 2, 3]), 'object')
   })
 
