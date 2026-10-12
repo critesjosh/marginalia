@@ -175,7 +175,11 @@ export default function ReaderPage() {
   /** Saves the selection as a highlight, leaving the selection bar open. */
   async function keepHighlight() {
     const highlight = await addHighlight()
-    if (highlight) setActive((current) => current && { ...current, highlight })
+    if (!highlight) return
+    // The reader may have moved on to another selection during the write.
+    setActive((current) =>
+      current?.cfiRange === highlight.cfiRange ? { ...current, highlight } : current,
+    )
   }
 
   async function addHighlight(): Promise<Highlight | undefined> {
