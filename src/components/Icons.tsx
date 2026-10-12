@@ -110,6 +110,15 @@ export function ShareIcon({ className }: Props) {
   )
 }
 
+export function CopyIcon({ className }: Props) {
+  return (
+    <Svg className={className}>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </Svg>
+  )
+}
+
 export function LinkIcon({ className }: Props) {
   return (
     <Svg className={className}>
