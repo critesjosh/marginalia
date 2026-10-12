@@ -165,7 +165,10 @@ it shows once.
   and deletion process.
 - **Processor terms**: a DPA with PostHog, EU or US hosting, and the
   transfer mechanism if US.
-- **Privacy notice**: the app has none. One must describe this telemetry,
-  PostHog as processor, retention, and how to opt out, before launch.
+- **Privacy policy**: drafted at `/privacy` (`src/pages/PrivacyPage.tsx`) and
+  linked from Settings and the notice. It needs counsel's review. It states
+  that PostHog is EU-hosted, discards IPs, and keeps events and reports for up
+  to 12 months: make those true in the PostHog project before enabling
+  telemetry, or change the page.
 - **Respecting GPC**: treated as an opt-out here; check whether any target
   jurisdiction requires more.

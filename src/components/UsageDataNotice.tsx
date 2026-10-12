@@ -25,7 +25,10 @@ export default function UsageDataNotice() {
           <p className="text-meta text-ink-soft">
             Counts of actions like opening a book or asking Rami, and error types, sent to PostHog.
             Never titles, text, notes, chats, or links, and no id that outlasts this page. You can
-            change this in Settings.
+            change this in Settings. {/* Outside the router, so a plain link. */}
+            <a href="/privacy" className="text-moss underline underline-offset-2">
+              Privacy policy
+            </a>
           </p>
         </div>
         <div className="flex gap-2">

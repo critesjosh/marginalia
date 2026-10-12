@@ -2,7 +2,7 @@ import { createBrowserRouter } from 'react-router-dom'
 import { AppNotFoundPage, RouteErrorPage } from './components/AppErrorBoundary'
 import Deferred from './components/Deferred'
 import LibraryPage from './pages/LibraryPage'
-import { AddSharedPage, ChatsPage, ReaderPage, SettingsPage } from './pages/LazyPages'
+import { AddSharedPage, ChatsPage, PrivacyPage, ReaderPage, SettingsPage } from './pages/LazyPages'
 
 // epub.js and JSZip account for most of the bundle and are only needed once a
 // book is open, so everything past the library loads on demand.
@@ -49,6 +49,15 @@ export const router = createBrowserRouter([
     element: (
       <Deferred>
         <SettingsPage />
+      </Deferred>
+    ),
+    errorElement: <RouteErrorPage />,
+  },
+  {
+    path: '/privacy',
+    element: (
+      <Deferred>
+        <PrivacyPage />
       </Deferred>
     ),
     errorElement: <RouteErrorPage />,

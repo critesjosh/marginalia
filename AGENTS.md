@@ -120,6 +120,7 @@ Use supplied public-domain books and synthetic conversations in tests. Do not
 log request bodies, authorization headers, or signed URL query strings. Keep
 API keys out of exports. Add telemetry events or properties only through
 `src/lib/telemetrySchema.ts` and `docs/telemetry.md`; never send content or URLs.
+Update `src/pages/PrivacyPage.tsx` when what leaves the device changes.
 
 Preserve user changes and untracked files. Do not commit, push, deploy, change
 repository settings, or make billed provider calls unless explicitly requested.

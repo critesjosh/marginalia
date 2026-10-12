@@ -7,6 +7,10 @@ The OpenRouter key is a server-side secret.
 The browser holds no API keys; chat goes through the relay. Never export keys or
 access tokens.
 
+The privacy policy at `/privacy` (`src/pages/PrivacyPage.tsx`) describes every
+flow of data off the device. Change it with any change to what is sent, stored,
+or logged, and update its date.
+
 Product telemetry (decision 0008) is off unless a build sets `VITE_POSTHOG_KEY`
 and `VITE_POSTHOG_HOST` and the Worker sets `TELEMETRY_ORIGIN`; production sets
 none of them until privacy review. Event schema, PostHog project settings,

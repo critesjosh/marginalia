@@ -177,6 +177,10 @@ export default function SettingsPage() {
           ) : (
             BUILD.label
           )}
+          {' · '}
+          <Link to="/privacy" className="underline">
+            Privacy policy
+          </Link>
         </p>
       </main>
 
@@ -213,6 +217,9 @@ function UsageDataSection() {
           This copy of Rami sends no usage data.
         </p>
       )}
+      <Link to="/privacy" className={`${button.quiet} mt-2 -ml-3`}>
+        How Rami handles your data
+      </Link>
     </section>
   )
 }
