@@ -9,6 +9,8 @@
     "public/**"
   ],
   "words": [
+    "blocklist",
+    "blocklists",
     "ABCDEFGHJKLMNPQRSTUVWXYZ",
     "adjacentpossible",
     "agenticpossible",

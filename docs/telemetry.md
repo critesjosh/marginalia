@@ -1,9 +1,10 @@
 # Telemetry
 
 Product telemetry follows [decision 0008](decisions/0008-privacy-first-telemetry.md).
-The schema in `src/lib/telemetrySchema.ts` is the source of truth; this page
-explains it. Adding an event or property means changing both, plus a test in
-`src/lib/telemetry.test.ts`.
+The schema in `shared/telemetrySchema.ts` is the source of truth; this page
+explains it. The PWA and the relay (`shared/telemetryRelay.ts`) both apply it.
+Adding an event or property means changing both this page and the schema, plus
+a test in `src/lib/telemetry.test.ts`.
 
 ## What is never sent
 
@@ -13,29 +14,40 @@ the page URL and referrer), error messages, stack traces, user agent strings,
 cookies, and any id that outlasts the page load. The only free text is the
 optional note in Report a problem, after scrubbing.
 
-PostHog still sees what any cross-origin request carries: the IP address
-(discard it, below) and the `Origin` header, which is the site's origin only.
-The phase-two proxy removes both.
+## How events travel
+
+The PWA posts batches of up to 50 events to `POST /api/telemetry/events` on
+its own origin. The relay drops anything the schema does not allow, scrubs
+report notes again, sets the PostHog control properties, and forwards the
+batch to `<TELEMETRY_HOST>/batch/` with the project key and only a
+`Content-Type` header. PostHog sees Cloudflare's address, not the reader's,
+and no user agent, cookie, `Origin` or referrer. The relay refuses
+cross-origin requests and bodies over 64 KB, and throttles each IP to 60
+batches a minute (in isolate memory, a speed bump rather than a quota).
+
+`GET /api/telemetry/config` tells the PWA whether this deployment collects
+anything and which consent rule applies (below). Until it answers, events are
+held; if it says no, or cannot be reached, nothing is sent for that page load.
 
 ## Configuration
 
-| Variable                 | Where                    | Purpose                                                       |
-| ------------------------ | ------------------------ | ------------------------------------------------------------- |
-| `VITE_POSTHOG_KEY`       | build (`.env.local`, CI) | Public project key, `phc_…`. The build rejects anything else. |
-| `VITE_POSTHOG_HOST`      | build                    | Ingestion host, e.g. `https://eu.i.posthog.com`.              |
-| `VITE_TELEMETRY_DEFAULT` | build                    | `regional` (default) or `off` (opt-in everywhere).            |
-| `TELEMETRY_DEV_COUNTRY`  | dev only                 | Country the local region check uses, e.g. `GB`.               |
-| `TELEMETRY_ORIGIN`       | Worker var               | Origin the CSP allows in `connect-src`. Must match the host.  |
+| Variable                | Where                               | Purpose                                                                     |
+| ----------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
+| `TELEMETRY_KEY`         | Worker secret; `.env.local` in dev  | Public project key, `phc_…`. The relay refuses anything else. Unset is off. |
+| `TELEMETRY_HOST`        | `wrangler.jsonc` vars; `.env.local` | Ingestion origin, `https://eu.i.posthog.com`.                               |
+| `TELEMETRY_DEFAULT`     | Worker var (optional); `.env.local` | `regional` (default) or `off` (opt-in everywhere).                          |
+| `TELEMETRY_DEV_COUNTRY` | dev only                            | Country the local region check uses, e.g. `GB`.                             |
 
-Never put a personal API key (`phx_…`) in any of these. Production and Previews
-use the EU project (303639). `TELEMETRY_ORIGIN` is committed in `wrangler.jsonc`;
-the three `VITE_` values are Workers Builds build variables, set in the
-dashboard (docs/operations.md).
+None of these reaches the browser. Never use a personal API key (`phx_…`).
+The EU project is 303639. Production gets the key with
+`wrangler secret put TELEMETRY_KEY` after privacy review; Previews get one only
+if it is added to the Preview base config, ideally for a separate project so
+test traffic stays out of production data (docs/operations.md).
 
 ## Common properties
 
-Every event carries these, plus PostHog control properties
-(`distinct_id` random per page load, `$process_person_profile: false`,
+Every event carries these, plus `distinct_id` (random per page load) and the
+PostHog control properties the relay sets (`$process_person_profile: false`,
 `$geoip_disable: true`, `$lib: rami-web`).
 
 | Property         | Values                                         |
@@ -81,8 +93,8 @@ Combine with `app_version` to see which build introduced a failure.
 
 Set these before the first event arrives:
 
-- **Discard client IP data** (Project settings > IP data capture): on. Until a
-  Worker proxy exists, PostHog sees each request's IP.
+- **Discard client IP data** (Project settings > IP data capture): on. The
+  relay already withholds the reader's IP; this drops Cloudflare's too.
 - **Region**: EU Cloud (`eu.i.posthog.com`) unless legal review prefers US.
 - **Session replay, autocapture, heatmaps, web vitals, surveys**: off. The
   client cannot send them, but leave them off so a later SDK change cannot
@@ -125,16 +137,15 @@ within-session conversion, not returning readers.
 Suggested alert: `error_occurred` with `feature = reader` above twice its
 7-day baseline for the newest `app_version`.
 
-## Phase two: Worker proxy
+## Content blockers
 
-A same-origin route (for example `POST /api/t`) could forward batches to
-PostHog without the reader's IP, keep `connect-src 'self'`, and re-validate
-the schema on the server. It needs the same abuse controls as other relay
-routes. Only `VITE_POSTHOG_HOST` would change in the client.
+Blockers that block `posthog.com` do not block the same-origin relay. The
+path is stable and documented here, so a blocklist can still name
+`/api/telemetry/events`, and GPC or Do Not Track keeps telemetry off regardless.
 
 ## Consent by region
 
-`GET /api/telemetry/region` returns `opt_in` or `opt_out` from Cloudflare's
+`GET /api/telemetry/config` returns `opt_in` or `opt_out` from Cloudflare's
 country for the request (`shared/telemetryRegion.ts`). The country is never
 stored, logged, or sent to PostHog.
 
@@ -148,7 +159,7 @@ stored, logged, or sent to PostHog.
 | Any, with GPC or Do Not Track         | Off     | None                               | Respecting the signal                               |
 
 The notice is a bar at the foot of whichever page the reader opens first, so
-a direct link to a book or a shared link shows it too. Events captured before the region is known are held and sent only if the
+a direct link to a book or a shared link shows it too. Events captured before the relay answers are held and sent only if the
 default turns out to be on. Either button on the notice records a choice, so
 it shows once.
 
@@ -159,8 +170,9 @@ it shows once.
   comprehensive information" and "simple and free" objection conditions, and
   that the notice wording is adequate.
 - **GDPR lawful basis**: legitimate interest is plausible for anonymous
-  aggregate error data, but needs a documented balancing test. The IP address
-  PostHog receives is personal data until discarded.
+  aggregate error data, but needs a documented balancing test. PostHog no
+  longer receives readers' IP addresses, which strengthens the case that the
+  counts are not personal data in its hands; Cloudflare still processes them.
 - **Report a problem** sends even with usage data off, on the reader's
   explicit Send. Confirm that counts as consent for that report, and that the
   free-text note (possibly personal data despite scrubbing) has a retention
@@ -169,8 +181,8 @@ it shows once.
   transfer mechanism if US.
 - **Privacy policy**: drafted at `/privacy` (`src/pages/PrivacyPage.tsx`) and
   linked from Settings and the notice. It needs counsel's review. It states
-  that PostHog is EU-hosted, discards IPs, and keeps events and reports for up
-  to 12 months: make those true in the PostHog project before enabling
-  telemetry, or change the page.
+  that PostHog is EU-hosted, never receives readers' IPs, and keeps events and
+  reports for up to 12 months: make those true in the PostHog project before
+  enabling telemetry, or change the page.
 - **Respecting GPC**: treated as an opt-out here; check whether any target
   jurisdiction requires more.

@@ -14,6 +14,7 @@ const UPDATED = '12 October 2026'
  */
 export default function PrivacyPage() {
   const preference = useSyncExternalStore(telemetry.subscribe, telemetry.preference)
+  const configured = useSyncExternalStore(telemetry.subscribe, telemetry.configured)
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
@@ -119,12 +120,13 @@ export default function PrivacyPage() {
             tied to you or to each other across visits.
           </p>
           <p>
-            Counts go to{' '}
+            Counts go first to our server, which checks them against the same fixed list and passes
+            them on to{' '}
             <a href="https://posthog.com/privacy" target="_blank" rel="noreferrer">
               PostHog
             </a>
-            , our analytics processor, hosted in the EU. PostHog receives your IP address with each
-            request, as any website does, and is set to discard it. Counts are kept for up to 12
+            , our analytics processor, hosted in the EU. PostHog never receives your IP address or
+            any details of your browser beyond the family named above. Counts are kept for up to 12
             months.
           </p>
           <p>
@@ -136,7 +138,7 @@ export default function PrivacyPage() {
             forgets it at once.
           </p>
           <p className="rounded-md border border-rule bg-paper-leaf p-3 text-meta">
-            {telemetry.configured
+            {configured
               ? `On this device, usage data is ${preference === 'on' ? 'on' : 'off'}. `
               : 'This copy of Rami sends no usage data. '}
             You can change it any time in <Link to="/settings">Settings</Link>.

@@ -5,6 +5,7 @@
  * allow opt-out with notice. Unknown countries get the stricter default.
  *
  * The country is read and dropped: it is never stored, logged, or sent on.
+ * `telemetryRelay.ts` serves the answer.
  */
 
 export type TelemetryConsent = 'opt_in' | 'opt_out'
@@ -23,15 +24,4 @@ export function consentForCountry(country: string | null | undefined): Telemetry
   // Cloudflare sends XX for unknown and T1 for Tor; neither says where the reader is.
   if (!code || !/^[A-Z]{2}$/.test(code) || code === 'XX' || code === 'T1') return 'opt_in'
   return OPT_IN_COUNTRIES.has(code) ? 'opt_in' : 'opt_out'
-}
-
-export function handleTelemetryRegionRequest(
-  request: Request,
-  country: string | null | undefined,
-): Response {
-  const headers = { 'Cache-Control': 'private, no-store' }
-  if (request.method !== 'GET') {
-    return Response.json({ error: { message: 'Method not allowed.' } }, { status: 405, headers })
-  }
-  return Response.json({ consent: consentForCountry(country) }, { headers })
 }

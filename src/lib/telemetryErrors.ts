@@ -1,4 +1,4 @@
-import { ERROR_NAME_PATTERN, MAX_FEEDBACK_LENGTH, type ErrorCategory } from './telemetrySchema'
+import { ERROR_NAME_PATTERN, type ErrorCategory } from '../../shared/telemetrySchema'
 
 /**
  * What an error may say about itself in telemetry: a fixed category, the
@@ -73,19 +73,4 @@ export function newErrorRef(random: (n: number) => Uint8Array = randomBytes): st
 
 function randomBytes(n: number): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(n))
-}
-
-/**
- * Report a problem accepts a note, which can contain anything. Strip the
- * contact details and links people paste most often, and cap the length.
- */
-export function scrubFeedback(text: string): string {
-  return text
-    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]')
-    .replace(/\b(?:https?|ftp|blob|data|file):\S+/gi, '[link]')
-    .replace(/\bwww\.\S+/gi, '[link]')
-    .replace(/\+?\d[\d\s().-]{6,}\d/g, '[number]')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_FEEDBACK_LENGTH)
 }

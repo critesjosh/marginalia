@@ -11,16 +11,18 @@ The privacy policy at `/privacy` (`src/pages/PrivacyPage.tsx`) describes every
 flow of data off the device. Change it with any change to what is sent, stored,
 or logged, and update its date.
 
-Product telemetry (decision 0008) sends only when the build sets
-`VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST` and the Worker allows
-`TELEMETRY_ORIGIN`. `TELEMETRY_ORIGIN` is in `wrangler.jsonc` for production and
-Previews. The build variables are set in the dashboard under Workers Builds,
-Settings, Build, Variables and secrets, for production and non-production
-branches. None of them is a secret: the `phc_` project key is public. Event
-schema, PostHog project settings, retention, and dashboards are in
-[telemetry.md](telemetry.md). To stop it in an emergency, delete the build
-variables and retry the latest build; removing `TELEMETRY_ORIGIN` from
-`wrangler.jsonc` and deploying also blocks sends at the CSP. Workers log only the operation metrics described below; read
+Product telemetry (decision 0008) goes through the Worker's relay at
+`/api/telemetry/*` and is collected only when the Worker has a `TELEMETRY_KEY`
+secret (the public `phc_` project key) and `TELEMETRY_HOST`, which is in
+`wrangler.jsonc`. Enable production after privacy review with
+`wrangler secret put TELEMETRY_KEY`. Previews have no key unless one is added
+to the Preview base config in the dashboard (Workers, Settings, Variables and
+secrets); use a separate PostHog project there so test traffic stays out of
+production data. Nothing is set at build time. Event schema, PostHog project
+settings, retention, and dashboards are in [telemetry.md](telemetry.md). To
+stop it in an emergency, run `wrangler secret delete TELEMETRY_KEY`: the relay
+refuses every batch at once, without a build or deploy, and new page loads
+stop capturing. Workers log only the operation metrics described below; read
 them in Cloudflare Workers observability. Builds do not emit source maps.
 
 Lost stored files and app updates are logged on the device in localStorage

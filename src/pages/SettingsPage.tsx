@@ -191,11 +191,12 @@ export default function SettingsPage() {
 
 function UsageDataSection() {
   const preference = useSyncExternalStore(telemetry.subscribe, telemetry.preference)
+  const configured = useSyncExternalStore(telemetry.subscribe, telemetry.configured)
 
   return (
     <section className={card}>
       <h2 className="font-book text-heading font-medium">Usage data</h2>
-      {telemetry.configured ? (
+      {configured ? (
         <label className="mt-3 flex items-start gap-3">
           <input
             type="checkbox"

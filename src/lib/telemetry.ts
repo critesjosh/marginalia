@@ -1,13 +1,13 @@
 /**
- * Privacy-first product telemetry, sent to PostHog Cloud's capture API
- * (decision 0008, docs/telemetry.md).
+ * Privacy-first product telemetry (decision 0008, docs/telemetry.md), sent to
+ * Rami's own relay (`shared/telemetryRelay.ts`), which forwards it to PostHog
+ * Cloud without the reader's IP address or headers.
  *
- * Off unless the build names a PostHog project key and host, and then only
+ * Off unless the relay says this deployment collects usage data, and then only
  * while the reader's preference is on. Events and properties are allowlisted
- * in `telemetrySchema.ts`. There is no SDK, so no autocapture, session
- * recording, cookies or stored identifiers: each page load gets a random id
- * held in memory, and PostHog is told not to build a person profile or look up
- * the request's location.
+ * in `shared/telemetrySchema.ts`, here and again on the relay. There is no SDK,
+ * so no autocapture, session recording, cookies or stored identifiers: each
+ * page load gets a random id held in memory.
  */
 
 import { APP_VERSION } from './buildInfo'
@@ -16,6 +16,7 @@ import {
   COMMON_SCHEMA,
   EVENT_SCHEMA,
   isEventName,
+  MAX_BATCH,
   pickAllowed,
   type CommonProperties,
   type ErrorCategory,
@@ -23,10 +24,13 @@ import {
   type EventProperties,
   type Feature,
   type Operation,
-} from './telemetrySchema'
-import { classifyError, newErrorRef, scrubFeedback, type ClassifiedError } from './telemetryErrors'
+  scrubFeedback,
+} from '../../shared/telemetrySchema'
+import type { TelemetryConfigResponse } from '../../shared/telemetryRelay'
+import { classifyError, newErrorRef, type ClassifiedError } from './telemetryErrors'
 
 const PREFERENCE_KEY = 'marginalia.telemetry'
+const EVENTS_URL = '/api/telemetry/events'
 const FLUSH_AT = 10
 const FLUSH_INTERVAL_MS = 10_000
 /** A runaway loop must not turn into a flood of requests. */
@@ -35,8 +39,8 @@ const MAX_EVENTS_PER_LOAD = 300
 export type Preference = 'on' | 'off'
 /** What a reader is asked before choosing: to opt in, or told they may opt out. */
 export type Notice = 'ask' | 'inform'
-/** Server answer for this reader's region (shared/telemetryRegion.ts). */
-type RegionConsent = 'opt_in' | 'opt_out'
+/** What the relay said: still asking, collecting nothing, or the region's rule. */
+type ServerState = 'pending' | 'disabled' | 'opt_in' | 'opt_out'
 
 type ImportSource = NonNullable<EventProperties<'book_imported'>['source']>
 const IMPORT_OPERATIONS: Record<ImportSource, Operation> = {
@@ -46,16 +50,6 @@ const IMPORT_OPERATIONS: Record<ImportSource, Operation> = {
 }
 
 export interface TelemetryConfig {
-  /** PostHog project API key (`phc_…`), which is public by design. */
-  apiKey?: string
-  /** PostHog ingestion host, e.g. `https://eu.i.posthog.com`. */
-  host?: string
-  /**
-   * Preference before the reader chooses. `regional` asks the server: opt-in in
-   * the EU, EEA and Switzerland, opt-out elsewhere. `off` is opt-in everywhere.
-   * A browser privacy signal always makes it `off`.
-   */
-  defaultMode: 'regional' | 'off'
   appVersion: string
 }
 
@@ -70,8 +64,12 @@ export interface TelemetryDeps {
   /** Global Privacy Control or Do Not Track. */
   privacySignal: () => boolean
   context: () => Omit<CommonProperties, 'app_version'>
-  /** The region's consent rule; a failure counts as opt-in. */
-  region: () => Promise<RegionConsent>
+  /**
+   * Whether the relay collects usage data and, if so, the reader's region rule:
+   * opt-in in the EU, EEA and Switzerland, opt-out elsewhere. A failure counts
+   * as collecting nothing for this page load.
+   */
+  serverConfig: () => Promise<TelemetryConfigResponse>
 }
 
 interface RecordedError extends ClassifiedError {
@@ -98,24 +96,7 @@ function errorProperties(error: RecordedError) {
   }
 }
 
-/** Accepts only a project key: a personal key (`phx_…`) must never reach the browser. */
-export function isProjectKey(key: string | undefined): key is string {
-  return typeof key === 'string' && /^phc_[A-Za-z0-9]{20,64}$/.test(key)
-}
-
-function isHost(host: string | undefined): host is string {
-  if (!host) return false
-  try {
-    const url = new URL(host)
-    return url.protocol === 'https:' && url.pathname === '/' && !url.search && !url.username
-  } catch {
-    return false
-  }
-}
-
 export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
-  const configured = isProjectKey(config.apiKey) && isHost(config.host)
-  const endpoint = configured ? new URL('/batch/', config.host).href : ''
   const distinctId = deps.loadId()
   const listeners = new Set<() => void>()
   let queue: QueuedEvent[] = []
@@ -126,9 +107,8 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
   // in another tab applies here too; once a save fails, this choice wins.
   let chosen: Preference | undefined
   let unsaved = false
-  // The default before the reader chooses; `pending` until the region is known.
-  let regionDefault: Preference | 'pending' =
-    config.defaultMode === 'regional' && configured ? 'pending' : 'off'
+  let server: ServerState = 'pending'
+  let starting: Promise<void> | undefined
 
   function readStored(): Preference | undefined {
     try {
@@ -143,27 +123,39 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
     return unsaved ? chosen : (readStored() ?? chosen)
   }
 
-  /** No choice yet and the region still unknown: hold events, send nothing. */
+  function configured(): boolean {
+    return server === 'opt_in' || server === 'opt_out'
+  }
+
+  /** The relay has not answered and the reader may be on: hold events, send nothing. */
   function pending(): boolean {
-    return !explicit() && !deps.privacySignal() && regionDefault === 'pending'
+    if (server !== 'pending') return false
+    const stored = explicit()
+    return stored ? stored === 'on' : !deps.privacySignal()
   }
 
   function preference(): Preference {
     const stored = explicit()
     if (stored) return stored
-    if (deps.privacySignal() || regionDefault === 'pending') return 'off'
-    return regionDefault
+    return server === 'opt_out' && !deps.privacySignal() ? 'on' : 'off'
   }
 
   function notify() {
     for (const listener of listeners) listener()
   }
 
-  /** Learns the region's default, then sends or drops what was held meanwhile. */
-  async function start(): Promise<void> {
-    if (regionDefault !== 'pending') return
-    const consent = await deps.region().catch((): RegionConsent => 'opt_in')
-    regionDefault = consent === 'opt_out' ? 'on' : 'off'
+  /** Asks the relay once, then sends or drops what was held meanwhile. */
+  function start(): Promise<void> {
+    starting ??= load()
+    return starting
+  }
+
+  async function load(): Promise<void> {
+    const answer = await deps
+      .serverConfig()
+      .catch((): TelemetryConfigResponse => ({ enabled: false }))
+    if (!answer.enabled) server = 'disabled'
+    else server = answer.consent === 'opt_out' ? 'opt_out' : 'opt_in'
     if (!enabled()) queue = []
     else if (queue.length) timer ??= setTimeout(() => void flush(), FLUSH_INTERVAL_MS)
     notify()
@@ -171,8 +163,8 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
 
   /** The one-time notice to show, if the reader has not chosen yet. */
   function notice(): Notice | undefined {
-    if (!configured || explicit() || deps.privacySignal() || regionDefault === 'pending') return
-    return regionDefault === 'on' ? 'inform' : 'ask'
+    if (!configured() || explicit() || deps.privacySignal()) return
+    return server === 'opt_out' ? 'inform' : 'ask'
   }
 
   function setPreference(next: Preference) {
@@ -201,25 +193,30 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
         ...common,
         ...pickAllowed(EVENT_SCHEMA[name], properties),
         distinct_id: distinctId,
-        $process_person_profile: false,
-        $geoip_disable: true,
-        $lib: 'rami-web',
       },
     }
   }
 
-  function post(batch: QueuedEvent[]): Promise<boolean> {
+  function postChunk(batch: QueuedEvent[]): Promise<boolean> {
     return deps
-      .fetch(endpoint, {
+      .fetch(EVENTS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: config.apiKey, batch }),
+        body: JSON.stringify({ batch }),
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
         keepalive: true,
       })
       .then((response) => response.ok)
       .catch(() => false)
+  }
+
+  /** In chunks the relay accepts; events held before the relay answered can exceed one. */
+  async function post(batch: QueuedEvent[]): Promise<boolean> {
+    const chunks = []
+    for (let i = 0; i < batch.length; i += MAX_BATCH) chunks.push(batch.slice(i, i + MAX_BATCH))
+    const results = await Promise.all(chunks.map(postChunk))
+    return results.every(Boolean)
   }
 
   function flush(): Promise<boolean> {
@@ -235,11 +232,11 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
   }
 
   function enabled(): boolean {
-    return configured && preference() === 'on'
+    return configured() && preference() === 'on'
   }
 
   function capture<E extends EventName>(name: E, properties: EventProperties<E> = {}) {
-    const holding = configured && pending()
+    const holding = pending()
     if ((!holding && !enabled()) || !isEventName(name) || sentThisLoad >= MAX_EVENTS_PER_LOAD)
       return
     sentThisLoad++
@@ -269,16 +266,17 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
 
   /**
    * Sends a report the reader wrote and chose to submit. Its own consent, so
-   * it goes even with usage data off; it still needs a configured build.
+   * it goes even with usage data off; it still needs a relay that collects.
    */
-  function report({
+  async function report({
     feedback,
     error,
   }: {
     feedback?: string
     error?: RecordedError
   }): Promise<boolean> {
-    if (!configured) return Promise.resolve(false)
+    await start()
+    if (!configured()) return false
     const note = feedback ? scrubFeedback(feedback) : ''
     return post([
       build('problem_reported', {
@@ -362,23 +360,16 @@ function browserDeps(): TelemetryDeps {
       form_factor: matchMedia('(pointer: coarse)').matches ? 'touch' : 'pointer',
       browser_family: browserFamily(navigator.userAgent),
     }),
-    region: async () => {
-      const response = await fetch('/api/telemetry/region', { credentials: 'omit' })
-      const body = (await response.json()) as { consent?: unknown }
-      return body.consent === 'opt_out' ? 'opt_out' : 'opt_in'
+    serverConfig: async () => {
+      const response = await fetch('/api/telemetry/config', { credentials: 'omit' })
+      const body = (await response.json()) as { enabled?: unknown; consent?: unknown }
+      if (!response.ok || body.enabled !== true) return { enabled: false }
+      return { enabled: true, consent: body.consent === 'opt_out' ? 'opt_out' : 'opt_in' }
     },
   }
 }
 
-export const telemetry: Telemetry = createTelemetry(
-  {
-    apiKey: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
-    host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
-    defaultMode: import.meta.env.VITE_TELEMETRY_DEFAULT === 'off' ? 'off' : 'regional',
-    appVersion: APP_VERSION,
-  },
-  browserDeps(),
-)
+export const telemetry: Telemetry = createTelemetry({ appVersion: APP_VERSION }, browserDeps())
 
 /** Reports uncaught errors and sends what is queued before the page goes away. */
 export function installTelemetry(target: Window = window) {
@@ -401,6 +392,6 @@ export function installTelemetry(target: Window = window) {
       ? 'standalone'
       : 'browser',
   })
-  // Held until the region is known; nothing is sent before then.
+  // Held until the relay answers; nothing is sent before then.
   void telemetry.start()
 }

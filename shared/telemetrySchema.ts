@@ -1,8 +1,10 @@
 /**
  * The complete list of product events and the properties each may carry
  * (docs/telemetry.md, decision 0008). Anything not named here is dropped
- * before it leaves the device, so a careless call site cannot send book text,
- * titles, notes, prompts, replies, URLs or other free text.
+ * before it leaves the device, and dropped again by the relay
+ * (`telemetryRelay.ts`) before it reaches PostHog, so a careless call site cannot
+ * send book text, titles, notes, prompts, replies, URLs or other free text.
+ * Shared by the PWA and the Worker, so it uses no browser or Worker APIs.
  */
 
 type Validator<T> = (value: unknown) => value is T
@@ -65,6 +67,9 @@ const operation = oneOf(...OPERATIONS)
 /** A code-defined class name such as `TypeError`, never a message. */
 export const ERROR_NAME_PATTERN = /^[A-Z][A-Za-z]{0,39}$/
 const errorName = matching(ERROR_NAME_PATTERN)
+
+/** Most events the PWA sends to the relay in one request. */
+export const MAX_BATCH = 50
 
 /** Free text the reader typed into Report a problem, already scrubbed. */
 export const MAX_FEEDBACK_LENGTH = 1000
@@ -158,4 +163,19 @@ export function durationBucket(ms: number): EventProperties<'ai_message_sent'>['
   if (ms < 10_000) return '2_10s'
   if (ms < 30_000) return '10_30s'
   return '30s_plus'
+}
+
+/**
+ * Report a problem accepts a note, which can contain anything. Strip the
+ * contact details and links people paste most often, and cap the length.
+ */
+export function scrubFeedback(text: string): string {
+  return text
+    .replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, '[email]')
+    .replace(/\b(?:https?|ftp|blob|data|file):\S+/gi, '[link]')
+    .replace(/\bwww\.\S+/gi, '[link]')
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, '[number]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_FEEDBACK_LENGTH)
 }

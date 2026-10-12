@@ -14,7 +14,7 @@ paths:
               type: object
               required: [messages]
               properties:
-                stream: {type: boolean}
+                stream: { type: boolean }
                 messages:
                   type: array
                   minItems: 1
@@ -23,85 +23,131 @@ paths:
                     type: object
                     required: [role, content]
                     properties:
-                      role: {enum: [system, user, assistant]}
-                      content: {type: string}
+                      role: { enum: [system, user, assistant] }
+                      content: { type: string }
               description: At most 120000 total content characters and 600000 body bytes. Model/provider fields are ignored.
       responses:
-        "200":
+        '200':
           description: OpenAI-compatible completion or SSE stream
           content:
-            text/event-stream: {schema: {type: string}}
-            application/json: {schema: {type: object}}
-        "400": {description: Invalid JSON or content limits}
-        "403": {description: Cross-origin browser request}
-        "429": {description: Best-effort isolate-local throttle}
-        "503": {description: Key absent, chat disabled, circuit open, or upstream unavailable}
-        "504": {description: Upstream headers exceeded 30 seconds}
+            text/event-stream: { schema: { type: string } }
+            application/json: { schema: { type: object } }
+        '400': { description: Invalid JSON or content limits }
+        '403': { description: Cross-origin browser request }
+        '429': { description: Best-effort isolate-local throttle }
+        '503': { description: Key absent, chat disabled, circuit open, or upstream unavailable }
+        '504': { description: Upstream headers exceeded 30 seconds }
   /api/gutenberg:
     get:
       summary: Same-origin Project Gutenberg catalog search, book details and EPUB download relay
       description: Exactly one of search, details or book. Never proxies an arbitrary URL.
       parameters:
-        - {in: query, name: search, schema: {type: string, maxLength: 200}}
-        - {in: query, name: details, schema: {type: string, pattern: '^\d{1,8}$'}}
-        - {in: query, name: book, schema: {type: string, pattern: '^\d{1,8}$'}}
+        - { in: query, name: search, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: details, schema: { type: string, pattern: '^\d{1,8}$' } }
+        - { in: query, name: book, schema: { type: string, pattern: '^\d{1,8}$' } }
       responses:
-        "200":
+        '200':
           description: 'Normalized results (id, title, optional author) for search; one catalog record (contributors with roles, summary, release date, 30-day downloads, language, subjects, cross-referenced editions) for details; or an EPUB stream for book'
           content:
-            application/json: {schema: {type: object}}
-            application/epub+zip: {schema: {type: string, format: binary}}
-        "400": {description: Missing, invalid, or overlong parameter}
-        "403": {description: Cross-origin browser request or hotlink}
-        "404": {description: Gutenberg has no book with that details id}
-        "405": {description: Not a GET}
-        "429": {description: Best-effort isolate-local throttle, separate from chat}
-        "502": {description: Upstream refused, returned no body, or sent a record for another book}
-        "504": {description: Upstream headers exceeded 20 seconds}
-  /api/telemetry/region:
+            application/json: { schema: { type: object } }
+            application/epub+zip: { schema: { type: string, format: binary } }
+        '400': { description: Missing, invalid, or overlong parameter }
+        '403': { description: Cross-origin browser request or hotlink }
+        '404': { description: Gutenberg has no book with that details id }
+        '405': { description: Not a GET }
+        '429': { description: Best-effort isolate-local throttle, separate from chat }
+        '502':
+          { description: Upstream refused, returned no body, or sent a record for another book }
+        '504': { description: Upstream headers exceeded 20 seconds }
+  /api/telemetry/config:
     get:
-      summary: Which telemetry default applies to this reader (decision 0008)
-      description: From Cloudflare's country for the request, read and dropped, never stored or logged. EU, EEA and Switzerland, or unknown, answer opt_in; elsewhere opt_out.
+      summary: Whether this deployment collects usage data, and the reader's consent rule (decision 0008)
+      description: Off without a PostHog project key on the server. The rule comes from Cloudflare's country for the request, read and dropped, never stored or logged. EU, EEA and Switzerland, or unknown, answer opt_in; elsewhere opt_out, unless TELEMETRY_DEFAULT=off makes it opt_in everywhere.
       responses:
-        "200":
-          description: The consent mode only, not cached
+        '200':
+          description: Not cached
           content:
             application/json:
               schema:
                 type: object
-                required: [consent]
+                required: [enabled]
                 properties:
-                  consent: {type: string, enum: [opt_in, opt_out]}
-        "405": {description: Not a GET}
+                  enabled: { type: boolean }
+                  consent:
+                    { type: string, enum: [opt_in, opt_out], description: Present when enabled }
+        '405': { description: Not a GET }
+  /api/telemetry/events:
+    post:
+      summary: Same-origin relay for allowlisted telemetry events to PostHog
+      description: Each event is rebuilt from the schema in shared/telemetrySchema.ts; anything else is dropped. Forwarded with the project key and none of the request's headers, so PostHog never receives the reader's IP address or user agent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch]
+              properties:
+                batch:
+                  type: array
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [event, properties]
+                    properties:
+                      event: { type: string, description: An event name from the schema }
+                      timestamp: { type: string, format: date-time }
+                      properties:
+                        type: object
+                        required: [distinct_id]
+                        description: Allowlisted properties plus a random per-page-load distinct_id
+                        additionalProperties: true
+      responses:
+        '204': { description: Forwarded, or nothing in the batch was allowed }
+        '400': { description: Not a JSON batch }
+        '403': { description: Cross-origin browser request }
+        '405': { description: Not a POST }
+        '413': { description: Body over 64 KB or more than 50 events }
+        '429': { description: Best-effort isolate-local throttle }
+        '502': { description: PostHog refused or could not be reached }
+        '503': { description: Usage data is off on this deployment }
   /api/covers:
     get:
       summary: Same-origin Open Library cover search and image relay
       description: Exactly one of title (with optional author) or id. Never proxies an arbitrary URL.
       parameters:
-        - {in: query, name: title, schema: {type: string, maxLength: 200}}
-        - {in: query, name: author, schema: {type: string, maxLength: 200}}
-        - {in: query, name: id, schema: {type: string, pattern: '^\d{1,10}$'}}
-        - {in: query, name: size, schema: {type: string, enum: [M, L], default: L}}
+        - { in: query, name: title, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: author, schema: { type: string, maxLength: 200 } }
+        - { in: query, name: id, schema: { type: string, pattern: '^\d{1,10}$' } }
+        - { in: query, name: size, schema: { type: string, enum: [M, L], default: L } }
       responses:
-        "200":
+        '200':
           description: 'Up to eight candidates (cover id, title, optional author and year) for title, or a raster image of at most 2 MB for id'
           content:
-            application/json: {schema: {type: object}}
-            image/jpeg: {schema: {type: string, format: binary}}
-        "400": {description: Missing, invalid, or overlong parameter}
-        "403": {description: Cross-origin browser request or hotlink}
-        "404": {description: Open Library has no image for that cover id}
-        "405": {description: Not a GET}
-        "429": {description: Best-effort isolate-local throttle, separate from chat and Gutenberg}
-        "502": {description: Upstream refused, or returned a non-raster or oversized image}
-        "504": {description: Upstream headers exceeded 20 seconds}
+            application/json: { schema: { type: object } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        '400': { description: Missing, invalid, or overlong parameter }
+        '403': { description: Cross-origin browser request or hotlink }
+        '404': { description: Open Library has no image for that cover id }
+        '405': { description: Not a GET }
+        '429': { description: Best-effort isolate-local throttle, separate from chat and Gutenberg }
+        '502': { description: Upstream refused, or returned a non-raster or oversized image }
+        '504': { description: Upstream headers exceeded 20 seconds }
   /api/threads:
     get:
       summary: Turnstile site key for publishing a thread
       responses:
-        "200": {description: 'Public site key', content: {application/json: {schema: {type: object, properties: {siteKey: {type: string}}}}}}
-        "403": {description: Cross-origin browser request}
-        "503": {description: Publishing disabled or storage or Turnstile not configured}
+        '200':
+          {
+            description: 'Public site key',
+            content:
+              {
+                application/json:
+                  { schema: { type: object, properties: { siteKey: { type: string } } } },
+              },
+          }
+        '403': { description: Cross-origin browser request }
+        '503': { description: Publishing disabled or storage or Turnstile not configured }
     post:
       summary: Publish a thread snapshot at an unlisted link
       description: Requires a passing Turnstile token. The link expires one year after its last publish.
@@ -113,7 +159,7 @@ paths:
               type: object
               required: [thread, turnstileToken]
               properties:
-                turnstileToken: {type: string}
+                turnstileToken: { type: string }
                 thread:
                   type: object
                   required: [book, messages]
@@ -122,10 +168,10 @@ paths:
                       type: object
                       required: [title, author]
                       properties:
-                        title: {type: string, minLength: 1, maxLength: 300}
-                        author: {type: string, maxLength: 300}
-                    chapter: {type: string, maxLength: 300}
-                    passage: {type: string, maxLength: 2000}
+                        title: { type: string, minLength: 1, maxLength: 300 }
+                        author: { type: string, maxLength: 300 }
+                    chapter: { type: string, maxLength: 300 }
+                    passage: { type: string, maxLength: 2000 }
                     messages:
                       type: array
                       minItems: 1
@@ -134,46 +180,51 @@ paths:
                         type: object
                         required: [role, content]
                         properties:
-                          role: {enum: [user, assistant]}
-                          content: {type: string}
+                          role: { enum: [user, assistant] }
+                          content: { type: string }
               description: At most 64 KB. Unlisted fields are dropped.
       responses:
-        "201":
+        '201':
           description: 'Link created: id, url, ownerToken (shown once; the server keeps only its hash), expiresAt'
           content:
-            application/json: {schema: {type: object}}
-        "400": {description: Invalid JSON or limits}
-        "403": {description: Cross-origin browser request or failed Turnstile check}
-        "429": {description: Best-effort isolate-local throttle}
-        "503": {description: Publishing disabled or storage or Turnstile not configured}
+            application/json: { schema: { type: object } }
+        '400': { description: Invalid JSON or limits }
+        '403': { description: Cross-origin browser request or failed Turnstile check }
+        '429': { description: Best-effort isolate-local throttle }
+        '503': { description: Publishing disabled or storage or Turnstile not configured }
   /api/threads/{id}:
     parameters:
-      - {in: path, name: id, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}}
+      - {
+          in: path,
+          name: id,
+          required: true,
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{22}$' },
+        }
     put:
       summary: Republish a thread to its existing link
       description: 'Authorization: Bearer <ownerToken>. Same body as POST, without the Turnstile token. Restarts the one-year expiry.'
       responses:
-        "200": {description: 'id, url, expiresAt'}
-        "400": {description: Invalid JSON or limits}
-        "401": {description: Missing owner token}
-        "404": {description: No such thread, or the token does not own it}
-        "429": {description: Best-effort isolate-local throttle}
+        '200': { description: 'id, url, expiresAt' }
+        '400': { description: Invalid JSON or limits }
+        '401': { description: Missing owner token }
+        '404': { description: No such thread, or the token does not own it }
+        '429': { description: Best-effort isolate-local throttle }
     delete:
       summary: Remove a published thread
       description: 'Authorization: Bearer <ownerToken>.'
       responses:
-        "204": {description: Removed}
-        "401": {description: Missing owner token}
-        "404": {description: No such thread, or the token does not own it}
+        '204': { description: Removed }
+        '401': { description: Missing owner token }
+        '404': { description: No such thread, or the token does not own it }
   /t/{id}:
     parameters:
-      - {in: path, name: id, required: true, schema: {type: string}}
+      - { in: path, name: id, required: true, schema: { type: string } }
     get:
       summary: Read-only page for a published thread
       description: Static HTML, no scripts, noindex. Not cached by HTTP; Workers KV can serve a removed link for up to a minute in other locations.
       responses:
-        "200": {description: The thread, content: {text/html: {schema: {type: string}}}}
-        "404": {description: Expired, removed, or unknown link}
+        '200': { description: The thread, content: { text/html: { schema: { type: string } } } }
+        '404': { description: Expired, removed, or unknown link }
   /api/books:
     post:
       summary: Share a Project Gutenberg book at a link that adds it for the recipient
@@ -186,71 +237,86 @@ paths:
               type: object
               required: [book, turnstileToken]
               properties:
-                turnstileToken: {type: string}
+                turnstileToken: { type: string }
                 book:
                   type: object
                   required: [title, author, gutenbergId]
                   properties:
-                    title: {type: string, minLength: 1, maxLength: 300}
-                    author: {type: string, maxLength: 300}
-                    gutenbergId: {type: integer, minimum: 1, maximum: 99999999}
-                cover: {type: string, format: byte, description: Base64 JPEG of at most 256 KB}
+                    title: { type: string, minLength: 1, maxLength: 300 }
+                    author: { type: string, maxLength: 300 }
+                    gutenbergId: { type: integer, minimum: 1, maximum: 99999999 }
+                cover: { type: string, format: byte, description: Base64 JPEG of at most 256 KB }
               description: At most 400 KB. Unlisted fields are dropped.
       responses:
-        "201":
+        '201':
           description: 'Link created: id, url (/b/<id>), ownerToken (shown once; the server keeps only its hash), expiresAt'
           content:
-            application/json: {schema: {type: object}}
-        "400": {description: Invalid JSON, not a Gutenberg book, or a cover that is not a small JPEG}
-        "403": {description: Cross-origin browser request or failed Turnstile check}
-        "405": {description: Not a POST}
-        "429": {description: Best-effort isolate-local throttle, separate from threads}
-        "503": {description: Publishing disabled or storage or Turnstile not configured}
+            application/json: { schema: { type: object } }
+        '400':
+          { description: Invalid JSON, not a Gutenberg book, or a cover that is not a small JPEG }
+        '403': { description: Cross-origin browser request or failed Turnstile check }
+        '405': { description: Not a POST }
+        '429': { description: Best-effort isolate-local throttle, separate from threads }
+        '503': { description: Publishing disabled or storage or Turnstile not configured }
   /api/books/{id}:
     parameters:
-      - {in: path, name: id, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}}
+      - {
+          in: path,
+          name: id,
+          required: true,
+          schema: { type: string, pattern: '^[A-Za-z0-9_-]{22}$' },
+        }
     get:
       summary: What the app needs to add a shared book
       responses:
-        "200": {description: 'book (title, author, gutenbergId) and cover (whether one is stored)', content: {application/json: {schema: {type: object}}}}
-        "403": {description: Cross-origin browser request}
-        "404": {description: Expired, removed, or unknown link}
+        '200':
+          {
+            description: 'book (title, author, gutenbergId) and cover (whether one is stored)',
+            content: { application/json: { schema: { type: object } } },
+          }
+        '403': { description: Cross-origin browser request }
+        '404': { description: Expired, removed, or unknown link }
     put:
       summary: Update a shared book's card, such as a changed cover
       description: 'Authorization: Bearer <ownerToken>. Same body as POST, without the Turnstile token. A missing cover removes the stored one. Restarts the one-year expiry.'
       responses:
-        "200": {description: 'id, url, expiresAt'}
-        "400": {description: Invalid JSON or limits}
-        "401": {description: Missing owner token}
-        "404": {description: No such link, or the token does not own it}
-        "429": {description: Best-effort isolate-local throttle}
-        "503": {description: Publishing disabled or storage or Turnstile not configured}
+        '200': { description: 'id, url, expiresAt' }
+        '400': { description: Invalid JSON or limits }
+        '401': { description: Missing owner token }
+        '404': { description: No such link, or the token does not own it }
+        '429': { description: Best-effort isolate-local throttle }
+        '503': { description: Publishing disabled or storage or Turnstile not configured }
     delete:
       summary: Remove a shared book link
       description: 'Authorization: Bearer <ownerToken>. Works while publishing is disabled.'
       responses:
-        "204": {description: Removed}
-        "401": {description: Missing owner token}
-        "404": {description: No such link, or the token does not own it}
+        '204': { description: Removed }
+        '401': { description: Missing owner token }
+        '404': { description: No such link, or the token does not own it }
   /b/{id}:
     parameters:
-      - {in: path, name: id, required: true, schema: {type: string}}
+      - { in: path, name: id, required: true, schema: { type: string } }
     get:
       summary: The app, with the shared book's preview tags
       description: The PWA's index.html with Open Graph tags (title, author, cover image) added, noindex. The app then adds the book. An unknown link gets the app unchanged, which reports it as gone.
       responses:
-        "200": {description: The app shell, content: {text/html: {schema: {type: string}}}}
+        '200': { description: The app shell, content: { text/html: { schema: { type: string } } } }
   /b/{id}/cover:
     parameters:
-      - {in: path, name: id, required: true, schema: {type: string}}
+      - { in: path, name: id, required: true, schema: { type: string } }
     get:
       summary: A shared book's cover, the preview card image
       responses:
-        "200": {description: JPEG, cached for five minutes, content: {image/jpeg: {schema: {type: string, format: binary}}}}
-        "404": {description: Expired, removed, or unknown link, or no cover stored}
-        "405": {description: Not a GET or HEAD}
+        '200':
+          {
+            description: JPEG,
+            cached for five minutes,
+            content: { image/jpeg: { schema: { type: string, format: binary } } },
+          }
+        '404': { description: Expired, removed, or unknown link, or no cover stored }
+        '405': { description: Not a GET or HEAD }
   /health:
     get:
       summary: Worker liveness, no provider or storage requests
       responses:
-        "200": {description: Running, not a dependency readiness guarantee}
+        '200': { description: Running, not a dependency readiness guarantee }

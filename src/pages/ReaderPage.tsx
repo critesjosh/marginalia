@@ -10,7 +10,7 @@ import { THEMES } from '../lib/themes'
 import { newId } from '../lib/id'
 import { isSampleBookId } from '../lib/sampleBook'
 import { telemetry } from '../lib/telemetry'
-import { lengthBucket } from '../lib/telemetrySchema'
+import { lengthBucket } from '../../shared/telemetrySchema'
 import {
   contextAround,
   paintHighlight,

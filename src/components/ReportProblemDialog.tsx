@@ -1,24 +1,25 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useModal } from '../lib/useModal'
 import { telemetry } from '../lib/telemetry'
-import { MAX_FEEDBACK_LENGTH } from '../lib/telemetrySchema'
+import { MAX_FEEDBACK_LENGTH } from '../../shared/telemetrySchema'
 import { button } from './ui'
 
 const ISSUES_URL = 'https://github.com/critesjosh/marginalia/issues/new'
 
 /**
  * Report a problem: an optional note plus the reference of the last error on
- * this page load. Nothing is sent until the reader presses Send. A build
+ * this page load. Nothing is sent until the reader presses Send. A deployment
  * without telemetry points to GitHub issues instead.
  */
 export default function ReportProblemDialog({ onClose }: { onClose: () => void }) {
   const ref = useModal<HTMLDivElement>(onClose)
+  const configured = useSyncExternalStore(telemetry.subscribe, telemetry.configured)
   const lastError = telemetry.lastError()
   const [note, setNote] = useState('')
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle')
 
   const sent = state === 'sent'
-  const canSend = !sent && telemetry.configured
+  const canSend = !sent && configured
 
   async function send() {
     setState('sending')
@@ -73,7 +74,7 @@ export default function ReportProblemDialog({ onClose }: { onClose: () => void }
             )}
           </>
         )}
-        {!telemetry.configured && (
+        {!configured && (
           <p className="mt-3 font-ui text-body text-ink-soft">
             This copy of Rami doesn’t send reports. Open an issue on GitHub instead
             {lastError ? `, and mention reference ${lastError.ref}` : ''}.
@@ -93,7 +94,7 @@ export default function ReportProblemDialog({ onClose }: { onClose: () => void }
               {state === 'sending' ? 'Sending…' : 'Send report'}
             </button>
           )}
-          {!telemetry.configured && (
+          {!configured && (
             <a href={ISSUES_URL} target="_blank" rel="noreferrer" className={button.primary}>
               Open an issue ↗
             </a>

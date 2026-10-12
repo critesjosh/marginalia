@@ -8,12 +8,12 @@
   // the namespace on the first deploy.
   "kv_namespaces": [{ "binding": "THREADS" }],
   // Public Turnstile site key for publishing threads. Its secret is set with
-  // `wrangler secret put TURNSTILE_SECRET_KEY`. TELEMETRY_ORIGIN lets the CSP
-  // reach PostHog EU (decision 0008); it does nothing unless the build also sets
-  // VITE_POSTHOG_KEY and VITE_POSTHOG_HOST. Remove it to block telemetry.
+  // `wrangler secret put TURNSTILE_SECRET_KEY`. TELEMETRY_HOST is where the
+  // telemetry relay forwards to (decision 0008); nothing is collected until
+  // `wrangler secret put TELEMETRY_KEY` sets the PostHog project key.
   "vars": {
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo",
-    "TELEMETRY_ORIGIN": "https://eu.i.posthog.com"
+    "TELEMETRY_HOST": "https://eu.i.posthog.com"
   },
   "assets": {
     "directory": "./dist",
@@ -39,7 +39,7 @@
     "kv_namespaces": [{ "binding": "THREADS", "id": "b4bff0c4922a45b3a525901837cc8147" }],
     "vars": {
       "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo",
-      "TELEMETRY_ORIGIN": "https://eu.i.posthog.com"
+      "TELEMETRY_HOST": "https://eu.i.posthog.com"
     }
   },
   "observability": {

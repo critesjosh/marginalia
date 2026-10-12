@@ -17,14 +17,21 @@ construction, not by convention at each call site.
 
 ## Decision
 
-- **PostHog Cloud, through its public capture API.** The PWA posts batches to
-  `<host>/batch/` with the project key. It does not load `posthog-js`.
-- **Off unless configured.** A build sends nothing unless `VITE_POSTHOG_KEY`
-  (a public `phc_` project key) and `VITE_POSTHOG_HOST` are set, and the
-  Worker's CSP blocks the host unless `TELEMETRY_ORIGIN` is set. Production
-  sets neither until privacy review. The build rejects any other key type.
+- **PostHog Cloud, through a same-origin relay.** The PWA posts batches to
+  `POST /api/telemetry/events` on Rami's own Worker (`shared/telemetryRelay.ts`).
+  The relay rebuilds each event from the allowlist, sets PostHog's privacy
+  flags itself, adds the project key and forwards to `<host>/batch/` with none
+  of the reader's request headers, so PostHog never receives their IP address
+  or user agent. The PWA does not load `posthog-js`, and `connect-src` stays
+  `'self'`.
+- **Off unless configured, on the server.** The relay collects nothing
+  unless the Worker has a `TELEMETRY_KEY` secret (a public `phc_` project key;
+  any other key type is refused) and a `TELEMETRY_HOST`. The browser holds no
+  key and learns from `GET /api/telemetry/config` whether to collect.
+  Production and Previews have no key until privacy review, and deleting the
+  secret stops collection without a build.
 - **Consent first, by region.** Before the reader chooses, the default comes
-  from `GET /api/telemetry/region`, which maps Cloudflare's country for the
+  from `GET /api/telemetry/config`, which maps Cloudflare's country for the
   request (read, never stored or logged) to a rule. The EU, EEA, Switzerland
   and unknown countries are opt-in: the EDPB reads ePrivacy Article 5(3) as
   covering JavaScript that sends data from the device, and analytics is not
@@ -33,20 +40,20 @@ construction, not by convention at each call site.
   held, unsent, until the region is known. A one-time notice, shown on
   whichever page the reader lands, asks (opt-in) or informs with a Turn off button (opt-out); declining is as
   easy as accepting. Global Privacy Control or Do Not Track keeps it off with
-  no notice. `VITE_TELEMETRY_DEFAULT=off` makes it opt-in everywhere. The
+  no notice. `TELEMETRY_DEFAULT=off` on the Worker makes it opt-in everywhere. The
   Settings toggle changes it at any time and drops queued events.
-- **Allowlisted events and properties.** `src/lib/telemetrySchema.ts` names
+- **Allowlisted events and properties.** `shared/telemetrySchema.ts` names
   every event and the enum, boolean or bounded values each property may take.
-  Everything else is dropped. Lengths and durations are bucketed. Errors send
+  Everything else is dropped, by the PWA and again by the relay. Lengths and durations are bucketed. Errors send
   class name, category, HTTP status and a random reference, never messages or
   stacks.
-- **No identity.** Each page load gets a random id held in memory. Events set
-  `$process_person_profile: false` and `$geoip_disable: true`. No cookies, no
+- **No identity.** Each page load gets a random id held in memory. The relay
+  sets `$process_person_profile: false` and `$geoip_disable: true` on every event. No cookies, no
   stored id, no URL, referrer, title or user agent string. The only stored
   value is the on/off preference.
 - **Report a problem.** A dialog sends an optional, scrubbed note with the
   last error reference. Pressing Send is its own consent, so it goes even with
-  usage data off. Builds without telemetry link to GitHub issues instead.
+  usage data off. Deployments without telemetry link to GitHub issues instead.
 
 The event schema, retention settings and dashboards are in
 [telemetry.md](../telemetry.md).
@@ -66,16 +73,20 @@ The event schema, retention settings and dashboards are in
   fields) that `before_send` has to strip forever, and adds a major dependency
   to the main bundle. The direct API makes the privacy defaults hold with no
   configuration to get wrong.
-- **A Cloudflare Worker proxy** (`/api/t` forwarding to PostHog). Hides the
-  reader's IP from PostHog, keeps `connect-src 'self'`, and survives content
-  blockers. Costs a Worker route and its abuse controls. Left as a second
-  phase; the client only needs its host changed.
+- **Posting straight to PostHog from the browser**, with the key in a `VITE_`
+  build variable and PostHog's origin in the CSP. Less code, but PostHog
+  receives every reader's IP address (personal data until its discard setting
+  drops it), the allowlist runs only on the client, previews send to whichever
+  project the build names, and stopping collection needs a rebuild. The relay
+  costs a Worker route with a body limit, same-origin check and throttle.
+  Content blockers that block `posthog.com` no longer block Rami's counts;
+  the route's path is stable and documented, so blocklists can still name it.
 - **Self-hosted analytics or Workers Analytics Engine.** Keeps data first
   party, but needs funnel and dashboard tooling we would build ourselves.
 - **No telemetry.** The previous position. Simplest and most private, but
   failures stay invisible unless a reader reports them.
 
 Without a person id, funnels and retention only span one page load, and
-returning-reader counts are unavailable. That is the intended cost. PostHog
-still receives each request's IP address; the project must discard it (see
-telemetry.md) until the proxy exists.
+returning-reader counts are unavailable. That is the intended cost. Cloudflare
+still sees the reader's IP address, as it does for every request, and the
+relay's throttle holds it in isolate memory for a minute.
