@@ -5,11 +5,11 @@ import { newId } from '../lib/id'
 import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
-import { shareContent, threadShare } from '../lib/share'
+import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
-import { LinkIcon, SendIcon, ShareIcon } from './Icons'
+import { CopyIcon, LinkIcon, SendIcon, ShareIcon } from './Icons'
 import PublishDialog from './PublishDialog'
 import { button } from './ui'
 
@@ -31,6 +31,8 @@ export default function ChatSheet({
   const [passageOpen, setPassageOpen] = useState(false)
   const [shareNote, setShareNote] = useState<string>()
   const [publishing, setPublishing] = useState(false)
+  // A desktop copies the thread rather than opening a share sheet.
+  const sheet = prefersShareSheet()
   const abortRef = useRef<AbortController>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -134,7 +136,11 @@ export default function ChatSheet({
   // Built from what is already loaded, so the share sheet opens inside the tap.
   async function share() {
     if (!conversation || !messages || !book) return
-    const outcome = await shareContent(threadShare(conversation, messages, book))
+    const content = threadShare(conversation, messages, book)
+    const outcome = await shareContent(
+      content,
+      sheet ? undefined : { clipboard: navigator.clipboard },
+    )
     if (outcome === 'copied') setShareNote('Copied to the clipboard.')
     else if (outcome === 'failed') setShareNote('Could not share this thread.')
     else setShareNote(undefined)
@@ -287,8 +293,8 @@ export default function ChatSheet({
         {messages && messages.length > 0 && !busy && book && (
           <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
             <button onClick={() => void share()} className={button.quiet}>
-              <ShareIcon />
-              Share thread
+              {sheet ? <ShareIcon /> : <CopyIcon />}
+              {sheet ? 'Share thread' : 'Copy to clipboard'}
             </button>
             <button onClick={() => setPublishing(true)} className={button.quiet}>
               <LinkIcon />

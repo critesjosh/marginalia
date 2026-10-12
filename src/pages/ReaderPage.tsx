@@ -74,6 +74,7 @@ export default function ReaderPage() {
     fontSize: settings.fontSize,
     font: settings.readerFont,
     onTapCenter: toggleChrome,
+    onEscape: toggleChrome,
     onSelected: handleSelected,
   })
 
@@ -165,6 +166,24 @@ export default function ReaderPage() {
     if (!active || !bookId) return undefined
     if (active.highlight) return active.highlight
 
+    const highlight = await addHighlight()
+    clearSelection()
+    setActive(undefined)
+    return highlight
+  }
+
+  /** Saves the selection as a highlight, leaving the selection bar open. */
+  async function keepHighlight() {
+    const highlight = await addHighlight()
+    if (!highlight) return
+    // The reader may have moved on to another selection during the write.
+    setActive((current) =>
+      current?.cfiRange === highlight.cfiRange ? { ...current, highlight } : current,
+    )
+  }
+
+  async function addHighlight(): Promise<Highlight | undefined> {
+    if (!active || !bookId) return undefined
     const highlight: Highlight = {
       id: newId(),
       bookId,
@@ -178,8 +197,6 @@ export default function ReaderPage() {
       createdAt: Date.now(),
     }
     await db.highlights.add(highlight)
-    clearSelection()
-    setActive(undefined)
     return highlight
   }
 
@@ -230,10 +247,14 @@ export default function ReaderPage() {
     setChatId(conversation.id)
   }
 
+  /** Shares the passage and keeps it highlighted, as asking about it does. */
   function shareSelection() {
     if (!active || !book) return Promise.resolve('failed' as const)
     const chapter = active.highlight?.chapter ?? reader.location?.chapter
-    return shareContent(highlightShare(active.text, book, chapter))
+    // Started before any await, so the share sheet still has the tap's activation.
+    const outcome = shareContent(highlightShare(active.text, book, chapter))
+    if (!active.highlight) void keepHighlight()
+    return outcome
   }
 
   const chromeClasses = useMemo(
