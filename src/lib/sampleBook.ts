@@ -17,12 +17,11 @@ interface SampleBook {
   /** Lets a shared link for the same book open this copy instead of downloading another. */
   gutenbergId: number
   /**
-   * Replaces what the OPF says, for the two editions whose Gutenberg metadata
+   * Replaces what the OPF says, when Gutenberg metadata
    * does not survive contact with the UI. The Genealogy's `dc:title` is the
    * whole collected-works citation, which fills the reader's header bar and
-   * leaves no room for anything else; Meditations' `dc:creator` is a
-   * half-reversed "Emperor of Rome Marcus Aurelius". Both also go to the model
-   * as book metadata, so this is not only cosmetic.
+   * leaves no room for anything else. This also goes to the model as book
+   * metadata, so this is not only cosmetic.
    *
    * Applied here rather than by rewriting the EPUBs, so the shipped files stay
    * byte-identical to Gutenberg's and the edit stays visible in review.
@@ -39,12 +38,6 @@ interface SampleBook {
  */
 const SAMPLE_BOOKS: SampleBook[] = [
   { id: 'sample-moby-dick', filename: 'moby-dick.epub', gutenbergId: 2701 },
-  {
-    id: 'sample-meditations',
-    filename: 'meditations.epub',
-    gutenbergId: 2680,
-    author: 'Marcus Aurelius',
-  },
   {
     id: 'sample-genealogy-of-morals',
     filename: 'genealogy-of-morals.epub',
@@ -84,8 +77,8 @@ async function run(): Promise<boolean> {
     if (settings.sampleBookSeeded) return false
 
     // Someone arriving with a library already built does not need the samples.
-    // Rows this function put there do not count, or a run that seeded three of
-    // four and failed on the last one would call the library built and set the
+    // Rows this function put there do not count, or a run that seeded two of
+    // three and failed on the last one would call the library built and set the
     // flag on its retry, stranding the book that never arrived.
     const existing = await db.books.toCollection().primaryKeys()
     if (existing.some((id) => !SAMPLE_IDS.has(id))) {

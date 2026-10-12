@@ -8,6 +8,7 @@ test.beforeEach(async ({ context }) => {
 
 test('public-domain book renders and survives reopening', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('button', { name: /^Meditations/ })).toHaveCount(0)
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
   await expect(page.getByRole('button', { name: 'Table of contents' })).toBeVisible()
   const contents = await openContents(page)
@@ -38,6 +39,10 @@ test('the toolbars start hidden and cover only the page margins', async ({ page 
 
 test('an in-book link lands on the page that holds its target', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('button', { name: /^Moby Dick/ })).toBeVisible()
+  await page
+    .locator('input[type="file"][accept^=".epub"]')
+    .setInputFiles('public/books/meditations.epub')
   await page.getByRole('button', { name: /^Meditations/ }).click()
   const contents = await openContents(page)
   await contents.getByRole('button', { name: 'Paragraphs with First Lines' }).click()
