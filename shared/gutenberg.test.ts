@@ -254,6 +254,12 @@ describe('parseBookFeed', () => {
     expect(book?.subjects).toContain('Austen, Jane, 1775-1817 -- Correspondence')
   })
 
+  it('leaves no markup behind from nested tags', () => {
+    const feed = BOOK_FEED.replace('Love stories', 'Love <<b>script>stories &lt;3')
+
+    expect(parseBookFeed(feed, 42671)?.subjects).toContain('Love script>stories <3')
+  })
+
   it('keeps titles and suffixes after a reordered name', () => {
     const feed = BOOK_FEED.replace(
       'Austen, Jane, 1775-1817',
