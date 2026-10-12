@@ -44,17 +44,17 @@ Every event carries these, plus PostHog control properties
 
 ## Events
 
-| Event                | When                             | Properties                                                                                                                    |
-| -------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `app_opened`         | Page load                        | `display_mode`: `browser`, `standalone`                                                                                       |
-| `book_imported`      | An import finishes or fails      | `source`: `file`, `gutenberg`, `shared_link`; `outcome`; `error_category`                                                     |
-| `reader_opened`      | A book first renders or fails to | `book_kind`: `bundled`, `imported`; `outcome`; `error_category`                                                               |
-| `text_selected`      | A selection in the book          | `length_bucket`: `under_20`, `20_199`, `200_999`, `1000_plus`                                                                 |
-| `annotation_created` | A highlight is saved             | `trigger`: `highlight`, `ask`                                                                                                 |
-| `annotation_deleted` | A highlight is deleted           | none                                                                                                                          |
-| `ai_message_sent`    | A chat turn ends                 | `outcome`: `success`, `failure`, `canceled`; `turn`: `first`, `follow_up`; `duration_bucket`; `error_category`; `http_status` |
-| `error_occurred`     | A captured failure               | `feature`, `operation`, `error_category`, `error_name`, `http_status`, `error_ref`                                            |
-| `problem_reported`   | Report a problem is sent         | `has_feedback`, `feedback`, `error_ref`, `feature`                                                                            |
+| Event                | When                             | Properties                                                                                                                          |
+| -------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `app_opened`         | Page load                        | `display_mode`: `browser`, `standalone`                                                                                             |
+| `book_imported`      | An import finishes or fails      | `source`: `file`, `gutenberg`, `shared_link`; `outcome`; `error_category`                                                           |
+| `reader_opened`      | A book first renders or fails to | `book_kind`: `bundled`, `imported`; `outcome`; `error_category`                                                                     |
+| `text_selected`      | A selection in the book          | `length_bucket`: `under_20`, `20_199`, `200_999`, `1000_plus`                                                                       |
+| `annotation_created` | A highlight is saved             | `trigger`: `highlight`, `ask`                                                                                                       |
+| `annotation_deleted` | A highlight is deleted           | none                                                                                                                                |
+| `ai_message_sent`    | A chat turn ends                 | `outcome`: `success`, `failure`, `canceled`; `turn`: `first`, `follow_up`; `duration_bucket`; `error_category`; `http_status`       |
+| `error_occurred`     | A captured failure               | `feature`, `operation`, `error_category`, `error_name`, `http_status`, `error_ref`                                                  |
+| `problem_reported`   | Report a problem is sent         | `has_feedback`, `feedback`, and the last error's `error_ref`, `feature`, `operation`, `error_category`, `error_name`, `http_status` |
 
 `outcome` is `success` or `failure`. `duration_bucket` is `under_2s`,
 `2_10s`, `10_30s` or `30s_plus`.

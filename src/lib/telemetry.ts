@@ -86,6 +86,18 @@ interface QueuedEvent {
   properties: Record<string, unknown>
 }
 
+/** The sanitized fields an error contributes to `error_occurred` and `problem_reported`. */
+function errorProperties(error: RecordedError) {
+  return {
+    error_ref: error.ref,
+    feature: error.feature,
+    operation: error.operation,
+    error_category: error.category,
+    error_name: error.name,
+    http_status: error.status,
+  }
+}
+
 /** Accepts only a project key: a personal key (`phx_…`) must never reach the browser. */
 export function isProjectKey(key: string | undefined): key is string {
   return typeof key === 'string' && /^phc_[A-Za-z0-9]{20,64}$/.test(key)
@@ -251,14 +263,7 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
     const classified = { ...classifyError(err), ...(category && { category }) }
     const ref = newErrorRef()
     lastError = { ...classified, ref, feature, operation }
-    capture('error_occurred', {
-      feature,
-      operation,
-      error_category: classified.category,
-      error_name: classified.name,
-      http_status: classified.status,
-      error_ref: ref,
-    })
+    capture('error_occurred', errorProperties(lastError))
     return ref
   }
 
@@ -268,12 +273,10 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
    */
   function report({
     feedback,
-    errorRef,
-    feature,
+    error,
   }: {
     feedback?: string
-    errorRef?: string
-    feature?: Feature
+    error?: RecordedError
   }): Promise<boolean> {
     if (!configured) return Promise.resolve(false)
     const note = feedback ? scrubFeedback(feedback) : ''
@@ -281,8 +284,7 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
       build('problem_reported', {
         has_feedback: Boolean(note),
         feedback: note || undefined,
-        error_ref: errorRef,
-        feature,
+        ...(error && errorProperties(error)),
       }),
     ])
   }

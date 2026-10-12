@@ -22,11 +22,7 @@ export default function ReportProblemDialog({ onClose }: { onClose: () => void }
 
   async function send() {
     setState('sending')
-    const ok = await telemetry.report({
-      feedback: note,
-      errorRef: lastError?.ref,
-      feature: lastError?.feature,
-    })
+    const ok = await telemetry.report({ feedback: note, error: lastError })
     setState(ok ? 'sent' : 'failed')
   }
 

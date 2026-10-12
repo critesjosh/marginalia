@@ -1,4 +1,4 @@
-import { MAX_FEEDBACK_LENGTH, type ErrorCategory } from './telemetrySchema'
+import { ERROR_NAME_PATTERN, MAX_FEEDBACK_LENGTH, type ErrorCategory } from './telemetrySchema'
 
 /**
  * What an error may say about itself in telemetry: a fixed category, the
@@ -36,7 +36,7 @@ function statusCategory(status: number): ErrorCategory {
 /** The class name, when it looks like one; minified or odd names are dropped. */
 function errorName(err: unknown): string | undefined {
   const name = (err as { name?: unknown } | null)?.name
-  return typeof name === 'string' && /^[A-Z][A-Za-z]{0,39}$/.test(name) ? name : undefined
+  return typeof name === 'string' && ERROR_NAME_PATTERN.test(name) ? name : undefined
 }
 
 export function classifyError(err: unknown): ClassifiedError {

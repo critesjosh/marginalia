@@ -452,13 +452,19 @@ describe('errors', () => {
 })
 
 describe('report a problem', () => {
-  it('sends a scrubbed note with the error reference, even with usage data off', async () => {
+  it('sends a scrubbed note with the last error’s details, even with usage data off', async () => {
     const { telemetry, sent } = await setup({ defaultMode: 'off' })
+    const err = Object.assign(new Error('Could not open “Moby Dick”'), {
+      name: 'InferenceError',
+      status: 503,
+    })
+    const ref = telemetry.captureError('chat', 'send_message', err)
+    expect(sent).toEqual([])
+
     const ok = await telemetry.report({
       feedback:
         'Broke at https://rami.test/book/1?x=y, mail me at sam@example.com or +1 555 123 4567',
-      errorRef: 'E-ABC234',
-      feature: 'reader',
+      error: telemetry.lastError(),
     })
     expect(ok).toBe(true)
     expect(sent[0].body.batch[0]).toMatchObject({
@@ -466,10 +472,15 @@ describe('report a problem', () => {
       properties: {
         has_feedback: true,
         feedback: 'Broke at [link] mail me at [email] or [number]',
-        error_ref: 'E-ABC234',
-        feature: 'reader',
+        error_ref: ref,
+        feature: 'chat',
+        operation: 'send_message',
+        error_category: 'unavailable',
+        error_name: 'InferenceError',
+        http_status: 503,
       },
     })
+    expect(JSON.stringify(sent)).not.toContain('Moby')
   })
 
   it('sends no feedback property for an empty note', async () => {

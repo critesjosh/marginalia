@@ -61,6 +61,10 @@ const errorCategory = oneOf(...ERROR_CATEGORIES)
 const errorRef = matching(ERROR_REF_PATTERN)
 const outcome = oneOf('success', 'failure')
 const feature = oneOf(...FEATURES)
+const operation = oneOf(...OPERATIONS)
+/** A code-defined class name such as `TypeError`, never a message. */
+export const ERROR_NAME_PATTERN = /^[A-Z][A-Za-z]{0,39}$/
+const errorName = matching(ERROR_NAME_PATTERN)
 
 /** Free text the reader typed into Report a problem, already scrubbed. */
 export const MAX_FEEDBACK_LENGTH = 1000
@@ -91,14 +95,23 @@ export const EVENT_SCHEMA = {
   },
   error_occurred: {
     feature,
-    operation: oneOf(...OPERATIONS),
+    operation,
     error_category: errorCategory,
-    /** A code-defined class name such as `TypeError`, never a message. */
-    error_name: matching(/^[A-Z][A-Za-z]{0,39}$/),
+    error_name: errorName,
     http_status: httpStatus,
     error_ref: errorRef,
   },
-  problem_reported: { has_feedback: isBoolean, feedback, error_ref: errorRef, feature },
+  /** Carries the last error's sanitized details: with usage data off, nothing else does. */
+  problem_reported: {
+    has_feedback: isBoolean,
+    feedback,
+    error_ref: errorRef,
+    feature,
+    operation,
+    error_category: errorCategory,
+    error_name: errorName,
+    http_status: httpStatus,
+  },
 } satisfies Record<string, Record<string, Validator<unknown>>>
 
 /** Sent with every event; set by the client, not by call sites. */
