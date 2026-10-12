@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   gutenbergIdFromIdentifier,
   downloadGutenbergBook,
+  getGutenbergDetails,
   parseGutenbergRef,
   searchGutenberg,
   type CatalogBook,
@@ -49,6 +50,36 @@ describe('searchGutenberg', () => {
     const fetcher = vi.fn(async () => new Response('', { status: 502 })) as unknown as typeof fetch
     await expect(searchGutenberg('melville', undefined, fetcher)).rejects.toThrow(
       'Could not search Project Gutenberg.',
+    )
+  })
+})
+
+describe('getGutenbergDetails', () => {
+  it('asks the relay for one book and adds its cover', async () => {
+    const record = {
+      id: 42671,
+      title: 'Pride and Prejudice',
+      people: [{ role: 'Editor', name: 'R. W. Chapman' }],
+      notes: [],
+      subjects: [],
+      otherEditions: [1342],
+    }
+    const fetcher = vi.fn(async () => Response.json(record)) as unknown as typeof fetch
+
+    await expect(getGutenbergDetails(42671, undefined, fetcher)).resolves.toEqual({
+      ...record,
+      coverUrl: 'https://www.gutenberg.org/cache/epub/42671/pg42671.cover.medium.jpg',
+    })
+    expect(fetcher).toHaveBeenCalledWith('/api/gutenberg?details=42671', { signal: undefined })
+  })
+
+  it('shows the relay’s reason when a book cannot be described', async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({ error: 'Gutenberg has no book #9.' }, { status: 404 }),
+    ) as unknown as typeof fetch
+
+    await expect(getGutenbergDetails(9, undefined, fetcher)).rejects.toThrow(
+      'Gutenberg has no book #9.',
     )
   })
 })

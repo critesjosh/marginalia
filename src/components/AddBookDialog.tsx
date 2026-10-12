@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   downloadGutenbergBook,
@@ -9,6 +9,7 @@ import {
 import { useModal } from '../lib/useModal'
 import { button, iconButton } from './ui'
 import { CloseIcon } from './Icons'
+import BookDetails from './BookDetails'
 
 /** How long a search may run before the dialog admits it is being slow. */
 const SLOW_SEARCH_MS = 5_000
@@ -41,6 +42,45 @@ export default function AddBookDialog({
   const [addError, setAddError] = useState<string>()
   // Bumped by Retry to re-run the effect on an unchanged query.
   const [attempt, setAttempt] = useState(0)
+  // Books whose details are open, newest last: following "Other editions"
+  // pushes, and Back pops until the results show again.
+  const [editions, setEditions] = useState<number[]>([])
+  const viewing = editions.at(-1)
+  // Where the reader was in the results, to put them back there.
+  const opener = useRef<{ id: number; scrollTop: number }>(undefined)
+
+  function openDetails(id: number) {
+    opener.current = { id, scrollTop: ref.current?.scrollTop ?? 0 }
+    setAddError(undefined)
+    setEditions([id])
+  }
+
+  function showEdition(id: number) {
+    setAddError(undefined)
+    setEditions((open) => [...open, id])
+  }
+
+  function back() {
+    setAddError(undefined)
+    setEditions((open) => open.slice(0, -1))
+  }
+
+  useLayoutEffect(() => {
+    const dialog = ref.current
+    if (!dialog) return
+    if (viewing !== undefined) {
+      // The control that opened this view is gone, so focus would fall to the
+      // body, where the modal's Tab trap cannot catch it.
+      dialog.scrollTop = 0
+      dialog.querySelector<HTMLElement>('[data-details-back]')?.focus()
+      return
+    }
+    const from = opener.current
+    if (!from) return
+    opener.current = undefined
+    dialog.scrollTop = from.scrollTop
+    dialog.querySelector<HTMLElement>(`[data-details-for="${from.id}"]`)?.focus()
+  }, [viewing, ref])
 
   useEffect(() => {
     const trimmed = query.trim()
@@ -145,139 +185,167 @@ export default function AddBookDialog({
           </button>
         </div>
 
-        <label htmlFor="gutenberg-search" className="eyebrow mt-5 block">
-          Project Gutenberg
-        </label>
-        <input
-          id="gutenberg-search"
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search by title or author"
-          className="mt-2 w-full min-h-tap w-full rounded-md border border-rule-strong bg-paper px-3.5 font-ui text-control text-ink placeholder:text-ink-faint"
-        />
-        <p className="mt-2 font-ui text-meta text-ink-soft">
-          Or paste a book link from{' '}
-          <a
-            href="https://www.gutenberg.org/ebooks/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-moss underline underline-offset-2"
-          >
-            gutenberg.org
-          </a>
-          .
-        </p>
+        {viewing !== undefined ? (
+          <BookDetails
+            key={viewing}
+            id={viewing}
+            adding={addingId === viewing}
+            addDisabled={addingId !== undefined}
+            addError={addError}
+            onAdd={(book) => void addBook(book)}
+            onBack={back}
+            onOpenEdition={showEdition}
+          />
+        ) : (
+          <>
+            <label htmlFor="gutenberg-search" className="eyebrow mt-5 block">
+              Project Gutenberg
+            </label>
+            <input
+              id="gutenberg-search"
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by title or author"
+              className="mt-2 w-full min-h-tap w-full rounded-md border border-rule-strong bg-paper px-3.5 font-ui text-control text-ink placeholder:text-ink-faint"
+            />
+            <p className="mt-2 font-ui text-meta text-ink-soft">
+              Or paste a book link from{' '}
+              <a
+                href="https://www.gutenberg.org/ebooks/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-moss underline underline-offset-2"
+              >
+                gutenberg.org
+              </a>
+              .
+            </p>
 
-        {pastedRef && (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-rule bg-paper/60 p-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium">Project Gutenberg #{pastedRef.id}</p>
-              <p className="mt-0.5 font-ui text-meta text-ink-soft">
-                {pastedRef.source === 'url'
-                  ? 'From the link you pasted.'
-                  : 'Add this book id directly.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={addingId !== undefined}
-              onClick={() => void addBook({ id: pastedRef.id })}
-              className={PRIMARY_BUTTON}
-            >
-              {addingId === pastedRef.id ? 'Adding…' : 'Add'}
-            </button>
-          </div>
-        )}
-
-        {searching && (
-          <p className="mt-3 font-ui text-meta text-ink-soft">
-            {slow
-              ? 'Still searching. Project Gutenberg is slow right now…'
-              : 'Searching Project Gutenberg…'}
-          </p>
-        )}
-        {searchError && (
-          <div className="mt-3 flex items-start justify-between gap-3">
-            <p className="font-ui text-meta text-danger">{searchError}</p>
-            <button
-              type="button"
-              onClick={() => setAttempt((n) => n + 1)}
-              className={`${button.secondary} shrink-0`}
-            >
-              Retry
-            </button>
-          </div>
-        )}
-        {addError && <p className="mt-3 font-ui text-meta text-danger">{addError}</p>}
-        {!searching &&
-          !pastedRef &&
-          query.trim().length >= 2 &&
-          !searchError &&
-          results.length === 0 && (
-            <p className="mt-3 font-ui text-meta text-ink-soft">No books found.</p>
-          )}
-
-        {results.length > 0 && (
-          <ul className="mt-3 divide-y divide-rule rounded-md border border-rule bg-paper/60">
-            {results.map((book) => (
-              <li key={book.id} className="flex gap-3 p-3">
-                <div className="relative h-20 w-14 shrink-0 overflow-hidden rounded bg-rule">
-                  <span className="absolute inset-0 flex items-center justify-center px-1 text-center font-ui text-caption text-ink-faint">
-                    No cover
-                  </span>
-                  <img
-                    src={book.coverUrl}
-                    alt=""
-                    className="relative h-full w-full object-cover"
-                    loading="lazy"
-                    // Some books have no cover; uncover the placeholder behind.
-                    onError={(event) => {
-                      event.currentTarget.hidden = true
-                    }}
-                  />
+            {pastedRef && (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-rule bg-paper/60 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Project Gutenberg #{pastedRef.id}</p>
+                  <p className="mt-0.5 font-ui text-meta text-ink-soft">
+                    {pastedRef.source === 'url'
+                      ? 'From the link you pasted.'
+                      : 'Add this book id directly.'}
+                  </p>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 font-book text-[15px] leading-snug font-medium">
-                    {book.title}
-                  </p>
-                  <p className="mt-0.5 line-clamp-1 font-ui text-meta text-ink-soft">
-                    {book.author}
-                  </p>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    {/* Editions often share a title; the number tells them apart. */}
-                    <span className="font-ui text-caption text-ink-faint">#{book.id}</span>
+                <button
+                  type="button"
+                  disabled={addingId !== undefined}
+                  onClick={() => void addBook({ id: pastedRef.id })}
+                  className={PRIMARY_BUTTON}
+                >
+                  {addingId === pastedRef.id ? 'Adding…' : 'Add'}
+                </button>
+              </div>
+            )}
+
+            {searching && (
+              <p className="mt-3 font-ui text-meta text-ink-soft">
+                {slow
+                  ? 'Still searching. Project Gutenberg is slow right now…'
+                  : 'Searching Project Gutenberg…'}
+              </p>
+            )}
+            {searchError && (
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <p className="font-ui text-meta text-danger">{searchError}</p>
+                <button
+                  type="button"
+                  onClick={() => setAttempt((n) => n + 1)}
+                  className={`${button.secondary} shrink-0`}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {addError && <p className="mt-3 font-ui text-meta text-danger">{addError}</p>}
+            {!searching &&
+              !pastedRef &&
+              query.trim().length >= 2 &&
+              !searchError &&
+              results.length === 0 && (
+                <p className="mt-3 font-ui text-meta text-ink-soft">No books found.</p>
+              )}
+
+            {results.length > 0 && (
+              <ul className="mt-3 divide-y divide-rule rounded-md border border-rule bg-paper/60">
+                {results.map((book) => (
+                  <li key={book.id} className="flex gap-3 p-3">
+                    {/* A larger target for the same action as the title, so it
+                    stays out of the tab order. */}
                     <button
                       type="button"
-                      disabled={addingId !== undefined}
-                      onClick={() => void addBook(book)}
-                      className={PRIMARY_BUTTON}
+                      tabIndex={-1}
+                      aria-hidden
+                      onClick={() => openDetails(book.id)}
+                      className="relative h-20 w-14 shrink-0 overflow-hidden rounded bg-rule"
                     >
-                      {addingId === book.id ? 'Adding…' : 'Add'}
+                      <span className="absolute inset-0 flex items-center justify-center px-1 text-center font-ui text-caption text-ink-faint">
+                        No cover
+                      </span>
+                      <img
+                        src={book.coverUrl}
+                        alt=""
+                        className="relative h-full w-full object-cover"
+                        loading="lazy"
+                        // Some books have no cover; uncover the placeholder behind.
+                        onError={(event) => {
+                          event.currentTarget.hidden = true
+                        }}
+                      />
                     </button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        data-details-for={book.id}
+                        onClick={() => openDetails(book.id)}
+                        className="line-clamp-2 text-left font-book text-[15px] leading-snug font-medium underline decoration-rule-strong underline-offset-4 hover:decoration-moss"
+                      >
+                        {book.title}
+                      </button>
+                      <p className="mt-0.5 line-clamp-1 font-ui text-meta text-ink-soft">
+                        {book.author}
+                      </p>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        {/* Editions often share a title; the number tells them apart. */}
+                        <span className="font-ui text-caption text-ink-faint">#{book.id}</span>
+                        <button
+                          type="button"
+                          disabled={addingId !== undefined}
+                          onClick={() => void addBook(book)}
+                          className={PRIMARY_BUTTON}
+                        >
+                          {addingId === book.id ? 'Adding…' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="my-5 flex items-center gap-3 font-ui text-caption text-ink-faint">
+              <div className="h-px flex-1 bg-rule" />
+              or
+              <div className="h-px flex-1 bg-rule" />
+            </div>
+
+            <button
+              type="button"
+              onClick={onChooseFile}
+              className="w-full rounded-md border border-rule bg-paper px-4 py-3 text-sm font-medium transition hover:bg-paper-sunk"
+            >
+              Choose an EPUB from this device
+            </button>
+            <p className="mt-2 text-center font-ui text-caption text-ink-faint">
+              Books stay stored on this device.
+            </p>
+          </>
         )}
-
-        <div className="my-5 flex items-center gap-3 font-ui text-caption text-ink-faint">
-          <div className="h-px flex-1 bg-rule" />
-          or
-          <div className="h-px flex-1 bg-rule" />
-        </div>
-
-        <button
-          type="button"
-          onClick={onChooseFile}
-          className="w-full rounded-md border border-rule bg-paper px-4 py-3 text-sm font-medium transition hover:bg-paper-sunk"
-        >
-          Choose an EPUB from this device
-        </button>
-        <p className="mt-2 text-center font-ui text-caption text-ink-faint">
-          Books stay stored on this device.
-        </p>
       </section>
     </div>
   )

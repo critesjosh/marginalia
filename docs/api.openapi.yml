@@ -39,22 +39,24 @@ paths:
         "504": {description: Upstream headers exceeded 30 seconds}
   /api/gutenberg:
     get:
-      summary: Same-origin Project Gutenberg catalog search and EPUB download relay
-      description: Exactly one of search or book. Never proxies an arbitrary URL.
+      summary: Same-origin Project Gutenberg catalog search, book details and EPUB download relay
+      description: Exactly one of search, details or book. Never proxies an arbitrary URL.
       parameters:
         - {in: query, name: search, schema: {type: string, maxLength: 200}}
+        - {in: query, name: details, schema: {type: string, pattern: '^\d{1,8}$'}}
         - {in: query, name: book, schema: {type: string, pattern: '^\d{1,8}$'}}
       responses:
         "200":
-          description: 'Normalized results (id, title, optional author) for search, or an EPUB stream for book'
+          description: 'Normalized results (id, title, optional author) for search; one catalog record (contributors with roles, summary, release date, 30-day downloads, language, subjects, cross-referenced editions) for details; or an EPUB stream for book'
           content:
             application/json: {schema: {type: object}}
             application/epub+zip: {schema: {type: string, format: binary}}
         "400": {description: Missing, invalid, or overlong parameter}
         "403": {description: Cross-origin browser request or hotlink}
+        "404": {description: Gutenberg has no book with that details id}
         "405": {description: Not a GET}
         "429": {description: Best-effort isolate-local throttle, separate from chat}
-        "502": {description: Upstream refused or returned no body}
+        "502": {description: Upstream refused, returned no body, or sent a record for another book}
         "504": {description: Upstream headers exceeded 20 seconds}
   /api/covers:
     get:

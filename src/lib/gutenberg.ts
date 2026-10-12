@@ -27,9 +27,46 @@ export async function searchGutenberg(
     id: book.id,
     title: book.title.trim() || `Gutenberg #${book.id}`,
     author: book.author || 'Unknown author',
-    // Not every book has one; the dialog falls back when this fails to load.
-    coverUrl: `https://www.gutenberg.org/cache/epub/${book.id}/pg${book.id}.cover.medium.jpg`,
+    coverUrl: coverUrl(book.id),
   }))
+}
+
+/** What the relay returns for `?details=`: one book's catalog record. */
+export interface CatalogDetails {
+  id: number
+  title: string
+  alternateTitle?: string
+  people: { role: string; name: string; dates?: string }[]
+  summary?: string
+  contents?: string
+  notes: string[]
+  credits?: string
+  /** When Gutenberg released this edition, not when the work was written. */
+  released?: string
+  /** Downloads in the last 30 days. */
+  downloads?: number
+  language?: string
+  subjects: string[]
+  readingLevel?: string
+  otherEditions: number[]
+}
+
+export async function getGutenbergDetails(
+  id: number,
+  signal?: AbortSignal,
+  fetcher: typeof fetch = fetch,
+): Promise<CatalogDetails & { coverUrl: string }> {
+  const response = await fetcher(`/api/gutenberg?details=${id}`, { signal })
+  if (!response.ok)
+    throw new Error(await relayError(response, 'Could not load details for that book.'))
+
+  const book = (await response.json()) as CatalogDetails
+  return { ...book, coverUrl: coverUrl(book.id) }
+}
+
+/** Not every book has one; the dialog falls back when this fails to load. */
+function coverUrl(id: number): string {
+  return `https://www.gutenberg.org/cache/epub/${id}/pg${id}.cover.medium.jpg`
 }
 
 export async function downloadGutenbergBook(
