@@ -56,7 +56,11 @@ test('a search result opens its details, and other editions are one tap away', a
 
   const titles = dialog.getByRole('button', { name: 'Pride and Prejudice' })
   await expect(titles).toHaveCount(2)
-  await titles.nth(1).click()
+  // By keyboard: the title unmounts, so focus must land in the details.
+  await titles.nth(1).focus()
+  await page.keyboard.press('Enter')
+  const back = dialog.getByRole('button', { name: 'Back to results' })
+  await expect(back).toBeFocused()
 
   const details = dialog.getByRole('article', { name: 'Pride and Prejudice' })
   await expect(details).toContainText('Editor: R. W. Chapman (1881-1960)')
@@ -64,13 +68,14 @@ test('a search result opens its details, and other editions are one tap away', a
   await expect(details.getByRole('button', { name: 'Add to library' })).toBeEnabled()
 
   await details.getByRole('button', { name: '#1342' }).click()
+  await expect(back).toBeFocused()
   await expect(details).toContainText('#1342 · Released Jun 1, 1998')
   await expect(details).not.toContainText('R. W. Chapman')
 
   // Back retraces the editions, then returns to the results it left.
-  await dialog.getByRole('button', { name: 'Back to results' }).click()
+  await back.click()
   await expect(details).toContainText('#42671')
-  await dialog.getByRole('button', { name: 'Back to results' }).click()
+  await back.click()
   await expect(titles.nth(1)).toBeFocused()
   await expect(dialog.getByRole('searchbox')).toHaveValue('pride')
 })

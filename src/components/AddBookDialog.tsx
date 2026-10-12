@@ -69,7 +69,10 @@ export default function AddBookDialog({
     const dialog = ref.current
     if (!dialog) return
     if (viewing !== undefined) {
+      // The control that opened this view is gone, so focus would fall to the
+      // body, where the modal's Tab trap cannot catch it.
       dialog.scrollTop = 0
+      dialog.querySelector<HTMLElement>('[data-details-back]')?.focus()
       return
     }
     const from = opener.current

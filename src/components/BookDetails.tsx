@@ -47,7 +47,7 @@ export default function BookDetails({
 
   return (
     <div className="mt-4">
-      <button type="button" onClick={onBack} className={`${button.quiet} -ml-3`}>
+      <button type="button" data-details-back onClick={onBack} className={`${button.quiet} -ml-3`}>
         <BackIcon />
         Back to results
       </button>
