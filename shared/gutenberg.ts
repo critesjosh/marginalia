@@ -194,9 +194,8 @@ export function parseBookFeed(feed: string, id: number): CatalogDetails | undefi
 
   const fields: [string, string][] = []
   for (const [, paragraph] of content.matchAll(/<p>([\s\S]*?)<\/p>/g)) {
-    // Plain text only, and only ever rendered as text. A second pass drops any
-    // `<` that nested markup (`<<a>b>`) leaves behind after the first.
-    const text = decodeXml(paragraph.replace(/<[^>]*>/g, '').replace(/</g, ''))
+    // The text between the tags. It is only ever rendered as text, never HTML.
+    const text = decodeXml(paragraph.split(/<[^>]*>/).join(''))
     const colon = text.indexOf(': ')
     if (colon > 0) fields.push([text.slice(0, colon), text.slice(colon + 2)])
   }
