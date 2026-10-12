@@ -59,12 +59,15 @@ describe('configuration', () => {
   it('loads on origins without crypto.randomUUID, such as plain-HTTP LAN hosts', async () => {
     const original = crypto.randomUUID
     Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true })
+    // Independent of a developer's .env.local, which Vitest also loads.
+    vi.stubEnv('VITE_POSTHOG_KEY', '')
     try {
       vi.resetModules()
       const module = await import('./telemetry')
       expect(module.telemetry.configured).toBe(false)
     } finally {
       Object.defineProperty(crypto, 'randomUUID', { value: original, configurable: true })
+      vi.unstubAllEnvs()
     }
   })
 

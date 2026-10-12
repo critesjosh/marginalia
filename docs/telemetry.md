@@ -27,8 +27,10 @@ The phase-two proxy removes both.
 | `TELEMETRY_DEV_COUNTRY`  | dev only                 | Country the local region check uses, e.g. `GB`.               |
 | `TELEMETRY_ORIGIN`       | Worker var               | Origin the CSP allows in `connect-src`. Must match the host.  |
 
-Never put a personal API key (`phx_…`) in any of these. All four are unset in
-production until the privacy review below is done.
+Never put a personal API key (`phx_…`) in any of these. Production and Previews
+use the EU project (303639). `TELEMETRY_ORIGIN` is committed in `wrangler.jsonc`;
+the three `VITE_` values are Workers Builds build variables, set in the
+dashboard (docs/operations.md).
 
 ## Common properties
 

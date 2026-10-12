@@ -11,12 +11,16 @@ The privacy policy at `/privacy` (`src/pages/PrivacyPage.tsx`) describes every
 flow of data off the device. Change it with any change to what is sent, stored,
 or logged, and update its date.
 
-Product telemetry (decision 0008) is off unless a build sets `VITE_POSTHOG_KEY`
-and `VITE_POSTHOG_HOST` and the Worker sets `TELEMETRY_ORIGIN`; production sets
-none of them until privacy review. Event schema, PostHog project settings,
-retention, and dashboards are in [telemetry.md](telemetry.md). To stop it in an
-emergency, unset `TELEMETRY_ORIGIN` (the CSP then blocks sends) and rebuild
-without the key. Workers log only the operation metrics described below; read
+Product telemetry (decision 0008) sends only when the build sets
+`VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST` and the Worker allows
+`TELEMETRY_ORIGIN`. `TELEMETRY_ORIGIN` is in `wrangler.jsonc` for production and
+Previews. The build variables are set in the dashboard under Workers Builds,
+Settings, Build, Variables and secrets, for production and non-production
+branches. None of them is a secret: the `phc_` project key is public. Event
+schema, PostHog project settings, retention, and dashboards are in
+[telemetry.md](telemetry.md). To stop it in an emergency, delete the build
+variables and retry the latest build; removing `TELEMETRY_ORIGIN` from
+`wrangler.jsonc` and deploying also blocks sends at the CSP. Workers log only the operation metrics described below; read
 them in Cloudflare Workers observability. Builds do not emit source maps.
 
 Lost stored files and app updates are logged on the device in localStorage
@@ -100,6 +104,7 @@ A failure opens or updates one issue per leg, which closes when that leg passes
 again. If only beta or `playwright-next` fails, a coming browser change (or, for
 `playwright-next`, a Playwright change) is the likely cause: fix it or report it
 upstream before release.
+
 ## Shared book links
 
 Readers can share a Project Gutenberg book at `/b/<id>` (decision 0007). The
