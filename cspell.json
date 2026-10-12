@@ -98,6 +98,7 @@
     "Nietzsche",
     "noimages",
     "noindex",
+    "nosniff",
     "numpy",
     "OEBPS",
     "opendocument",

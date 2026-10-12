@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { APP_URL, highlightShare, linkShare, shareContent, threadShare } from './share'
+import {
+  APP_URL,
+  bookShare,
+  highlightShare,
+  linkShare,
+  prefersShareSheet,
+  shareContent,
+  threadShare,
+} from './share'
 
 const BOOK = { title: 'Moby Dick', author: 'Herman Melville' }
 
@@ -66,6 +74,29 @@ describe('linkShare', () => {
     const content = linkShare({ title: 't' }, BOOK, 'https://x.test/t/a')
     expect(await shareContent(content, { clipboard: { writeText } })).toBe('copied')
     expect(writeText).toHaveBeenCalledWith('https://x.test/t/a')
+  })
+})
+
+describe('bookShare', () => {
+  it('invites the recipient to read along, and copies the whole invitation', () => {
+    const url = `${APP_URL}/b/abc`
+    const content = bookShare({ title: 'Moby Dick', author: 'Herman Melville' }, url)
+    expect(content.title).toBe('Moby Dick')
+    expect(content.text).toBe(
+      `I’m reading Moby Dick by Herman Melville on Rami. Read it with me: ${url}`,
+    )
+    expect(content.copyText).toBeUndefined()
+  })
+})
+
+describe('prefersShareSheet', () => {
+  const host = (coarse: boolean) =>
+    ({ matchMedia: () => ({ matches: coarse }) }) as unknown as Pick<Window, 'matchMedia'>
+
+  it('offers the sheet to touch devices and copies on a desktop', () => {
+    expect(prefersShareSheet(host(true))).toBe(true)
+    expect(prefersShareSheet(host(false))).toBe(false)
+    expect(prefersShareSheet({} as Pick<Window, 'matchMedia'>)).toBe(false)
   })
 })
 

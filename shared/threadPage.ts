@@ -6,13 +6,14 @@
  * the page worthless for link spam.
  */
 
-import { loadThread, type StoredThread, type ThreadStore } from './threads.ts'
+import type { LinkStore } from './publishing.ts'
+import { loadThread, type StoredThread } from './threads.ts'
 
 const APP_NAME = 'Rami'
 
 export async function handleThreadPage(
   request: Request,
-  store: ThreadStore | undefined,
+  store: LinkStore | undefined,
 ): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response('Use GET.', { status: 405, headers: { Allow: 'GET, HEAD' } })

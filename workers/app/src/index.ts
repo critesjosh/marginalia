@@ -1,10 +1,17 @@
+import {
+  handleBookCover,
+  handleBooksRequest,
+  loadBookLink,
+  withBookPreview,
+} from '../../../shared/books.ts'
 import { handleCoverRequest } from '../../../shared/covers.ts'
 import { handleGutenbergRequest } from '../../../shared/gutenberg.ts'
 import { isCrossOrigin } from '../../../shared/http-guards.ts'
+import type { LinkStore, PublishOptions } from '../../../shared/publishing.ts'
 import { handleRelayRequest } from '../../../shared/relay.ts'
 import { operationMetric } from '../../../shared/telemetry.ts'
 import { handleThreadPage } from '../../../shared/threadPage.ts'
-import { handleThreadsRequest, type ThreadStore } from '../../../shared/threads.ts'
+import { handleThreadsRequest } from '../../../shared/threads.ts'
 
 /** Turnstile's challenge for publishing a thread (docs/decisions/0006). */
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com'
@@ -81,8 +88,8 @@ async function coversWithCache(request: Request, ctx: ExecutionContext): Promise
   return response
 }
 
-/** Published threads in Workers KV; see `shared/threads.ts`. */
-function threadStore(env: Env): ThreadStore | undefined {
+/** Published threads and book links in Workers KV; see `shared/publishing.ts`. */
+function linkStore(env: Env): LinkStore | undefined {
   const kv = env.THREADS
   if (!kv) return undefined
   return {
@@ -90,6 +97,33 @@ function threadStore(env: Env): ThreadStore | undefined {
     put: (id, value, ttlSeconds) => kv.put(id, value, { expirationTtl: ttlSeconds }),
     delete: (id) => kv.delete(id),
   }
+}
+
+function publishOptions(env: Env): PublishOptions {
+  return {
+    store: linkStore(env),
+    enabled: env.THREADS_ENABLED !== 'false',
+    turnstileSecret: env.TURNSTILE_SECRET_KEY,
+    turnstileSiteKey: env.TURNSTILE_SITE_KEY,
+  }
+}
+
+/**
+ * `/b/<id>`: the app itself, with the shared book's preview tags added so
+ * chat apps can draw a card. The app route then adds the book.
+ */
+async function bookPage(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url)
+  const app = await env.ASSETS.fetch(new Request(new URL('/', url.origin)))
+  const id = url.pathname.replace(/^\/b\//, '').replace(/\/$/, '')
+  const stored = await loadBookLink(linkStore(env), id)
+  if (!stored || !app.ok) return app
+
+  const headers = new Headers(app.headers)
+  headers.delete('Content-Length')
+  headers.delete('ETag')
+  headers.set('Cache-Control', 'no-store')
+  return new Response(withBookPreview(await app.text(), stored, url.origin, id), { headers })
 }
 
 const worker = {
@@ -127,20 +161,27 @@ const worker = {
       }
 
       if (url.pathname === '/api/threads' || url.pathname.startsWith('/api/threads/')) {
-        return await handleThreadsRequest(
-          request,
-          {
-            store: threadStore(env),
-            enabled: env.THREADS_ENABLED !== 'false',
-            turnstileSecret: env.TURNSTILE_SECRET_KEY,
-            turnstileSiteKey: env.TURNSTILE_SITE_KEY,
-          },
-          { ip: request.headers.get('CF-Connecting-IP') ?? '' },
-        )
+        return await handleThreadsRequest(request, publishOptions(env), {
+          ip: request.headers.get('CF-Connecting-IP') ?? '',
+        })
+      }
+
+      if (url.pathname === '/api/books' || url.pathname.startsWith('/api/books/')) {
+        return await handleBooksRequest(request, publishOptions(env), {
+          ip: request.headers.get('CF-Connecting-IP') ?? '',
+        })
       }
 
       if (url.pathname.startsWith('/t/')) {
-        return withSecurityHeaders(await handleThreadPage(request, threadStore(env)))
+        return withSecurityHeaders(await handleThreadPage(request, linkStore(env)))
+      }
+
+      if (/^\/b\/[^/]+\/cover$/.test(url.pathname)) {
+        return withSecurityHeaders(await handleBookCover(request, linkStore(env)))
+      }
+
+      if (url.pathname.startsWith('/b/')) {
+        return withSecurityHeaders(await bookPage(request, env))
       }
 
       if (url.pathname.startsWith('/api/')) {

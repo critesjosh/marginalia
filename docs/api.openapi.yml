@@ -157,6 +157,81 @@ paths:
       responses:
         "200": {description: The thread, content: {text/html: {schema: {type: string}}}}
         "404": {description: Expired, removed, or unknown link}
+  /api/books:
+    post:
+      summary: Share a Project Gutenberg book at a link that adds it for the recipient
+      description: Requires a passing Turnstile token (site key from GET /api/threads). The link expires one year after its last publish. The EPUB itself is never sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [book, turnstileToken]
+              properties:
+                turnstileToken: {type: string}
+                book:
+                  type: object
+                  required: [title, author, gutenbergId]
+                  properties:
+                    title: {type: string, minLength: 1, maxLength: 300}
+                    author: {type: string, maxLength: 300}
+                    gutenbergId: {type: integer, minimum: 1, maximum: 99999999}
+                cover: {type: string, format: byte, description: Base64 JPEG of at most 256 KB}
+              description: At most 400 KB. Unlisted fields are dropped.
+      responses:
+        "201":
+          description: 'Link created: id, url (/b/<id>), ownerToken (shown once; the server keeps only its hash), expiresAt'
+          content:
+            application/json: {schema: {type: object}}
+        "400": {description: Invalid JSON, not a Gutenberg book, or a cover that is not a small JPEG}
+        "403": {description: Cross-origin browser request or failed Turnstile check}
+        "405": {description: Not a POST}
+        "429": {description: Best-effort isolate-local throttle, separate from threads}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+  /api/books/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string, pattern: '^[A-Za-z0-9_-]{22}$'}}
+    get:
+      summary: What the app needs to add a shared book
+      responses:
+        "200": {description: 'book (title, author, gutenbergId) and cover (whether one is stored)', content: {application/json: {schema: {type: object}}}}
+        "403": {description: Cross-origin browser request}
+        "404": {description: Expired, removed, or unknown link}
+    put:
+      summary: Update a shared book's card, such as a changed cover
+      description: 'Authorization: Bearer <ownerToken>. Same body as POST, without the Turnstile token. A missing cover removes the stored one. Restarts the one-year expiry.'
+      responses:
+        "200": {description: 'id, url, expiresAt'}
+        "400": {description: Invalid JSON or limits}
+        "401": {description: Missing owner token}
+        "404": {description: No such link, or the token does not own it}
+        "429": {description: Best-effort isolate-local throttle}
+        "503": {description: Publishing disabled or storage or Turnstile not configured}
+    delete:
+      summary: Remove a shared book link
+      description: 'Authorization: Bearer <ownerToken>. Works while publishing is disabled.'
+      responses:
+        "204": {description: Removed}
+        "401": {description: Missing owner token}
+        "404": {description: No such link, or the token does not own it}
+  /b/{id}:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      summary: The app, with the shared book's preview tags
+      description: The PWA's index.html with Open Graph tags (title, author, cover image) added, noindex. The app then adds the book. An unknown link gets the app unchanged, which reports it as gone.
+      responses:
+        "200": {description: The app shell, content: {text/html: {schema: {type: string}}}}
+  /b/{id}/cover:
+    parameters:
+      - {in: path, name: id, required: true, schema: {type: string}}
+    get:
+      summary: A shared book's cover, the preview card image
+      responses:
+        "200": {description: JPEG, cached for five minutes, content: {image/jpeg: {schema: {type: string, format: binary}}}}
+        "404": {description: Expired, removed, or unknown link, or no cover stored}
+        "405": {description: Not a GET or HEAD}
   /health:
     get:
       summary: Worker liveness, no provider or storage requests

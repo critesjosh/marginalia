@@ -36,9 +36,22 @@ export default function PublishDialog({
   const [note, setNote] = useState<string>()
   // Passing the check only unlocks the button: publishing waits for the tap.
   const [token, setToken] = useState<string>()
+  // Tokens are single use, so a failed attempt remounts the check for a fresh one.
+  const [challenge, setChallenge] = useState(0)
   // A new link this device failed to save or remove; kept so removal can be retried.
   const [unsaved, setUnsaved] = useState<{ id: string; ownerToken: string }>()
-  const ref = useModal<HTMLDivElement>(onClose, '[data-cancel]')
+  // A live link this device could not save holds the only owner token, so the
+  // dialog stays open until it is removed, and while a request that could
+  // produce one is still in flight.
+  function dismiss() {
+    if (working) return
+    if (unsaved)
+      setError(
+        'Remove the link before closing. Otherwise it stays public with no way to remove it.',
+      )
+    else onClose()
+  }
+  const ref = useModal<HTMLDivElement>(dismiss, '[data-cancel]')
 
   async function run(action: () => Promise<void>) {
     setWorking(true)
@@ -57,23 +70,33 @@ export default function PublishDialog({
   const publish = () =>
     run(async () => {
       if (!token) return
-      const link = await publishThread(snapshot(), token)
-      const saved = await db.conversations
-        .update(conversation.id, { published: { ...link, publishedAt: Date.now() } })
-        .catch(() => 0)
-      // Without its owner token on this device the link could never be removed.
-      if (!saved) {
-        const removed = await unpublishThread(link.id, link.ownerToken).then(
-          () => true,
-          () => false,
-        )
-        if (removed) throw new Error('Could not save the link on this device, so it was removed.')
-        setUnsaved(link)
-        throw new Error(
-          'Could not save the link on this device, and it is still live. Remove it before closing.',
-        )
+      try {
+        await publishWith(token)
+      } catch (err) {
+        setToken(undefined)
+        setChallenge((count) => count + 1)
+        throw err
       }
     })
+
+  async function publishWith(turnstileToken: string) {
+    const link = await publishThread(snapshot(), turnstileToken)
+    const saved = await db.conversations
+      .update(conversation.id, { published: { ...link, publishedAt: Date.now() } })
+      .catch(() => 0)
+    // Without its owner token on this device the link could never be removed.
+    if (!saved) {
+      const removed = await unpublishThread(link.id, link.ownerToken).then(
+        () => true,
+        () => false,
+      )
+      if (removed) throw new Error('Could not save the link on this device, so it was removed.')
+      setUnsaved(link)
+      throw new Error(
+        'Could not save the link on this device, and it is still live. Remove it before closing.',
+      )
+    }
+  }
 
   const removeUnsaved = () =>
     run(async () => {
@@ -142,7 +165,7 @@ export default function PublishDialog({
               Anyone with the link can read the passage, your messages and Rami’s replies. The link
               lasts a year, and you can remove it from here at any time.
             </p>
-            <Challenge onToken={setToken} onError={setError} />
+            <Challenge key={challenge} onToken={setToken} onError={setError} />
           </>
         )}
 
@@ -166,7 +189,7 @@ export default function PublishDialog({
               Update link
             </button>
           )}
-          <button data-cancel onClick={onClose} className={button.secondary}>
+          <button data-cancel onClick={dismiss} className={button.secondary}>
             {published ? 'Done' : 'Cancel'}
           </button>
           {published ? (
@@ -200,7 +223,7 @@ export default function PublishDialog({
  * The Turnstile check. Most readers pass it without seeing a challenge; an
  * expired pass clears the token until the widget renews it.
  */
-function Challenge({
+export function Challenge({
   onToken,
   onError,
 }: {

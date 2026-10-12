@@ -19,7 +19,15 @@ export interface ThreadSnapshot {
 
 type Published = Pick<PublishedLink, 'id' | 'url' | 'expiresAt'>
 
-export class PublishError extends Error {}
+export class PublishError extends Error {
+  /** The server's status, absent when it could not be reached. */
+  readonly status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 export function snapshotFor(
   conversation: Pick<Conversation, 'chapter' | 'seedText'>,
@@ -82,17 +90,26 @@ export async function republishThread(
 }
 
 /** Resolves once the link is gone, including when it had already expired. */
-export async function unpublishThread(
+export function unpublishThread(
   id: string,
   ownerToken: string,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
-  const response = await fetcher(`/api/threads/${id}`, {
+  return removeLink(`/api/threads/${id}`, ownerToken, fetcher)
+}
+
+/** Deletes a thread or book link. A link that already expired counts as removed. */
+export async function removeLink(
+  url: string,
+  ownerToken: string,
+  fetcher: typeof fetch = fetch,
+): Promise<void> {
+  const response = await fetcher(url, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${ownerToken}` },
   }).catch(() => undefined)
   if (response && (response.ok || response.status === 404)) return
-  throw new PublishError(await failure(response))
+  throw new PublishError(await failure(response), response?.status)
 }
 
 /**
@@ -112,9 +129,9 @@ export async function unpublishAll(
   )
 }
 
-async function call<T>(fetcher: typeof fetch, url: string, init?: RequestInit): Promise<T> {
+export async function call<T>(fetcher: typeof fetch, url: string, init?: RequestInit): Promise<T> {
   const response = await fetcher(url, init).catch(() => undefined)
-  if (!response?.ok) throw new PublishError(await failure(response))
+  if (!response?.ok) throw new PublishError(await failure(response), response?.status)
   return (await response.json()) as T
 }
 

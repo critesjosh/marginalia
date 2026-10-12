@@ -55,7 +55,7 @@ describe('requests', () => {
       Response.json({ error: { message: 'Too many links published.' } }, { status: 429 }),
     )
     await expect(publishThread(snapshotFor({}, [], BOOK), 't', fetcher)).rejects.toThrow(
-      new PublishError('Too many links published.'),
+      new PublishError('Too many links published.', 429),
     )
   })
 

@@ -16,7 +16,8 @@ const api = parse(await readFile('docs/api.openapi.yml', 'utf8'))
 assert(api.openapi === '3.1.0', 'OpenAPI version must be 3.1.0')
 const paths = Object.keys(api.paths).sort().join(',')
 assert(
-  paths === '/api/chat,/api/covers,/api/gutenberg,/api/threads,/api/threads/{id},/health,/t/{id}',
+  paths ===
+    '/api/books,/api/books/{id},/api/chat,/api/covers,/api/gutenberg,/api/threads,/api/threads/{id},/b/{id},/b/{id}/cover,/health,/t/{id}',
   `Unexpected API paths: ${paths}`,
 )
 const container = JSON.parse(await readFile('.devcontainer/devcontainer.json', 'utf8'))

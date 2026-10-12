@@ -18,6 +18,15 @@ export const router = createBrowserRouter([
     errorElement: <AppErrorPage />,
   },
   {
+    path: '/b/:linkId',
+    element: (
+      <Deferred>
+        <AddSharedPage />
+      </Deferred>
+    ),
+    errorElement: <AppErrorPage />,
+  },
+  {
     path: '/book/:bookId',
     element: (
       <Deferred>

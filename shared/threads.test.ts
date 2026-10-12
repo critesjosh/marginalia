@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { escape, handleThreadPage, renderThread } from './threadPage.ts'
-import {
-  handleThreadsRequest,
-  memoryThreadStore,
-  parseBody,
-  THREAD_TTL_SECONDS,
-  type ThreadsOptions,
-} from './threads.ts'
+import { LINK_TTL_SECONDS, memoryLinkStore, type PublishOptions } from './publishing.ts'
+import { handleThreadsRequest, parseBody } from './threads.ts'
 
 const ORIGIN = 'https://rami.test'
 const THREAD = {
@@ -32,10 +27,10 @@ function siteverify(success: boolean) {
   return vi.fn(async () => Response.json({ success }))
 }
 
-function setup(overrides: Partial<ThreadsOptions> = {}) {
-  const store = memoryThreadStore()
+function setup(overrides: Partial<PublishOptions> = {}) {
+  const store = memoryLinkStore()
   const fetcher = siteverify(true)
-  const options: ThreadsOptions = {
+  const options: PublishOptions = {
     store,
     turnstileSecret: 'secret',
     turnstileSiteKey: 'site-key',
@@ -62,7 +57,7 @@ describe('publishing', () => {
     expect(body.id).toMatch(/^[A-Za-z0-9_-]{22}$/)
     expect(body.url).toBe(`${ORIGIN}/t/${body.id}`)
     expect(body.ownerToken).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(body.expiresAt).toBe(1_000 + THREAD_TTL_SECONDS * 1000)
+    expect(body.expiresAt).toBe(1_000 + LINK_TTL_SECONDS * 1000)
 
     const stored = JSON.parse((await store.get(body.id))!)
     expect(stored.thread).toEqual(THREAD)
@@ -134,7 +129,7 @@ describe('owner actions', () => {
       body: JSON.stringify({ thread: longer }),
     })
     expect(response.status).toBe(200)
-    expect((await read(response)).expiresAt).toBe(5_000 + THREAD_TTL_SECONDS * 1000)
+    expect((await read(response)).expiresAt).toBe(5_000 + LINK_TTL_SECONDS * 1000)
     expect(JSON.parse((await harness.store.get(id))!).thread.messages).toHaveLength(3)
   })
 

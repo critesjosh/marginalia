@@ -10,8 +10,8 @@ rolling per-book memory makes new chats aware of earlier ones.
 ## Requirements
 
 - Reading, highlights, and stored conversations work offline.
-- All reader data stays on the device in IndexedDB, except a thread the reader
-  explicitly publishes as a link.
+- All reader data stays on the device in IndexedDB, except a thread or a book
+  card the reader explicitly publishes as a link.
 - Chat works for any visitor with no signup or API key.
 - The KOReader plugin can ask about a selection on an e-reader and hand its
   highlights to the PWA.
@@ -26,8 +26,9 @@ rolling per-book memory makes new chats aware of earlier ones.
 ## Non-goals
 
 - A native app or app-store distribution.
-- Accounts, or server-side storage of books and conversations beyond threads a
-  reader explicitly publishes.
+- Accounts, or server-side storage of books and conversations beyond threads
+  and book cards (title, author, Gutenberg id, cover) a reader explicitly
+  publishes. EPUB files are never uploaded.
 - Syncing memory between the PWA and KOReader.
 - Third-party telemetry.
 
@@ -41,7 +42,7 @@ flowchart LR
   Relay --> OR[OpenRouter, billed]
   Relay --> PG[gutenberg.org]
   Relay --> OL[Open Library covers]
-  Relay --> KV[(Workers KV: published threads)]
+  Relay --> KV[(Workers KV: published threads and book links)]
   Relay --> TS[Turnstile siteverify]
 ```
 
@@ -68,7 +69,8 @@ Chat sends the user-selected context to the chosen model provider. Offline
 reading and normal tests need no external services.
 The app sends no third-party telemetry. Worker metrics are fixed operation names,
 status codes, and numeric durations. Publishing a thread sends its snapshot to
-the Worker, and loads Cloudflare Turnstile in the publish dialog only. A local storage-loss log is shared only
+the Worker, and sharing a book sends its title, author, Gutenberg id and a
+re-encoded cover. Both load Cloudflare Turnstile in their dialog only. A local storage-loss log is shared only
 when the reader submits a prefilled GitHub issue from Settings.
 
 ## Decision index
@@ -82,3 +84,4 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0004 Keep a bounded rolling digest per book as chat memory](decisions/0004-rolling-book-memory.md)
 - [0005 KOReader keeps its own digest and folds it lazily](decisions/0005-koreader-device-digest.md)
 - [0006 Publish shared threads at unlisted links](decisions/0006-public-thread-links.md)
+- [0007 Share books at links that add them for the recipient](decisions/0007-shared-book-links.md)

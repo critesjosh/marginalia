@@ -92,14 +92,25 @@ A failure opens or updates one issue per leg, which closes when that leg passes
 again. If only beta or `playwright-next` fails, a coming browser change (or, for
 `playwright-next`, a Playwright change) is the likely cause: fix it or report it
 upstream before release.
+## Shared book links
+
+Readers can share a Project Gutenberg book at `/b/<id>` (decision 0007). The
+card (title, author, Gutenberg id and a JPEG cover under 256 KB) lives in the
+same `THREADS` namespace under `book:<id>`, with the same one-year expiry,
+Turnstile keys and `THREADS_ENABLED` switch. `/b/<id>` serves the app with the
+card's preview tags; `/b/<id>/cover` serves the image. Add `POST /api/books` to
+the WAF rate-limiting rule. To take down one link, `wrangler kv key delete
+--binding THREADS --remote book:<id>`. Metrics use the `books` operation name.
+
 Dependabot bumps Playwright in its own PR, since that bump also replaces the
 bundled browsers.
 
 ## Data requests and error-to-issue flow
 
 Books, notes, conversations, and personal keys stay on the reader's device,
-except threads a reader publishes. A reader removes a published link from the
-thread itself; for a request by email, delete the key as described above.
+except threads and book cards a reader publishes. A reader removes a published
+link from the thread, or from the book's Share book dialog; for a request by
+email, delete the key as described above.
 Use the UI's export/delete controls for reader data. Clear browser site data for
 complete local removal.
 

@@ -216,8 +216,11 @@ async function exportData() {
 
   const payload = {
     exportedAt: new Date().toISOString(),
-    // Blobs are dropped: this is a notes backup, not a library backup.
-    books: books.map(({ file: _f, cover: _c, locations: _l, ...rest }) => rest),
+    // Blobs are dropped: this is a notes backup, not a library backup. A shared
+    // backup must not let its reader take over a published link either.
+    books: books.map(({ file: _f, cover: _c, locations: _l, sharedLink, ...rest }) =>
+      sharedLink ? { ...rest, sharedLink: { ...sharedLink, ownerToken: undefined } } : rest,
+    ),
     highlights,
     // A shared backup must not let its reader take over a published link.
     conversations: conversations.map(({ published, ...rest }) =>

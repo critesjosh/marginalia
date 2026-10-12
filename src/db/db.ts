@@ -1,6 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { normalizeSummary } from '../lib/digest'
 import { fingerprint } from '../lib/fingerprint'
+import { unpublishBook } from '../lib/bookLink'
 import { unpublishAll } from '../lib/publish'
 import {
   DEFAULT_SETTINGS,
@@ -120,6 +121,8 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
  */
 export async function deleteBook(bookId: string): Promise<void> {
   await unpublishAll(await db.conversations.where('bookId').equals(bookId).toArray())
+  const sharedLink = (await db.books.get(bookId))?.sharedLink
+  if (sharedLink) await unpublishBook(sharedLink)
   await db.transaction(
     'rw',
     [db.books, db.highlights, db.conversations, db.messages, db.bookMemory],

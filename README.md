@@ -14,7 +14,7 @@ Milestones M1 to M5 of the original plan are implemented and verified end to end
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | M1 Library    | EPUB import, OPF metadata + cover extraction, library grid, delete with cascade                                                                                                            |
 | M2 Reader     | Paginated epub.js rendition, position persistence, TOC, themes, font size                                                                                                                  |
-| M3 Highlights | Selection action bar, one highlight color set in Settings, painted annotations, tap a highlight to reopen its chat, per-book list, share a passage or thread with its book and a link back |
+| M3 Highlights | Selection action bar, one highlight color set in Settings, painted annotations, tap a highlight to reopen its chat, per-book list, share a passage or thread with its book and a link back, share a Gutenberg book at a link that adds it to the recipient's library |
 | M4 Chat       | Hosted relay, context assembly, streaming replies, persisted conversations                                                                                                                 |
 | M5 Memory     | Rolling per-book digest injected into every new conversation, readable and editable under the reader's Memory tab                                                                          |
 

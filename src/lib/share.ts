@@ -1,5 +1,5 @@
 /**
- * Sharing a highlight or a thread out of the app: through the system share
+ * Sharing a highlight, a thread or a book out of the app: through the system share
  * sheet where there is one, otherwise to the clipboard. Every share carries
  * the book it came from and a line naming the app, so it leads back here.
  */
@@ -79,6 +79,23 @@ export function linkShare(
     // Copying is for pasting the link, so it gets the bare URL.
     copyText: url,
   }
+}
+
+/** An invitation to read a book, with the link that adds it. */
+export function bookShare(book: BookInfo, url: string): ShareContent {
+  return {
+    title: book.title,
+    text: `I’m reading ${source(book)} on ${APP_NAME}. Read it with me: ${url}`,
+  }
+}
+
+/**
+ * Whether to offer the system share sheet. Phones and tablets get one; on a
+ * desktop, where a link is pasted into an email or a chat, copying is quicker
+ * than a sheet, even in browsers that have one.
+ */
+export function prefersShareSheet(host: Pick<Window, 'matchMedia'> = globalThis): boolean {
+  return host.matchMedia?.('(pointer: coarse)').matches ?? false
 }
 
 /**

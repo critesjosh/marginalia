@@ -8,24 +8,31 @@
  * as a parameter.
  */
 
-import { createRateLimiter, fetchUpstream, isCrossOrigin, json } from './http-guards.ts'
+import { createRateLimiter, isCrossOrigin, json } from './http-guards.ts'
+import {
+  authorizeOwner,
+  canPublish,
+  errorResponse,
+  expiresAt,
+  ID_PATTERN,
+  isRecord,
+  isText,
+  LINK_TTL_SECONDS,
+  type LinkStore,
+  newLink,
+  now,
+  type PublishOptions,
+  type PublishRequestContext,
+  verifyTurnstile,
+} from './publishing.ts'
 import { boundedText } from './resilience.ts'
 import { operationMetric } from './telemetry.ts'
-
-/** A link lives for a year after its last publish. */
-export const THREAD_TTL_SECONDS = 365 * 24 * 60 * 60
 
 const MAX_BODY_BYTES = 64 * 1024
 const MAX_MESSAGES = 200
 /** Keeps a link from republishing long stretches of an imported book. */
 const MAX_PASSAGE_CHARS = 2_000
 const MAX_LABEL_CHARS = 300
-
-const ID_BYTES = 16
-const TOKEN_BYTES = 32
-const ID_PATTERN = /^[A-Za-z0-9_-]{22}$/
-
-const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
 
 /** Publishing is rare; a burst beyond this is not a reader. */
 const rateLimited = createRateLimiter({ windowMs: 10 * 60_000, maxRequests: 10 })
@@ -50,52 +57,10 @@ export interface StoredThread {
   publishedAt: number
 }
 
-/** The subset of Workers KV this needs. */
-export interface ThreadStore {
-  get(id: string): Promise<string | null>
-  put(id: string, value: string, ttlSeconds: number): Promise<void>
-  delete(id: string): Promise<void>
-}
-
-export interface ThreadsOptions {
-  /** Absent when the deployment has no storage bound. */
-  store?: ThreadStore
-  turnstileSecret?: string
-  /** Public; handed to the PWA so it can render the challenge. */
-  turnstileSiteKey?: string
-  enabled?: boolean
-  fetcher?: typeof fetch
-  now?: () => number
-}
-
-export interface ThreadsRequestContext {
-  /** Client address, used for throttling and passed to Turnstile. */
-  ip: string
-}
-
-/** The dev server's and tests' stand-in for Workers KV, expiry included. */
-export function memoryThreadStore(): ThreadStore & { size(): number } {
-  const items = new Map<string, { value: string; expiresAt: number }>()
-  return {
-    async get(id) {
-      const item = items.get(id)
-      if (!item || item.expiresAt <= Date.now()) return null
-      return item.value
-    },
-    async put(id, value, ttlSeconds) {
-      items.set(id, { value, expiresAt: Date.now() + ttlSeconds * 1000 })
-    },
-    async delete(id) {
-      items.delete(id)
-    },
-    size: () => items.size,
-  }
-}
-
 export async function handleThreadsRequest(
   request: Request,
-  options: ThreadsOptions,
-  context: ThreadsRequestContext,
+  options: PublishOptions,
+  context: PublishRequestContext,
 ): Promise<Response> {
   const started = performance.now()
   const response = await route(request, options, context)
@@ -107,7 +72,7 @@ export async function handleThreadsRequest(
 
 /** Reads a published thread for the viewer page, or `null` when it is gone. */
 export async function loadThread(
-  store: ThreadStore | undefined,
+  store: LinkStore | undefined,
   id: string,
 ): Promise<StoredThread | null> {
   if (!store || !ID_PATTERN.test(id)) return null
@@ -122,10 +87,10 @@ export async function loadThread(
 
 async function route(
   request: Request,
-  options: ThreadsOptions,
-  { ip }: ThreadsRequestContext,
+  options: PublishOptions,
+  { ip }: PublishRequestContext,
 ): Promise<Response> {
-  const { store, enabled = true, turnstileSecret, turnstileSiteKey } = options
+  const { store, turnstileSiteKey = '' } = options
   const unavailable = () =>
     errorResponse(503, 'Publishing threads is not available on this deployment.')
   if (!store) return unavailable()
@@ -136,7 +101,7 @@ async function route(
   const id = new URL(request.url).pathname.replace(/^\/api\/threads\/?/, '')
   // Owners can still remove their links while publishing is switched off.
   if (request.method === 'DELETE' && ID_PATTERN.test(id)) return remove(request, store, id)
-  if (!enabled || !turnstileSecret?.trim() || !turnstileSiteKey?.trim()) return unavailable()
+  if (!canPublish(options)) return unavailable()
 
   if (!id) {
     if (request.method === 'GET') return json({ siteKey: turnstileSiteKey.trim() })
@@ -151,8 +116,8 @@ async function route(
 
 async function create(
   request: Request,
-  options: ThreadsOptions,
-  store: ThreadStore,
+  options: PublishOptions,
+  store: LinkStore,
   ip: string,
 ): Promise<Response> {
   if (rateLimited(ip)) return errorResponse(429, 'Too many links published. Try again later.')
@@ -164,11 +129,10 @@ async function create(
   const human = await verifyTurnstile(options, turnstileToken, ip)
   if (!human) return errorResponse(403, 'The verification check did not pass. Try again.')
 
-  const id = randomToken(ID_BYTES)
-  const ownerToken = randomToken(TOKEN_BYTES)
+  const { id, ownerToken, ownerHash } = await newLink()
   const publishedAt = now(options)
-  const stored: StoredThread = { thread, ownerHash: await sha256(ownerToken), publishedAt }
-  await store.put(id, JSON.stringify(stored), THREAD_TTL_SECONDS)
+  const stored: StoredThread = { thread, ownerHash, publishedAt }
+  await store.put(id, JSON.stringify(stored), LINK_TTL_SECONDS)
 
   return json(
     { id, url: threadUrl(request, id), ownerToken, expiresAt: expiresAt(publishedAt) },
@@ -178,8 +142,8 @@ async function create(
 
 async function update(
   request: Request,
-  options: ThreadsOptions,
-  store: ThreadStore,
+  options: PublishOptions,
+  store: LinkStore,
   id: string,
   ip: string,
 ): Promise<Response> {
@@ -193,32 +157,23 @@ async function update(
 
   const publishedAt = now(options)
   const stored: StoredThread = { ...existing, thread: body.thread, publishedAt }
-  await store.put(id, JSON.stringify(stored), THREAD_TTL_SECONDS)
+  await store.put(id, JSON.stringify(stored), LINK_TTL_SECONDS)
   return json({ id, url: threadUrl(request, id), expiresAt: expiresAt(publishedAt) })
 }
 
-async function remove(request: Request, store: ThreadStore, id: string): Promise<Response> {
+async function remove(request: Request, store: LinkStore, id: string): Promise<Response> {
   const existing = await authorize(request, store, id)
   if (existing instanceof Response) return existing
   await store.delete(id)
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } })
 }
 
-/** The stored thread when the bearer token owns it, otherwise the error to send. */
-async function authorize(
+function authorize(
   request: Request,
-  store: ThreadStore,
+  store: LinkStore,
   id: string,
 ): Promise<StoredThread | Response> {
-  const token = /^Bearer (\S+)$/.exec(request.headers.get('authorization') ?? '')?.[1]
-  if (!token) return errorResponse(401, 'Missing owner token.')
-
-  const existing = await loadThread(store, id)
-  // Same answer for a wrong token and a missing thread, so ids cannot be probed.
-  if (!existing || !sameHex(existing.ownerHash, await sha256(token))) {
-    return errorResponse(404, 'No such thread.')
-  }
-  return existing
+  return authorizeOwner(request, () => loadThread(store, id), 'No such thread.')
 }
 
 type ParsedBody = { thread: ThreadSnapshot; turnstileToken: string } | { error: string }
@@ -276,64 +231,6 @@ export function parseBody(payload: unknown): ParsedBody {
   }
 }
 
-async function verifyTurnstile(
-  { turnstileSecret = '', fetcher = fetch }: ThreadsOptions,
-  token: string,
-  ip: string,
-): Promise<boolean> {
-  if (!token) return false
-  const form = new FormData()
-  form.set('secret', turnstileSecret.trim())
-  form.set('response', token)
-  if (ip) form.set('remoteip', ip)
-
-  const response = await fetchUpstream(fetcher, SITEVERIFY_URL, { method: 'POST', body: form })
-  if (!response?.ok) return false
-  const result = (await response.json().catch(() => null)) as { success?: unknown } | null
-  return result?.success === true
-}
-
 function threadUrl(request: Request, id: string): string {
   return new URL(`/t/${id}`, request.url).toString()
-}
-
-function now(options: ThreadsOptions): number {
-  return options.now?.() ?? Date.now()
-}
-
-function expiresAt(publishedAt: number): number {
-  return publishedAt + THREAD_TTL_SECONDS * 1000
-}
-
-function randomToken(bytes: number): string {
-  const raw = crypto.getRandomValues(new Uint8Array(bytes))
-  return btoa(String.fromCharCode(...raw))
-    .replaceAll('+', '-')
-    .replaceAll('/', '_')
-    .replace(/=+$/, '')
-}
-
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
-}
-
-/** Compares without stopping at the first difference. */
-function sameHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
-  return diff === 0
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isText(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length <= max
-}
-
-function errorResponse(status: number, message: string): Response {
-  return json({ error: { message } }, status)
 }

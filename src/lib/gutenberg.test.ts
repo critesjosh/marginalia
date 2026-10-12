@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  gutenbergIdFromIdentifier,
   downloadGutenbergBook,
   parseGutenbergRef,
   searchGutenberg,
@@ -112,6 +113,26 @@ describe('parseGutenbergRef', () => {
       'not a url',
     ]) {
       expect(parseGutenbergRef(input), input).toBeUndefined()
+    }
+  })
+})
+
+describe('gutenbergIdFromIdentifier', () => {
+  it('reads the identifier Gutenberg writes into its EPUBs', () => {
+    expect(gutenbergIdFromIdentifier('http://www.gutenberg.org/2701')).toBe(2701)
+    expect(gutenbergIdFromIdentifier(' https://gutenberg.org/ebooks/10/ ')).toBe(10)
+  })
+
+  it('ignores every other kind of identifier', () => {
+    for (const identifier of [
+      undefined,
+      '',
+      'urn:uuid:4f0c6a0e-6b0e-4a43-9b51-8c7e5e7d9a11',
+      '9780142437247',
+      'http://www.gutenberg.org/files/2701/2701-h/2701-h.htm',
+      'http://example.com/gutenberg.org/2701',
+    ]) {
+      expect(gutenbergIdFromIdentifier(identifier)).toBeUndefined()
     }
   })
 })

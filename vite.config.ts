@@ -7,7 +7,9 @@ import { handleRelayRequest } from './shared/relay.ts'
 import { handleGutenbergRequest } from './shared/gutenberg.ts'
 import { handleCoverRequest } from './shared/covers.ts'
 import { handleThreadPage } from './shared/threadPage.ts'
-import { handleThreadsRequest, memoryThreadStore, type ThreadsOptions } from './shared/threads.ts'
+import { handleThreadsRequest } from './shared/threads.ts'
+import { handleBookCover, handleBooksRequest } from './shared/books.ts'
+import { memoryLinkStore, type PublishOptions } from './shared/publishing.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { execFileSync } from 'node:child_process'
 
@@ -98,19 +100,22 @@ function getRelay(
 }
 
 /**
- * Serves published threads in dev with the production handlers and an
- * in-memory store, so links last until the dev server restarts. Turnstile
- * defaults to Cloudflare's always-pass test keys.
+ * Serves published threads and book links in dev with the production handlers
+ * and an in-memory store, so links last until the dev server restarts.
+ * Turnstile defaults to Cloudflare's always-pass test keys. A `/b/<id>` page
+ * falls through to the app; only the Worker adds its preview tags.
  */
-function threads(options: Omit<ThreadsOptions, 'store'>): Plugin {
-  const store = memoryThreadStore()
+function publishing(options: Omit<PublishOptions, 'store'>): Plugin {
+  const store = memoryLinkStore()
   return {
-    name: 'marginalia-threads',
+    name: 'marginalia-publishing',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
         const path = req.url?.split('?')[0] ?? ''
-        const api = path === '/api/threads' || path.startsWith('/api/threads/')
-        if (!api && !path.startsWith('/t/')) return next()
+        const threadsApi = path === '/api/threads' || path.startsWith('/api/threads/')
+        const booksApi = path === '/api/books' || path.startsWith('/api/books/')
+        const cover = /^\/b\/[^/]+\/cover$/.test(path)
+        if (!threadsApi && !booksApi && !cover && !path.startsWith('/t/')) return next()
 
         const chunks: Buffer[] = []
         for await (const chunk of req) chunks.push(chunk as Buffer)
@@ -125,9 +130,13 @@ function threads(options: Omit<ThreadsOptions, 'store'>): Plugin {
         })
 
         const ip = req.socket.remoteAddress ?? ''
-        const response = api
-          ? await handleThreadsRequest(request, { ...options, store }, { ip })
-          : await handleThreadPage(request, store)
+        let response: Response
+        if (threadsApi)
+          response = await handleThreadsRequest(request, { ...options, store }, { ip })
+        else if (booksApi)
+          response = await handleBooksRequest(request, { ...options, store }, { ip })
+        else if (cover) response = await handleBookCover(request, store)
+        else response = await handleThreadPage(request, store)
 
         res.statusCode = response.status
         response.headers.forEach((value, key) => res.setHeader(key, value))
@@ -169,7 +178,7 @@ export default defineConfig(({ mode }) => {
         : [chatRelay(env.OPENROUTER_API_KEY ?? '', env.CHAT_ENABLED !== 'false')]),
       getRelay('/api/gutenberg', handleGutenbergRequest),
       getRelay('/api/covers', handleCoverRequest),
-      threads({
+      publishing({
         enabled: env.THREADS_ENABLED !== 'false',
         turnstileSecret: env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA',
         turnstileSiteKey: env.TURNSTILE_SITE_KEY || '1x00000000000000000000AA',

@@ -37,6 +37,8 @@ export interface Book {
    * Set only from the Memory tab, never from an import.
    */
   instructions?: string
+  /** Set while the book is shared at a link (`src/lib/bookLink.ts`). */
+  sharedLink?: PublishedBookLink
 }
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
@@ -95,7 +97,7 @@ export interface Conversation {
 }
 
 /**
- * A thread's public link. Not indexed, so adding it needed no Dexie version.
+ * A thread's or book's public link. Not indexed, so adding it needed no Dexie version.
  * The owner token is what lets this device update or remove the link; it is
  * left out of exports.
  */
@@ -105,6 +107,12 @@ export interface PublishedLink {
   ownerToken: string
   publishedAt: number
   expiresAt: number
+}
+
+/** A shared book's link, and which cover it was last sent with. */
+export interface PublishedBookLink extends PublishedLink {
+  /** Fingerprint of the cover the link shows, or `none`. */
+  coverHash: string
 }
 
 export type Role = 'system' | 'user' | 'assistant'

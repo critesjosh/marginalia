@@ -1,4 +1,4 @@
-import { db, getSettings, saveSettings } from '../db/db'
+import { db, getSettings, restoreBook, saveSettings } from '../db/db'
 import type { Book } from '../db/types'
 import { parseEpubFile } from './epub'
 
@@ -14,6 +14,8 @@ interface SampleBook {
    */
   id: string
   filename: string
+  /** Lets a shared link for the same book open this copy instead of downloading another. */
+  gutenbergId: number
   /**
    * Replaces what the OPF says, when Gutenberg metadata
    * does not survive contact with the UI. The Genealogy's `dc:title` is the
@@ -30,21 +32,20 @@ interface SampleBook {
 
 /**
  * Public-domain shelf shipped in `public/` so a first-time visitor has
- * something to read without finding an EPUB first. Moby Dick is Project
- * Gutenberg #2701, The Genealogy of Morals #52319,
- * the King James Bible #10.
+ * something to read without finding an EPUB first.
  *
  * Listed in the order they should appear on the shelf.
  */
 const SAMPLE_BOOKS: SampleBook[] = [
-  { id: 'sample-moby-dick', filename: 'moby-dick.epub' },
+  { id: 'sample-moby-dick', filename: 'moby-dick.epub', gutenbergId: 2701 },
   {
     id: 'sample-genealogy-of-morals',
     filename: 'genealogy-of-morals.epub',
+    gutenbergId: 52319,
     title: 'The Genealogy of Morals',
     author: 'Friedrich Nietzsche',
   },
-  { id: 'sample-king-james-bible', filename: 'king-james-bible.epub' },
+  { id: 'sample-king-james-bible', filename: 'king-james-bible.epub', gutenbergId: 10 },
 ]
 
 const SAMPLE_IDS = new Set(SAMPLE_BOOKS.map((sample) => sample.id))
@@ -128,6 +129,49 @@ export async function fetchSampleBook(id: string): Promise<Book | undefined> {
   const book = await fetchSample(sample)
   if (!book) throw new Error(`Could not fetch ${sample.filename}.`)
   return book
+}
+
+/**
+ * Shelves the bundled copy of a Gutenberg book, for a shared link that names
+ * one, and returns its id. Undefined when no sample is that book, or its file
+ * could not be fetched.
+ *
+ * A fresh Gutenberg download differs byte for byte from the shipped file, so
+ * downloading would stand a second copy beside the sample the reader already
+ * has, or one that seeding adds later. A sample they removed comes back with
+ * its notes, but only if the bundle is still the edition those notes were
+ * taken in; otherwise the caller adds a fresh copy beside it.
+ */
+export async function shelveSampleBook(
+  gutenbergId: number,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  const sample = SAMPLE_BOOKS.find((candidate) => candidate.gutenbergId === gutenbergId)
+  if (!sample) return undefined
+  const shelved = await db.books.get(sample.id)
+  if (shelved && !shelved.archivedAt && !shelved.missingFileAt) return sample.id
+
+  const book = await fetchSample(sample).catch(() => undefined)
+  if (!book || signal?.aborted) return undefined
+  if (shelved) {
+    if (!shelved.fileHash || shelved.fileHash !== book.fileHash) return undefined
+    await restoreBook(sample.id, book)
+    return sample.id
+  }
+
+  // The same file imported by hand after the sample was deleted: open that
+  // copy, or give it its EPUB back, rather than adding another.
+  const imported = await db.books.filter((row) => row.fileHash === book.fileHash).first()
+  if (imported) {
+    if (imported.archivedAt || imported.missingFileAt) await restoreBook(imported.id, book)
+    return imported.id
+  }
+
+  await db.books.add(book).catch((err: { name?: string } | undefined) => {
+    // Seeding in another tab got there first; the book is on the shelf either way.
+    if (err?.name !== 'ConstraintError') throw err
+  })
+  return sample.id
 }
 
 async function fetchSample(sample: SampleBook): Promise<Book | undefined> {
