@@ -1,0 +1,3 @@
+# Synthetic PostHog-shaped test keys in 0ef8b21, since replaced with generated ones.
+0ef8b21c43e0fe223e9167ed6029b69b42fb1c9f:src/lib/telemetry.test.ts:generic-api-key:11
+0ef8b21c43e0fe223e9167ed6029b69b42fb1c9f:src/lib/telemetry.test.ts:generic-api-key:84

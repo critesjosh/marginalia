@@ -110,9 +110,10 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
   let sentThisLoad = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let lastError: RecordedError | undefined
-  // Only for a store that refuses writes, so an opt-out still sticks for this load.
-  // The stored value wins otherwise, so an opt-out in another tab applies here too.
+  // This tab's choice. The stored value wins while saving works, so an opt-out
+  // in another tab applies here too; once a save fails, this choice wins.
   let chosen: Preference | undefined
+  let unsaved = false
   // The default before the reader chooses; `pending` until the region is known.
   let regionDefault: Preference | 'pending' =
     config.defaultMode === 'regional' && configured ? 'pending' : 'off'
@@ -127,7 +128,7 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
   }
 
   function explicit(): Preference | undefined {
-    return readStored() ?? chosen
+    return unsaved ? chosen : (readStored() ?? chosen)
   }
 
   /** No choice yet and the region still unknown: hold events, send nothing. */
@@ -166,8 +167,10 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
     chosen = next
     try {
       deps.store?.setItem(PREFERENCE_KEY, next)
+      unsaved = false
     } catch {
-      // Blocked storage: the choice still holds until the page closes.
+      // Blocked or full storage: the choice still holds until the page closes.
+      unsaved = true
     }
     if (next === 'off') {
       queue = []

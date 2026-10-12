@@ -8,7 +8,9 @@ import {
 import { classifyError, newErrorRef, scrubFeedback } from './telemetryErrors'
 import { ERROR_REF_PATTERN, durationBucket, lengthBucket } from './telemetrySchema'
 
-const KEY = 'phc_abcdefghijklmnopqrstuvwxyz0123'
+// Synthetic, low-entropy keys: shaped like PostHog's, never real.
+const KEY = `phc_${'a'.repeat(32)}`
+const PERSONAL_KEY = `phx_${'a'.repeat(32)}`
 const HOST = 'https://eu.i.posthog.com'
 
 function memoryStore() {
@@ -78,11 +80,9 @@ describe('configuration', () => {
 
   it('accepts only public project keys, never personal ones', async () => {
     expect(isProjectKey(KEY)).toBe(true)
-    expect(isProjectKey('phx_abcdefghijklmnopqrstuvwxyz0123')).toBe(false)
+    expect(isProjectKey(PERSONAL_KEY)).toBe(false)
     expect(isProjectKey('')).toBe(false)
-    expect(
-      (await setup({ apiKey: 'phx_abcdefghijklmnopqrstuvwxyz0123' })).telemetry.configured,
-    ).toBe(false)
+    expect((await setup({ apiKey: PERSONAL_KEY })).telemetry.configured).toBe(false)
   })
 })
 
@@ -145,6 +145,22 @@ describe('consent', () => {
     telemetry.setPreference('on')
     store.setItem('marginalia.telemetry', 'off')
     expect(telemetry.enabled()).toBe(false)
+  })
+
+  it('honors an opt-out that storage refused to save over an earlier opt-in', async () => {
+    const values = new Map([['marginalia.telemetry', 'on']])
+    const store = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: () => {
+        throw new Error('quota exceeded')
+      },
+    }
+    const { telemetry, sent } = await setup({}, { store })
+    telemetry.setPreference('off')
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    expect(telemetry.preference()).toBe('off')
+    expect(sent).toEqual([])
   })
 
   it('notifies subscribers of a change', async () => {
