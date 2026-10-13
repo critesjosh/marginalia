@@ -41,6 +41,8 @@ const scrollLeft = (page: Page) =>
 
 async function openChapterOne(page: Page) {
   await page.goto('/')
+  // The usage-data notice covers the page's last lines; decline it.
+  await page.getByRole('complementary', { name: 'Usage data' }).getByRole('button').first().click()
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
   const contents = await openContents(page)
   await contents.getByRole('button', { name: /Loomings/i }).click()
@@ -228,7 +230,7 @@ test('a selection dragged to the page edge runs onto the next page', async ({
   await expectBarOnScreen(page)
 })
 
-test('a tap at the page edge carries a selection to the next page', async ({
+test('a tap at the page edge that leaves a selection behind dismisses it', async ({
   context,
   page,
   browserName,
@@ -246,21 +248,17 @@ test('a tap at the page edge carries a selection to the next page', async ({
   const selected = (await selectionSpan(page))?.text
   expect(selected?.trim()).toBeTruthy()
 
+  // A turn that leaves the selection behind lets it go, and its bar with it.
   const start = await scrollLeft(page)
   await page.mouse.click(box.x + box.width * 0.9, box.y + box.height / 2)
   await expect.poll(() => scrollLeft(page)).toBeGreaterThan(start)
-  expect((await selectionSpan(page))?.text).toBe(selected)
-  await expectBarOnScreen(page)
-
-  // And back. The zones are the reader's, which is centered and capped on a
-  // wide screen, not the window's.
-  await page.mouse.click(box.x + box.width * 0.2, box.y + box.height / 2)
-  await expect.poll(() => scrollLeft(page)).toBe(start)
-  expect((await selectionSpan(page))?.text).toBe(selected)
-
-  // A tap in the middle still dismisses it.
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.getByRole('toolbar', { name: 'Selection actions' })).not.toBeVisible()
+  expect(await selectionSpan(page)).toBeUndefined()
+
+  // The next tap is the reader's again: the middle shows its bars.
+  await input.down(box.x + box.width / 2, box.y + box.height / 2)
+  await input.up()
+  await expect(page.locator('footer')).toHaveCSS('opacity', '1')
 })
 
 test('a tap on a highlight opens its selection bar and keeps it open', async ({
