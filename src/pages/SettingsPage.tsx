@@ -142,6 +142,16 @@ export default function SettingsPage() {
         <UsageDataSection />
 
         <section className={card}>
+          <h2 className="font-book text-heading font-medium">How Rami works</h2>
+          <p className="mt-1 font-ui text-body text-ink-soft">
+            Asking about a passage, turning pages, memory, sharing and your library, in one place.
+          </p>
+          <Link to="/help" className={`${button.secondary} mt-3`}>
+            Read the guide
+          </Link>
+        </section>
+
+        <section className={card}>
           <h2 className="font-book text-heading font-medium">Feedback and community</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
             Share an idea or wander through other readers’ questions in the discussions. Something

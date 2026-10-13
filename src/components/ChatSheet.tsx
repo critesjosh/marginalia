@@ -316,7 +316,8 @@ export default function ChatSheet({
         {threadHint && (
           <HintNote label="What Rami sees" onDismiss={() => void markHintSeen('thread')}>
             Rami reads this passage with the text around it, your chapter, and what it remembers
-            from your other threads about this book. Every thread is kept under Threads.
+            from your other threads about this book. Every thread is kept under Threads, and the
+            buttons below its messages share it or publish a link to it.
           </HintNote>
         )}
 

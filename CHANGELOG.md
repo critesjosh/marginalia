@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- One-time hints for new readers, each where its feature first applies: a
+  three-step library card, the reader's tap zones on a first book, notes on a
+  first thread and a first memory, and a later note on the book menu. A
+  "How Rami works" guide at `/help` keeps all of it, linked from Settings.
 - Privacy-first product telemetry to PostHog Cloud through a same-origin relay,
   off until configured, with a usage-data setting and Report a problem
   (decision 0008).

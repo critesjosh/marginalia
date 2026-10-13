@@ -172,10 +172,11 @@ export interface Settings {
 }
 
 /**
- * The library's “How Rami works” card, the note on a first thread, and the
- * note when Rami first writes a book's memory.
+ * The library's “How Rami works” card, the note on a first thread, the note
+ * when Rami first writes a book's memory, the reader's tap zones on a first
+ * book, and the library's later note on the ⋯ menu.
  */
-export type Hint = 'library' | 'thread' | 'memory'
+export type Hint = 'library' | 'thread' | 'memory' | 'reader' | 'shelf'
 
 export const DEFAULT_SETTINGS: Settings = {
   id: 'settings',

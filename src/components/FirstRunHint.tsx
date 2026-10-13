@@ -2,14 +2,12 @@ import { Link } from 'react-router-dom'
 import { CloseIcon } from './Icons'
 import { button, iconButton } from './ui'
 
+// Only the core idea: everything else is shown where it applies, and all of
+// it is on the help page.
 const STEPS = [
   'Open any book on your shelf.',
   'Select a line that catches your eye.',
-  'Choose “Ask about this” and follow the thread. Rami knows the book, your chapter and what you have talked about before.',
-  'To share a highlight, select the passage in the book and choose “Share”.',
-  'To share a conversation, open it from Threads and choose “Share thread” below the messages.',
-  'To share a Project Gutenberg book, tap its ⋯ menu, choose “Share book”, create a link, then share or copy the invitation so someone can add it to their library.',
-  'Make your shelf your own: tap the ⋯ menu beside a book’s title, choose “Change cover”, and pick new cover art.',
+  'Choose “Ask about this” and follow the thread.',
 ]
 
 /**
@@ -44,15 +42,16 @@ export default function FirstRunHint({
           <li key={step}>{step}</li>
         ))}
       </ol>
-      <p className="mt-4 font-ui text-meta text-ink-faint">
-        While reading, tap the right or left side of the page to turn forward or back, and tap the
-        middle to show or hide the toolbar.
-      </p>
-      {tryLink && (
-        <Link to={tryLink} className={`${button.secondary} mt-5`}>
-          Try it with Moby Dick
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {tryLink && (
+          <Link to={tryLink} className={button.secondary}>
+            Try it with Moby Dick
+          </Link>
+        )}
+        <Link to="/help" className={button.quiet}>
+          More about Rami
         </Link>
-      )}
+      </div>
     </section>
   )
 }
