@@ -47,8 +47,8 @@ export function renderThread({ thread, publishedAt }: StoredThread, origin: stri
   const turns = messages
     .map((message) =>
       message.role === 'user'
-        ? `<p class="you">${escape(message.content)}</p>`
-        : `<div class="rami"><span class="mark" aria-hidden="true">R</span><p>${escape(message.content)}</p></div>`,
+        ? `<div class="you"><p class="who">Reader</p><p class="bubble">${escape(message.content)}</p></div>`
+        : `<div class="rami"><span class="mark" aria-hidden="true">R</span><div><p class="who">${APP_NAME} (AI)</p><p>${escape(message.content)}</p></div></div>`,
     )
     .join('\n')
 
@@ -60,8 +60,9 @@ export function renderThread({ thread, publishedAt }: StoredThread, origin: stri
 <header>
   <p class="eyebrow">${escape(chapter ?? 'A shared thread')}</p>
   <h1>${escape(source)}</h1>
+  <p class="intro">A reader’s questions${passage ? ' about a passage' : ''}, answered by ${APP_NAME}, an AI reading companion.</p>
 </header>
-${passage ? `<blockquote>${escape(passage)}</blockquote>` : ''}
+${passage ? `<figure><figcaption class="who">From the book</figcaption><blockquote>${escape(passage)}</blockquote></figure>` : ''}
 <section aria-label="Conversation">
 ${turns}
 </section>
@@ -146,12 +147,17 @@ body { margin: 0; background: var(--paper); color: var(--ink);
   font: 18px/1.55 Georgia, 'Iowan Old Style', 'Palatino Linotype', serif; }
 main { max-width: 680px; margin: 0 auto; padding: 32px 16px 48px; }
 .eyebrow { margin: 0; color: var(--rubric); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; }
-h1 { margin: 4px 0 24px; font-size: 28px; line-height: 1.2; font-weight: 500; }
-blockquote { margin: 0 0 28px; padding: 16px 20px; background: var(--sunk); border-radius: 8px;
+h1 { margin: 4px 0 8px; font-size: 28px; line-height: 1.2; font-weight: 500; }
+.intro { margin-bottom: 24px; color: var(--soft); font-size: 16px; }
+.who { margin-bottom: 4px; color: var(--soft); font: 600 12px/1.4 system-ui, sans-serif;
+  letter-spacing: .08em; text-transform: uppercase; }
+figure { margin: 0 0 28px; }
+blockquote { margin: 0; padding: 16px 20px; background: var(--sunk); border-radius: 8px;
   font-style: italic; white-space: pre-wrap; overflow-wrap: anywhere; }
 section { display: grid; gap: 18px; }
 p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.you { justify-self: end; max-width: 85%; padding: 10px 14px; border-radius: 8px 8px 3px 8px;
+.you { justify-self: end; max-width: 85%; text-align: right; }
+.bubble { padding: 10px 14px; border-radius: 8px 8px 3px 8px; text-align: left;
   background: var(--moss); color: var(--on-moss); }
 .rami { display: flex; gap: 12px; align-items: flex-start; }
 .mark { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;

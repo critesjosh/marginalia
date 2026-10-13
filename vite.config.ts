@@ -9,6 +9,7 @@ import { handleCoverRequest } from './shared/covers.ts'
 import { handleThreadPage } from './shared/threadPage.ts'
 import { handleThreadsRequest } from './shared/threads.ts'
 import { handleBookCover, handleBooksRequest } from './shared/books.ts'
+import { handleTelemetryRequest, type TelemetryRelayOptions } from './shared/telemetryRelay.ts'
 import { memoryLinkStore, type PublishOptions } from './shared/publishing.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { execFileSync } from 'node:child_process'
@@ -146,6 +147,49 @@ function publishing(options: Omit<PublishOptions, 'store'>): Plugin {
   }
 }
 
+/**
+ * Serves /api/telemetry/* in dev with the production relay. Dev has no
+ * Cloudflare country, so TELEMETRY_DEV_COUNTRY stands in for it.
+ */
+function telemetryRelay(options: TelemetryRelayOptions, country: string | undefined): Plugin {
+  return {
+    name: 'marginalia-telemetry-relay',
+    configureServer(server) {
+      server.middlewares.use('/api/telemetry', async (req, res) => {
+        const chunks: Buffer[] = []
+        let bytes = 0
+        for await (const chunk of req) {
+          bytes += (chunk as Buffer).length
+          // Same limit as the relay's own, which then sees only bounded bodies.
+          if (bytes > 64 * 1024) {
+            res.statusCode = 413
+            res.end('Request body too large.')
+            return
+          }
+          chunks.push(chunk as Buffer)
+        }
+        const headers = new Headers()
+        for (const [name, value] of Object.entries(req.headers)) {
+          if (typeof value === 'string') headers.set(name, value)
+        }
+        const request = new Request(new URL(req.originalUrl ?? '/', `http://${req.headers.host}`), {
+          method: req.method,
+          headers,
+          body: chunks.length ? Buffer.concat(chunks) : undefined,
+        })
+
+        const response = await handleTelemetryRequest(request, options, {
+          ip: req.socket.remoteAddress ?? '',
+          country,
+        })
+        res.statusCode = response.status
+        response.headers.forEach((value, key) => res.setHeader(key, value))
+        res.end(Buffer.from(await response.arrayBuffer()))
+      })
+    },
+  }
+}
+
 function git(...args: string[]): string {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
 }
@@ -178,6 +222,14 @@ export default defineConfig(({ mode }) => {
         : [chatRelay(env.OPENROUTER_API_KEY ?? '', env.CHAT_ENABLED !== 'false')]),
       getRelay('/api/gutenberg', handleGutenbergRequest),
       getRelay('/api/covers', handleCoverRequest),
+      telemetryRelay(
+        {
+          apiKey: env.TELEMETRY_KEY,
+          host: env.TELEMETRY_HOST,
+          defaultMode: env.TELEMETRY_DEFAULT,
+        },
+        env.TELEMETRY_DEV_COUNTRY,
+      ),
       publishing({
         enabled: env.THREADS_ENABLED !== 'false',
         turnstileSecret: env.TURNSTILE_SECRET_KEY || '1x0000000000000000000000000000000AA',

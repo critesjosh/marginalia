@@ -9,6 +9,7 @@ import { LONG_PRESS_MS, MOVE_TOLERANCE_PX, longPressToSelect } from './touchSele
 import { TAP_TURN_ZONE, mouseEdgeTurn, type TurnPage } from './selectionEdge'
 import { keepFrameInPlace, neutralizeScripts } from './bookScripts'
 import { readBookFile } from './storedFile'
+import { telemetry } from './telemetry'
 
 interface ReaderLocation {
   cfi: string
@@ -27,6 +28,8 @@ export interface UseReaderOptions {
   onSelected?: (cfiRange: string, contents: Contents) => void
   /** Fires on a tap in the middle of the page (used to toggle chrome). */
   onTapCenter?: () => void
+  /** Fires on Escape, in the book or around it, when no dialog claims it first. */
+  onEscape?: () => void
 }
 
 export interface ReaderApi {
@@ -250,6 +253,7 @@ export function useReader(
         void loadLocations(epubBook, bookId, stored.locations, () => canceled)
       } catch (err) {
         if (canceled) return
+        telemetry.captureError('reader', 'open_book', err)
         setError(err instanceof Error ? err.message : 'Could not open this book.')
       }
     }
@@ -407,6 +411,11 @@ export function useReader(
       }
     }
 
+    // Keydown, so a dialog's own Escape handler (`useModal`) stops it first.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') optionsRef.current.onEscape?.()
+    }
+
     const tap = (target: EventTarget | null, clientX: number, since: number) => {
       const scroller = container?.querySelector('.epub-container') as HTMLElement | null
       const width = scroller?.clientWidth || container?.clientWidth || window.innerWidth
@@ -469,18 +478,22 @@ export function useReader(
 
     rendition.on('selected', onSelected)
     rendition.on('keyup', onKeyUp)
+    rendition.on('keydown', onKeyDown)
     rendition.on('click', onClick)
     rendition.on('touchstart', onTouchStart)
     rendition.on('touchend', onTouchEnd)
     document.addEventListener('keyup', onKeyUp)
+    document.addEventListener('keydown', onKeyDown)
 
     return () => {
       rendition.off('selected', onSelected)
       rendition.off('keyup', onKeyUp)
+      rendition.off('keydown', onKeyDown)
       rendition.off('click', onClick)
       rendition.off('touchstart', onTouchStart)
       rendition.off('touchend', onTouchEnd)
       document.removeEventListener('keyup', onKeyUp)
+      document.removeEventListener('keydown', onKeyDown)
     }
   }, [rendition, container, supersede])
 

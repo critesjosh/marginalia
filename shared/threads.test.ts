@@ -233,8 +233,11 @@ describe('the viewer page', () => {
   it('renders the passage, both voices, and the source', () => {
     const html = renderThread({ thread: THREAD as never, ownerHash: '', publishedAt: 0 }, ORIGIN)
     expect(html).toContain('Moby Dick by Herman Melville')
-    expect(html).toContain('<blockquote>Call me Ishmael.</blockquote>')
-    expect(html).toContain('<p class="you">Why open with a name?</p>')
+    expect(html).toContain(
+      '<figcaption class="who">From the book</figcaption><blockquote>Call me Ishmael.</blockquote>',
+    )
+    expect(html).toContain('<p class="who">Reader</p><p class="bubble">Why open with a name?</p>')
+    expect(html).toContain('<p class="who">Rami (AI)</p>')
     expect(html).toContain('It sets a confiding tone.')
     expect(html).toContain('<meta property="og:title" content="A conversation about Moby Dick">')
   })

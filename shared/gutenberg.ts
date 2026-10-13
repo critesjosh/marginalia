@@ -5,8 +5,8 @@
  *
  * Gutenberg's ebook responses do not consistently expose CORS headers, so the
  * browser cannot reliably read them directly. Keep this endpoint deliberately
- * narrow: it accepts only a search string or a numeric Gutenberg book id and
- * never proxies an arbitrary URL. It still streams multi-megabyte files on the
+ * narrow: it accepts only a search string or a numeric Gutenberg book id (to
+ * describe or to download) and never proxies an arbitrary URL. It still streams multi-megabyte files on the
  * site's bandwidth, so it carries the same origin check and per-IP throttle as
  * the chat relay next door.
  */
@@ -43,6 +43,7 @@ export async function handleGutenbergRequest(
   const url = new URL(request.url)
   const search = url.searchParams.get('search')?.trim()
   const book = url.searchParams.get('book')?.trim()
+  const details = url.searchParams.get('details')?.trim()
 
   if (search) {
     if (search.length > 200) return json({ error: 'Search is too long.' }, 400)
@@ -69,6 +70,8 @@ export async function handleGutenbergRequest(
       { headers: { 'Cache-Control': 'public, max-age=300, s-maxage=3600' } },
     )
   }
+
+  if (details) return describeBook(details, fetcher)
 
   if (book) {
     if (!/^\d{1,8}$/.test(book)) return json({ error: 'Invalid Gutenberg book id.' }, 400)
@@ -97,7 +100,28 @@ export async function handleGutenbergRequest(
     })
   }
 
-  return json({ error: 'Provide either search or book.' }, 400)
+  return json({ error: 'Provide one of search, details, or book.' }, 400)
+}
+
+/**
+ * One book's catalog record, so a reader can tell editions that share a title
+ * apart before downloading one. Gutenberg answers these as quickly as search.
+ */
+async function describeBook(id: string, fetcher: typeof fetch): Promise<Response> {
+  if (!/^\d{1,8}$/.test(id)) return json({ error: 'Invalid Gutenberg book id.' }, 400)
+
+  const response = await fetchUpstream(fetcher, `${GUTENBERG_URL}/${id}.opds`, {
+    headers: { Accept: 'application/atom+xml', 'User-Agent': USER_AGENT },
+  })
+  if (!response) return json({ error: 'Project Gutenberg took too long to answer.' }, 504)
+  if (response.status === 404) return json({ error: `Gutenberg has no book #${id}.` }, 404)
+  const feed = response.ok ? await response.text().catch(() => undefined) : undefined
+  const book = feed === undefined ? undefined : parseBookFeed(feed, Number(id))
+  if (!book) return json({ error: 'Project Gutenberg details are unavailable.' }, 502)
+
+  return Response.json(book, {
+    headers: { 'Cache-Control': 'public, max-age=300, s-maxage=3600' },
+  })
 }
 
 export interface CatalogResult {
@@ -125,6 +149,127 @@ export function parseSearchFeed(feed: string): CatalogResult[] {
     results.push({ id: Number(id), title, ...(author && { author }) })
   }
   return results
+}
+
+interface CatalogPerson {
+  /** As Gutenberg labels it: Author, Editor, Translator, Illustrator… */
+  role: string
+  name: string
+  /** Life dates as catalogued, such as `1775-1817`. */
+  dates?: string
+}
+
+export interface CatalogDetails {
+  id: number
+  title: string
+  alternateTitle?: string
+  people: CatalogPerson[]
+  summary?: string
+  /** Anthologies list their pieces. */
+  contents?: string
+  notes: string[]
+  credits?: string
+  /** When Gutenberg released this edition, not when the work was written. */
+  released?: string
+  /** Downloads in the last 30 days. */
+  downloads?: number
+  language?: string
+  subjects: string[]
+  readingLevel?: string
+  /** Other Gutenberg ebooks of the same title, as the catalog cross-references them. */
+  otherEditions: number[]
+}
+
+/**
+ * Reads a single-book OPDS feed (`/ebooks/<n>.opds`). Its entry carries an
+ * XHTML summary of `Label: value` paragraphs that hold more than the Atom
+ * elements do, such as each contributor's role. Returns undefined for a feed
+ * that does not describe the requested book.
+ */
+export function parseBookFeed(feed: string, id: number): CatalogDetails | undefined {
+  const entry = feed.match(/<entry>([\s\S]*?)<\/entry>/)?.[1]
+  if (!entry) return undefined
+  const title = decodeXml(entry.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? '')
+  const content = entry.match(/<content type="xhtml">([\s\S]*?)<\/content>/)?.[1] ?? ''
+
+  const fields: [string, string][] = []
+  for (const [, paragraph] of content.matchAll(/<p>([\s\S]*?)<\/p>/g)) {
+    // The text between the tags. It is only ever rendered as text, never HTML.
+    const text = decodeXml(paragraph.split(/<[^>]*>/).join(''))
+    const colon = text.indexOf(': ')
+    if (colon > 0) fields.push([text.slice(0, colon), text.slice(colon + 2)])
+  }
+  if (!title || !fields.some(([label, value]) => label === 'EBook No.' && value === String(id))) {
+    return undefined
+  }
+
+  // Role paragraphs ("Translator: Maude, Aylmer, 1858-1938") are told apart
+  // from other fields by matching the names Atom lists as author or contributor.
+  const names = [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)].map(([, name]) => decodeXml(name))
+  const book: CatalogDetails = {
+    id,
+    title,
+    people: [],
+    notes: [],
+    subjects: [],
+    otherEditions: [],
+  }
+
+  for (const [label, value] of fields) {
+    // Checked before roles: a subject can name a person ("Johnson, Samuel, 1709-1784").
+    if (label === 'Subject') {
+      book.subjects.push(value)
+      continue
+    }
+    const person = rolePerson(label, value, names)
+    if (person) {
+      book.people.push(person)
+    } else if (label === 'Note' && /^This title is also available as/.test(value)) {
+      for (const [, other] of value.matchAll(/#(\d{1,8})/g)) book.otherEditions.push(Number(other))
+    } else if (label === 'Note' && !value.startsWith('Wikipedia page')) {
+      book.notes.push(value)
+    } else if (Object.hasOwn(TEXT_FIELDS, label)) {
+      book[TEXT_FIELDS[label]] = value
+    } else if (label === 'Downloads' && /^\d+$/.test(value)) {
+      book.downloads = Number(value)
+    }
+  }
+  if (book.readingLevel) book.readingLevel = book.readingLevel.replace(/^Reading ease score: /, '')
+  return book
+}
+
+/** Catalog labels kept verbatim, by the field they fill. */
+const TEXT_FIELDS: Record<
+  string,
+  'alternateTitle' | 'summary' | 'contents' | 'credits' | 'released' | 'language' | 'readingLevel'
+> = {
+  'Alternate Title': 'alternateTitle',
+  Summary: 'summary',
+  Contents: 'contents',
+  Credits: 'credits',
+  Published: 'released',
+  Language: 'language',
+  'Reading Level': 'readingLevel',
+}
+
+/** A role paragraph holds one catalogued name and, optionally, life dates. */
+function rolePerson(role: string, value: string, names: string[]): CatalogPerson | undefined {
+  const name = names.find((candidate) => value.startsWith(candidate))
+  const dates = name && value.slice(name.length).match(/^(?:,\s*([^,]*\d[^,]*))?$/)
+  if (!name || !dates) return undefined
+  return { role, name: displayName(name), ...(dates[1] && { dates: dates[1] }) }
+}
+
+/**
+ * "Austen, Jane" reads as "Jane Austen", and "Tolstoy, Leo, graf" as "Leo
+ * Tolstoy, graf". Parenthesized full forms of initials are dropped.
+ */
+function displayName(catalogued: string): string {
+  const [last, first, ...rest] = catalogued
+    .replace(/\s*\([^)]*\)/g, '')
+    .trim()
+    .split(', ')
+  return first ? [`${first} ${last}`, ...rest].join(', ') : last
 }
 
 const XML_ENTITIES: Record<string, string> = {

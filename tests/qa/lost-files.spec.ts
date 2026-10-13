@@ -96,20 +96,20 @@ test.beforeEach(async ({ context }) => {
 
 test('a lost file is logged for the issue link in Settings', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /^Meditations/ })).toBeVisible()
-  await storeLostCopy(page, 'sample-meditations', 'imported-meditations', ['file'])
+  await expect(page.getByRole('button', { name: /^The Genealogy of Morals/ })).toBeVisible()
+  await storeLostCopy(page, 'sample-genealogy-of-morals', 'imported-genealogy-of-morals', ['file'])
   // Either outcome for the book is fine here; this checks only the log.
-  await page.goto('/book/imported-meditations')
+  await page.goto('/book/imported-genealogy-of-morals')
   await expect(page.getByText(/removed from your library|lost the EPUB/)).toBeVisible()
 
   await page.goto('/settings')
-  const link = page.getByRole('link', { name: /Report an issue/ })
+  const link = page.getByRole('link', { name: /Open an issue/ })
   await expect(link).toHaveAttribute('href', /lost%20EPUB/)
   const body = new URL((await link.getAttribute('href'))!).searchParams.get('body')!
   expect(body).toMatch(/- Version: \S+ built \d{4}-\d{2}-\d{2}T[\d:.]+Z/)
   expect(body).toMatch(/\] lost EPUB, imported, unrecoverable, idle [\d.]+d/)
   expect(body).toContain('1 missing their EPUB')
-  expect(body).not.toContain('Meditations')
+  expect(body).not.toContain('The Genealogy of Morals')
 })
 
 test('a bundled book that lost its files is fetched again', async ({ page }) => {
@@ -129,11 +129,11 @@ test('a bundled book that lost its files is fetched again', async ({ page }) => 
 
 test('an imported book that lost its EPUB waits for it again', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /^Meditations/ })).toBeVisible()
-  await storeLostCopy(page, 'sample-meditations', 'imported-meditations', ['file'])
+  await expect(page.getByRole('button', { name: /^The Genealogy of Morals/ })).toBeVisible()
+  await storeLostCopy(page, 'sample-genealogy-of-morals', 'imported-genealogy-of-morals', ['file'])
 
   // Opening it finds the file gone and keeps the book on the shelf with its notes.
-  await page.goto('/book/imported-meditations')
+  await page.goto('/book/imported-genealogy-of-morals')
   await expect(page.getByText(/lost the EPUB/)).toBeVisible()
 
   await page.goto('/')
@@ -143,22 +143,22 @@ test('an imported book that lost its EPUB waits for it again', async ({ page }) 
 
   await page
     .locator('input[type="file"][accept^=".epub"]')
-    .setInputFiles('public/books/meditations.epub')
+    .setInputFiles('public/books/genealogy-of-morals.epub')
   await expect(missing).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Meditations/ })).toHaveCount(2)
+  await expect(page.getByRole('button', { name: /^The Genealogy of Morals/ })).toHaveCount(2)
 
-  await page.goto('/book/imported-meditations')
+  await page.goto('/book/imported-genealogy-of-morals')
   await expect(page.getByRole('button', { name: 'Table of contents' })).toBeVisible()
   await expect(page.getByText(/lost the EPUB/)).toHaveCount(0)
 })
 
 test("an imported book that lost its cover gets the EPUB's own back", async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /^Meditations/ })).toBeVisible()
-  await storeLostCopy(page, 'sample-meditations', 'imported-meditations', ['cover'])
+  await expect(page.getByRole('button', { name: /^The Genealogy of Morals/ })).toBeVisible()
+  await storeLostCopy(page, 'sample-genealogy-of-morals', 'imported-genealogy-of-morals', ['cover'])
   await page.reload()
 
-  const covers = page.getByRole('button', { name: /^Meditations/ }).locator('img')
+  const covers = page.getByRole('button', { name: /^The Genealogy of Morals/ }).locator('img')
   await expect
     .poll(() =>
       covers.evaluateAll((imgs) => imgs.map((img) => Reflect.get(img, 'naturalWidth') > 0)),
@@ -170,12 +170,15 @@ test('browsing the library keeps an imported book whose files were lost (#122)',
   page,
 }) => {
   await page.goto('/')
-  await expect(page.getByRole('button', { name: /^Meditations/ })).toBeVisible()
-  await storeLostCopy(page, 'sample-meditations', 'imported-meditations', ['file', 'cover'])
+  await expect(page.getByRole('button', { name: /^The Genealogy of Morals/ })).toBeVisible()
+  await storeLostCopy(page, 'sample-genealogy-of-morals', 'imported-genealogy-of-morals', [
+    'file',
+    'cover',
+  ])
   await page.reload()
 
   // The broken cover sets off the repair, which finds the EPUB gone too.
-  const cards = page.getByRole('button', { name: /^Meditations/ })
+  const cards = page.getByRole('button', { name: /^The Genealogy of Morals/ })
   await expect(page.getByRole('listitem').filter({ hasText: 'EPUB missing' })).toHaveCount(1)
   await page.reload()
   await expect(cards).toHaveCount(2)

@@ -7,12 +7,14 @@ import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
-import { shareContent, threadShare } from '../lib/share'
+import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
+import { telemetry } from '../lib/telemetry'
+import { durationBucket } from '../../shared/telemetrySchema'
 import HintNote from './HintNote'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
-import { LinkIcon, SendIcon, ShareIcon } from './Icons'
+import { CopyIcon, LinkIcon, SendIcon, ShareIcon } from './Icons'
 import PublishDialog from './PublishDialog'
 import { button } from './ui'
 
@@ -34,6 +36,8 @@ export default function ChatSheet({
   const [passageOpen, setPassageOpen] = useState(false)
   const [shareNote, setShareNote] = useState<string>()
   const [publishing, setPublishing] = useState(false)
+  // A desktop copies the thread rather than opening a share sheet.
+  const sheet = prefersShareSheet()
   const abortRef = useRef<AbortController>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -154,7 +158,11 @@ export default function ChatSheet({
   // Built from what is already loaded, so the share sheet opens inside the tap.
   async function share() {
     if (!conversation || !messages || !book) return
-    const outcome = await shareContent(threadShare(conversation, messages, book))
+    const content = threadShare(conversation, messages, book)
+    const outcome = await shareContent(
+      content,
+      sheet ? undefined : { clipboard: navigator.clipboard },
+    )
     if (outcome === 'copied') setShareNote('Copied to the clipboard.')
     else if (outcome === 'failed') setShareNote('Could not share this thread.')
     else setShareNote(undefined)
@@ -173,6 +181,18 @@ export default function ChatSheet({
     // Tracks how far we got, so a failure can put the reader back where they
     // were instead of stranding a question with no answer.
     let userMessageId: string | undefined
+    const started = Date.now()
+    let turn: 'first' | 'follow_up' = 'first'
+    const track = (outcome: 'success' | 'failure' | 'canceled', err?: unknown) => {
+      const failure = err === undefined ? undefined : telemetry.lastError()
+      telemetry.capture('ai_message_sent', {
+        outcome,
+        turn,
+        duration_bucket: durationBucket(Date.now() - started),
+        error_category: failure?.category,
+        http_status: failure?.status,
+      })
+    }
 
     try {
       const settings = await getSettings()
@@ -199,6 +219,7 @@ export default function ChatSheet({
         getBookMemory(conversation.bookId),
       ])
       if (!book) throw new Error('This book is no longer in your library.')
+      if (history.some((message) => message.role === 'assistant')) turn = 'follow_up'
 
       let acc = ''
       const reply = await streamChat({
@@ -221,12 +242,18 @@ export default function ChatSheet({
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
         void updateBookMemory(conversation.bookId, conversationId)
       }
+      track('success')
     } catch (err) {
       // A canceled request keeps its question: the reader chose to stop, and
       // deleting what they typed would read as data loss. Any other failure
       // rolls the turn back so the transcript never shows a question that was
       // never actually asked, and hands the text back to the composer.
-      if ((err as Error)?.name === 'AbortError') return
+      if ((err as Error)?.name === 'AbortError') {
+        track('canceled')
+        return
+      }
+      telemetry.captureError('chat', 'send_message', err)
+      track('failure', err)
 
       if (userMessageId) {
         await db.messages.delete(userMessageId).catch(() => {})
@@ -330,8 +357,8 @@ export default function ChatSheet({
         {messages && messages.length > 0 && !busy && book && (
           <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
             <button onClick={() => void share()} className={button.quiet}>
-              <ShareIcon />
-              Share thread
+              {sheet ? <ShareIcon /> : <CopyIcon />}
+              {sheet ? 'Share thread' : 'Copy to clipboard'}
             </button>
             <button onClick={() => setPublishing(true)} className={button.quiet}>
               <LinkIcon />

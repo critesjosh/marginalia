@@ -7,6 +7,7 @@ import { EpubImportError } from '../lib/epub'
 import { importEpub } from '../lib/importBook'
 import { useUnseenHint } from '../lib/hints'
 import { FIRST_RUN_BOOK, seedSampleBooks } from '../lib/sampleBook'
+import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
 import AddBookDialog from '../components/AddBookDialog'
 import CoverPickerDialog from '../components/CoverPickerDialog'
@@ -79,7 +80,13 @@ export default function LibraryPage() {
     for (const file of Array.from(files)) {
       try {
         await importEpub(file)
+        telemetry.recordImport('file')
       } catch (err) {
+        telemetry.recordImport(
+          'file',
+          err,
+          err instanceof EpubImportError ? 'invalid_epub' : undefined,
+        )
         failures.push(
           `${file.name}: ${err instanceof EpubImportError ? err.message : 'Import failed.'}`,
         )

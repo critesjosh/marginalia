@@ -19,7 +19,7 @@ npm run setup
 npm run dev -- --host 127.0.0.1
 ```
 
-The PWA runs at `http://127.0.0.1:5173`, needs no login, and seeds four sample
+The PWA runs at `http://127.0.0.1:5173`, needs no login, and seeds three sample
 books. Reading works without external services. For local chat, copy
 `.env.example` to `.env.local` and set `OPENROUTER_API_KEY`. Without a key,
 `/api/chat` returns 503; do not mistake this for a reader failure.
@@ -118,7 +118,9 @@ add them to Wrangler `vars` or `VITE_*` client configuration.
 
 Use supplied public-domain books and synthetic conversations in tests. Do not
 log request bodies, authorization headers, or signed URL query strings. Keep
-API keys out of exports.
+API keys out of exports. Add telemetry events or properties only through
+`shared/telemetrySchema.ts` and `docs/telemetry.md`; never send content or URLs.
+Update `src/pages/PrivacyPage.tsx` when what leaves the device changes.
 
 Preserve user changes and untracked files. Do not commit, push, deploy, change
 repository settings, or make billed provider calls unless explicitly requested.

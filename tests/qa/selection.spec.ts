@@ -262,3 +262,39 @@ test('a tap at the page edge carries a selection to the next page', async ({
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.getByRole('toolbar', { name: 'Selection actions' })).not.toBeVisible()
 })
+
+test('a tap on a highlight opens its selection bar and keeps it open', async ({
+  context,
+  page,
+  browserName,
+  isMobile,
+}) => {
+  // Chromium's touch emulation follows a tap with the click a phone would send
+  // (#145); the other engines here send none for a hand-made touch.
+  test.skip(browserName !== 'chromium' || !isMobile, 'needs a touch that sends its click')
+  const box = await openChapterOne(page)
+  const input = await pointer(context, page, browserName, isMobile)
+  const bar = page.getByRole('toolbar', { name: 'Selection actions' })
+
+  // Sharing keeps the passage highlighted without starting a thread.
+  const press = frameTouch(page)
+  await press.down(box.x + box.width * 0.4, box.y + box.height * 0.6)
+  await page.waitForTimeout(900)
+  await press.up()
+  await bar.getByRole('button', { name: 'Share' }).click()
+  await page.waitForTimeout(500)
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.2)
+  await expect(bar).not.toBeVisible()
+
+  // A finger rests long enough for the bar to appear under it before it lifts.
+  const mark = (await page.locator('.epub-view svg g').first().boundingBox())!
+  await input.down(mark.x + mark.width / 2, mark.y + mark.height / 2)
+  await page.waitForTimeout(150)
+  await input.up()
+  await page.waitForTimeout(500)
+  await expect(bar.getByRole('button', { name: 'Delete highlight' })).toBeVisible()
+
+  // A press that begins on the backdrop still dismisses it.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  await expect(bar).not.toBeVisible()
+})

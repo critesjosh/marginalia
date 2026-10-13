@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { handleGutenbergRequest, parseSearchFeed } from './gutenberg.ts'
+import { handleGutenbergRequest, parseBookFeed, parseSearchFeed } from './gutenberg.ts'
 
 /** Trimmed from a real `search.opds` response, thumbnails elided. */
 const SEARCH_FEED = `<?xml version="1.0" encoding="utf-8"?>
@@ -23,6 +23,73 @@ More</title>
 <content type="text">1,190 downloads</content>
 </entry>
 </feed>`
+
+/** Trimmed from a real `42671.opds` response: an edited edition of #1342. */
+const BOOK_FEED = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>Pride and Prejudice by Jane Austen</title>
+<author><name>Project Gutenberg</name></author>
+<entry>
+<title>Pride and Prejudice</title>
+<content type="xhtml">
+<div xmlns="http://www.w3.org/1999/xhtml">
+<p>This edition had all images removed.</p>
+<p>
+Title:
+Pride and Prejudice
+</p>
+<p>
+Note:
+Wikipedia page about this book: https:<a href="//en.wikipedia.org/wiki/Pride_and_Prejudice">//en.wikipedia.org/wiki/Pride_and_Prejudice</a>
+</p>
+<p>
+Note:
+This title is also available as eBook <a href="/ebooks/1342.bibrec.mobile">#1342</a>.
+</p>
+<p>
+Credits:
+E-text prepared by Greg Weeks and the Online Distributed Proofreading Team
+</p>
+<p>
+Summary:
+"Pride and Prejudice" by Jane Austen is a novel published in 1813. (This is an automatically generated summary.)
+</p>
+<p>
+Reading Level:
+Reading ease score: 69.5 (8th &amp; 9th grade). Neither easy nor difficult to read.
+</p>
+<p>Author: Austen, Jane, 1775-1817</p><p>Editor: Chapman, R. W. (Robert William), 1881-1960</p>
+<p>EBook No.: 42671</p>
+<p>Published: May 9, 2013</p>
+<p>Downloads: 14621</p>
+<p>Language: English</p>
+<p>Subject: England -- Fiction</p><p>Subject: Love stories</p>
+<p>Category: Text</p>
+</div>
+</content>
+<contributor><name>Chapman, R. W. (Robert William)</name></contributor>
+<author><name>Austen, Jane</name></author>
+</entry>
+</feed>`
+
+const BOOK_DETAILS = {
+  id: 42671,
+  title: 'Pride and Prejudice',
+  people: [
+    { role: 'Author', name: 'Jane Austen', dates: '1775-1817' },
+    { role: 'Editor', name: 'R. W. Chapman', dates: '1881-1960' },
+  ],
+  summary:
+    '"Pride and Prejudice" by Jane Austen is a novel published in 1813. (This is an automatically generated summary.)',
+  notes: [],
+  credits: 'E-text prepared by Greg Weeks and the Online Distributed Proofreading Team',
+  released: 'May 9, 2013',
+  downloads: 14621,
+  language: 'English',
+  subjects: ['England -- Fiction', 'Love stories'],
+  readingLevel: '69.5 (8th & 9th grade). Neither easy nor difficult to read.',
+  otherEditions: [1342],
+}
 
 function catalogRequest(query: string, headers?: Record<string, string>): Request {
   return new Request(`https://marginalia.test/api/gutenberg?${query}`, { headers })
@@ -91,6 +158,48 @@ describe('handleGutenbergRequest', () => {
     expect(response.headers.get('Cache-Control')).toContain('max-age=300')
   })
 
+  it('describes one book from its Gutenberg OPDS record', async () => {
+    fetchMock.mockResolvedValue(new Response(BOOK_FEED, { status: 200 }))
+
+    const response = await handleGutenbergRequest(catalogRequest('details=42671'), {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(response.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://www.gutenberg.org/ebooks/42671.opds',
+      expect.anything(),
+    )
+    expect(response.headers.get('Cache-Control')).toContain('max-age=300')
+    expect(await response.json()).toEqual(BOOK_DETAILS)
+  })
+
+  it('rejects a details id that is not a number', async () => {
+    const response = await handleGutenbergRequest(catalogRequest('details=../search.opds'), {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+
+    expect(response.status).toBe(400)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('tells a missing book apart from an unavailable catalog', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 404 }))
+    const missing = await handleGutenbergRequest(catalogRequest('details=99999999'), {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+    expect(missing.status).toBe(404)
+    expect(await errorMessage(missing)).toBe('Gutenberg has no book #99999999.')
+
+    // A record for some other book is not an answer for this one.
+    fetchMock.mockResolvedValueOnce(new Response(BOOK_FEED, { status: 200 }))
+    const wrong = await handleGutenbergRequest(catalogRequest('details=1342'), {
+      fetch: fetchMock as unknown as typeof fetch,
+    })
+    expect(wrong.status).toBe(502)
+    expect(wrong.headers.get('Cache-Control')).toBe('no-store')
+  })
+
   it('rejects arbitrary book paths instead of becoming an open proxy', async () => {
     const response = await handleGutenbergRequest(catalogRequest('book=../../etc/passwd'), {
       fetch: fetchMock as unknown as typeof fetch,
@@ -130,6 +239,38 @@ describe('parseSearchFeed', () => {
     const feed =
       '<entry><id>https://www.gutenberg.org/ebooks/1.opds</id><title>A &#99999999; B</title></entry>'
     expect(parseSearchFeed(feed)).toEqual([{ id: 1, title: 'A &#99999999; B' }])
+  })
+})
+
+describe('parseBookFeed', () => {
+  it('keeps a subject that names a person out of the contributors', () => {
+    const feed = BOOK_FEED.replace(
+      '<p>Subject: Love stories</p>',
+      '<p>Subject: Austen, Jane, 1775-1817 -- Correspondence</p>',
+    )
+    const book = parseBookFeed(feed, 42671)
+
+    expect(book?.people.map((person) => person.name)).toEqual(['Jane Austen', 'R. W. Chapman'])
+    expect(book?.subjects).toContain('Austen, Jane, 1775-1817 -- Correspondence')
+  })
+
+  it('leaves no markup behind from nested tags', () => {
+    const feed = BOOK_FEED.replace('Love stories', 'Love <<b>script>stories &lt;3')
+
+    expect(parseBookFeed(feed, 42671)?.subjects).toContain('Love script>stories <3')
+  })
+
+  it('keeps titles and suffixes after a reordered name', () => {
+    const feed = BOOK_FEED.replace(
+      'Austen, Jane, 1775-1817',
+      'Tolstoy, Leo, graf, 1828-1910',
+    ).replace('<name>Austen, Jane</name>', '<name>Tolstoy, Leo, graf</name>')
+
+    expect(parseBookFeed(feed, 42671)?.people[0]).toEqual({
+      role: 'Author',
+      name: 'Leo Tolstoy, graf',
+      dates: '1828-1910',
+    })
   })
 })
 
