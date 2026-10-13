@@ -50,10 +50,18 @@ export default function SelectionBar({
   // A selection filling the page leaves no room either side; stay on screen.
   const clamped = Math.min(Math.max(8, top), window.innerHeight - BAR_HEIGHT - 8)
 
+  // A bar opened by a tap on a highlight appears under the finger before the
+  // touch ends, and the browser then sends that touch's click to the backdrop
+  // (#145). Only a press that began on the backdrop may answer it.
+  const pressedBackdrop = useRef(false)
+
   // The backdrop covers the book, so it answers the page-edge taps the book
   // would, keeping the selection. It still blocks gestures on the book, so a
   // selection is extended across a page by dragging it to the edge instead.
   const onBackdrop = (event: MouseEvent) => {
+    const pressed = pressedBackdrop.current
+    pressedBackdrop.current = false
+    if (!pressed) return
     const bounds = page?.getBoundingClientRect() ?? { left: 0, width: window.innerWidth }
     const x = (event.clientX - bounds.left) / bounds.width
     if (onTurn && x < TAP_TURN_ZONE) onTurn('prev')
@@ -63,7 +71,14 @@ export default function SelectionBar({
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onBackdrop} aria-hidden />
+      <div
+        className="fixed inset-0 z-40"
+        onPointerDown={() => {
+          pressedBackdrop.current = true
+        }}
+        onClick={onBackdrop}
+        aria-hidden
+      />
       <div
         role="toolbar"
         aria-label="Selection actions"
