@@ -367,6 +367,8 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
     flush,
     lastError: () => lastError,
     refresh() {
+      // Another tab's opt-out ends this tab's session too.
+      if (explicit() === 'off') forgetSession()
       if (!enabled() && !pending()) queue = []
       notify()
     },

@@ -331,6 +331,27 @@ describe('emission', () => {
     expect(session.getItem(SESSION)).toBe('session-2')
   })
 
+  it('starts a new session after an opt-out in another tab', async () => {
+    const SESSION = 'marginalia.telemetry.session'
+    const ids = ['session-1', 'session-2']
+    const { telemetry, events, store, session } = await setup(INFORM, {
+      newId: () => ids.shift() ?? 'spare-id',
+    })
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    store.setItem('marginalia.telemetry', 'off')
+    telemetry.refresh()
+    expect(session.getItem(SESSION)).toBeNull()
+    store.setItem('marginalia.telemetry', 'on')
+    telemetry.refresh()
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    expect(events().map((event) => event.properties.distinct_id)).toEqual([
+      'session-1',
+      'session-2',
+    ])
+  })
+
   it('falls back to an id for the page load when session storage is blocked', async () => {
     const blocked = () => {
       throw new DOMException('denied', 'SecurityError')
