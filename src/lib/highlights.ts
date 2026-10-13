@@ -14,6 +14,8 @@ export interface SelectionRect {
   bottom: number
   left: number
   width: number
+  /** Whether any of the selection is on the visible page. */
+  onPage: boolean
 }
 
 /**
@@ -48,13 +50,14 @@ export function selectionRect(contents: Contents, cfiRange: string): SelectionRe
       bottom: rect.bottom + frameTop,
       left: rect.left - scrollLeft,
       width: rect.width,
+      onPage: visible.length > 0,
     }
   } catch {
     return undefined
   }
 }
 
-function unionOf(rects: DOMRect[]): SelectionRect {
+function unionOf(rects: DOMRect[]): Omit<SelectionRect, 'onPage'> {
   const left = Math.min(...rects.map((r) => r.left))
   const right = Math.max(...rects.map((r) => r.right))
   return {

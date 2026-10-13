@@ -27,7 +27,7 @@ export default function SelectionBar({
   onShare: () => Promise<ShareOutcome>
   onDelete?: () => void
   onDismiss: () => void
-  /** Turns the page under the selection, keeping it, from a tap at a page edge. */
+  /** Turns the page from a tap at a page edge, keeping the selection while any of it shows. */
   onTurn?: (direction: PageDirection) => void
   /** The reader's page, which edge taps are measured against; it is centered and capped on wide screens. */
   page?: HTMLElement | null
@@ -56,8 +56,9 @@ export default function SelectionBar({
   const pressedBackdrop = useRef(false)
 
   // The backdrop covers the book, so it answers the page-edge taps the book
-  // would, keeping the selection. It still blocks gestures on the book, so a
-  // selection is extended across a page by dragging it to the edge instead.
+  // would, keeping a selection that runs onto the new page. It still blocks
+  // gestures on the book, so a selection is extended across a page by
+  // dragging it to the edge instead.
   const onBackdrop = (event: MouseEvent) => {
     const pressed = pressedBackdrop.current
     pressedBackdrop.current = false

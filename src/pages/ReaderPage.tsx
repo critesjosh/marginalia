@@ -137,13 +137,19 @@ export default function ReaderPage() {
   }, [reader.rendition, highlights, highlightColor, isDark, reader.ready])
 
   // A page turn under a live selection moves it; follow its visible part, and
-  // let it go if the turn left its section (and so its document) behind.
+  // close its bar once none of it is on the page. A tap that turned away from
+  // it lets it go; a drag to the page edge goes on to extend it, reopening the bar.
   const locationCfi = reader.location?.cfi
+  const tappedAway = useRef(false)
   useEffect(() => {
+    const tapped = tappedAway.current
+    tappedAway.current = false
     setActive((current) => {
       if (!current?.contents) return current
       const rect = selectionRect(current.contents, current.cfiRange)
-      return rect ? { ...current, rect } : undefined
+      if (rect?.onPage) return { ...current, rect }
+      if (tapped) current.contents.window?.getSelection()?.removeAllRanges()
+      return undefined
     })
   }, [locationCfi])
 
@@ -482,7 +488,11 @@ export default function ReaderPage() {
             clearSelection()
             setActive(undefined)
           }}
-          onTurn={(direction) => (direction === 'next' ? reader.next() : reader.prev())}
+          onTurn={(direction) => {
+            tappedAway.current = true
+            if (direction === 'next') reader.next()
+            else reader.prev()
+          }}
           page={viewer}
         />
       )}
