@@ -5,11 +5,14 @@ import { archiveBook, db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError } from '../lib/epub'
 import { importEpub } from '../lib/importBook'
-import { seedSampleBooks } from '../lib/sampleBook'
+import { retireHint, useRetireOnceSeen, useSeenHints } from '../lib/hints'
+import { FIRST_RUN_BOOK, seedSampleBooks } from '../lib/sampleBook'
 import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
 import AddBookDialog from '../components/AddBookDialog'
 import CoverPickerDialog from '../components/CoverPickerDialog'
+import FirstRunHint from '../components/FirstRunHint'
+import HintNote from '../components/HintNote'
 import InstallBanner from '../components/InstallBanner'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import ShareBookDialog from '../components/ShareBookDialog'
@@ -97,6 +100,18 @@ export default function LibraryPage() {
 
   const continuing = books?.find((book) => book.lastOpenedAt)
   const highlightCount = useLiveQuery(() => db.highlights.count(), [])
+  const seenHints = useSeenHints()
+  // Both wait for settings and the thread count, so neither flashes past.
+  const hintsReady = seenHints !== undefined && chatCounts !== undefined
+  // A reader who already chats never needs the card.
+  const showHint =
+    hintsReady && !seenHints.includes('library') && Object.keys(chatCounts).length === 0
+  // The ⋯ note waits for a visit without the card, so the two never stack.
+  const [cardShown, setCardShown] = useState(false)
+  if (showHint && !cardShown) setCardShown(true)
+  const showShelfHint =
+    hintsReady && !seenHints.includes('shelf') && !showHint && !cardShown && Boolean(books?.length)
+  const shelfHintSeen = useRetireOnceSeen('shelf', showShelfHint)
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
@@ -158,6 +173,14 @@ export default function LibraryPage() {
           </div>
         )}
 
+        {showHint && (
+          <FirstRunHint
+            tryLink={firstRunLink(books)}
+            onDismiss={() => void retireHint('library', 'dismissed')}
+            onFollow={() => void retireHint('library', 'link')}
+          />
+        )}
+
         {continuing && <ContinueCard book={continuing} />}
 
         {books && books.length === 0 && !seeding && (
@@ -173,6 +196,18 @@ export default function LibraryPage() {
         {books && books.length > 0 && (
           <section className={continuing ? 'mt-12' : ''}>
             <h2 className="mb-6 font-book text-heading font-medium">All books</h2>
+            {showShelfHint && (
+              <div className="mb-6 max-w-[640px]">
+                <HintNote
+                  label="The book menu"
+                  onDismiss={() => void retireHint('shelf', 'dismissed')}
+                  onSeen={shelfHintSeen}
+                >
+                  Tap ⋯ beside a book to change its cover or, for a Project Gutenberg book, share it
+                  with someone.
+                </HintNote>
+              </div>
+            )}
             <ul className="grid grid-cols-2 gap-x-4 gap-y-8 min-[640px]:grid-cols-3 min-[1024px]:grid-cols-4">
               {books.map((book) => (
                 <BookCard
@@ -257,6 +292,14 @@ export default function LibraryPage() {
       )}
     </div>
   )
+}
+
+/** Opens at Chapter 1 the first time, and at the saved place after that. */
+function firstRunLink(books?: Book[]) {
+  const book = books?.find((candidate) => candidate.id === FIRST_RUN_BOOK.id)
+  if (!book) return undefined
+  const path = `/book/${book.id}`
+  return book.lastCfi ? path : `${path}?cfi=${encodeURIComponent(FIRST_RUN_BOOK.start)}`
 }
 
 function greeting(now = new Date()) {

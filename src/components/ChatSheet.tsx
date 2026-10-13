@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
 import { newId } from '../lib/id'
 import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
+import { retireHint, useRetireOnceSeen, useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import { telemetry } from '../lib/telemetry'
 import { durationBucket } from '../../shared/telemetrySchema'
+import HintNote from './HintNote'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
@@ -58,6 +61,19 @@ export default function ChatSheet({
     () => (conversation ? db.books.get(conversation.bookId) : undefined),
     [conversation?.bookId],
   )
+
+  const bookId = conversation?.bookId
+  const hasMemory = useLiveQuery(
+    async () => (bookId ? Boolean(await db.bookMemory.get(bookId)) : false),
+    [bookId],
+  )
+  const threadHint = useUnseenHint('thread')
+  // Shown once Rami has written something down, which takes a few exchanges.
+  const memoryHint = useUnseenHint('memory') && hasMemory === true
+
+  // Each hint gets one thread: closing the sheet it was seen in retires it.
+  const threadHintSeen = useRetireOnceSeen('thread', threadHint)
+  const memoryHintSeen = useRetireOnceSeen('memory', memoryHint)
 
   // Opening a conversation lands on its most recent message. Only once: every
   // later move is either the anchor below or the reader's own scrolling.
@@ -293,6 +309,18 @@ export default function ChatSheet({
         style={{ overflowAnchor: 'none' }}
         className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-5"
       >
+        {threadHint && (
+          <HintNote
+            label="What Rami sees"
+            onDismiss={() => void retireHint('thread', 'dismissed')}
+            onSeen={threadHintSeen}
+          >
+            Rami reads this passage with the text around it, your chapter, and what it remembers
+            from your other threads about this book. Every thread is kept under Threads, and the
+            buttons below its messages share it or publish a link to it.
+          </HintNote>
+        )}
+
         {messages?.length === 0 && !streaming && (
           <p className="mt-6 text-center font-ui text-body text-ink-soft">
             Wonder aloud about this passage, or say what struck you.
@@ -306,6 +334,29 @@ export default function ChatSheet({
         ))}
 
         {streaming && <Bubble role="assistant">{streaming}</Bubble>}
+
+        {memoryHint && bookId && (
+          <HintNote
+            label="Rami's memory"
+            onDismiss={() => void retireHint('memory', 'dismissed')}
+            onSeen={memoryHintSeen}
+          >
+            Rami has started a memory of this book from your threads and brings it into every
+            thread.{' '}
+            <Link
+              to={`/book/${bookId}/chats?tab=memory`}
+              onClick={() => {
+                void retireHint('memory', 'link')
+                // Closes the sheet too, for when it is already open on that page.
+                onClose()
+              }}
+              className="text-moss underline underline-offset-2"
+            >
+              Read or edit it under Memory
+            </Link>
+            .
+          </HintNote>
+        )}
 
         {busy && !streaming && (
           <p className="font-ui text-body text-ink-faint italic">Following the thread…</p>

@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, deleteConversation, getSettings } from '../db/db'
+import { db, deleteConversation, getSettings, markHintSeen } from '../db/db'
 import { DEFAULT_SETTINGS } from '../db/types'
 import ChatSheet from '../components/ChatSheet'
 import MemoryPanel from '../components/MemoryPanel'
@@ -11,9 +11,17 @@ import { iconButton } from '../components/ui'
 
 type Tab = 'chats' | 'highlights' | 'memory'
 
+function asTab(value: string | null): Tab {
+  return value === 'highlights' || value === 'memory' ? value : 'chats'
+}
+
 export default function ChatsPage() {
   const { bookId } = useParams<{ bookId: string }>()
-  const [tab, setTab] = useState<Tab>('chats')
+  // Kept in the URL so the thread's memory note can link straight to a tab,
+  // including from a thread opened on this page.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = asTab(searchParams.get('tab'))
+  const setTab = (next: Tab) => setSearchParams({ tab: next }, { replace: true })
   const [chatId, setChatId] = useState<string>()
   const [deleteError, setDeleteError] = useState<string>()
 
@@ -31,6 +39,11 @@ export default function ChatsPage() {
   const memory = useLiveQuery(() => (bookId ? db.bookMemory.get(bookId) : undefined), [bookId])
   const settings = useLiveQuery(() => getSettings(), []) ?? DEFAULT_SETTINGS
   const readerAvailable = Boolean(book && !book.archivedAt && !book.missingFileAt)
+
+  // Finding the Memory tab is what the memory note was for.
+  useEffect(() => {
+    if (tab === 'memory') void markHintSeen('memory')
+  }, [tab])
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">

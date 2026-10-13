@@ -106,6 +106,11 @@ export const EVENT_SCHEMA = {
     http_status: httpStatus,
     error_ref: errorRef,
   },
+  /** A one-time hint went away: its ×, a link in it, or leaving once it was on screen. */
+  hint_closed: {
+    hint: oneOf('library', 'thread', 'memory', 'reader', 'shelf'),
+    how: oneOf('dismissed', 'link', 'seen'),
+  },
   /** Carries the last error's sanitized details: with usage data off, nothing else does. */
   problem_reported: {
     has_feedback: isBoolean,

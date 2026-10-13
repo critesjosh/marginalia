@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import type { Contents } from 'epubjs'
 import { archiveBook, db, deleteBook, getSettings, saveSettings } from '../db/db'
 import { DEFAULT_SETTINGS, type Conversation, type Highlight, type ReaderTheme } from '../db/types'
+import { retireHint, useUnseenHint } from '../lib/hints'
 import { useReader } from '../lib/useReader'
 import { useThemeColor } from '../lib/useThemeColor'
 import { THEMES } from '../lib/themes'
@@ -27,6 +28,7 @@ import SelectionBar from '../components/SelectionBar'
 import ChatSheet from '../components/ChatSheet'
 import RemoveBookDialog from '../components/RemoveBookDialog'
 import Ribbon from '../components/Ribbon'
+import TapZonesHint from '../components/TapZonesHint'
 import { BackIcon, ChatIcon, ListIcon, TypeIcon } from '../components/Icons'
 import { iconButton } from '../components/ui'
 
@@ -81,6 +83,22 @@ export default function ReaderPage() {
     onEscape: toggleChrome,
     onSelected: handleSelected,
   })
+
+  // The first book opened maps its tap zones, once. Anything the reader does
+  // retires the map, as does leaving the book or a few seconds' reading.
+  const tapHint = useUnseenHint('reader') && reader.ready
+  useEffect(() => {
+    if (!tapHint) return
+    const timer = window.setTimeout(() => void retireHint('reader', 'seen'), TAP_HINT_MS)
+    return () => {
+      window.clearTimeout(timer)
+      void retireHint('reader', 'seen')
+    }
+  }, [tapHint])
+  const interacted = chromeVisible || Boolean(active || chatId || panel)
+  useEffect(() => {
+    if (tapHint && interacted) void retireHint('reader', 'seen')
+  }, [tapHint, interacted])
 
   // Once per book open: the first time it renders, or the first time it fails.
   const openReported = useRef<string>(undefined)
@@ -153,8 +171,9 @@ export default function ReaderPage() {
     })
   }, [locationCfi])
 
-  // Deep link from the highlights list: jump once, then drop the param so a
-  // later page turn isn't undone by a re-render.
+  // Deep link from the highlights list (a CFI) or the library's first-run hint
+  // (a TOC href): jump once, then drop the param so a later page turn isn't
+  // undone by a re-render.
   const requestedCfi = searchParams.get('cfi')
   useEffect(() => {
     if (!requestedCfi || !reader.ready) return
@@ -446,6 +465,8 @@ export default function ReaderPage() {
         </button>
       ))}
 
+      {tapHint && <TapZonesHint />}
+
       {!reader.ready && !reader.error && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-paper">
           <p className="font-ui text-body text-ink-soft italic">Opening “{book.title}”…</p>
@@ -544,6 +565,8 @@ export default function ReaderPage() {
     </div>
   )
 }
+
+const TAP_HINT_MS = 6000
 
 const pageTurn =
   'grid h-11 w-14 place-items-center rounded-full text-ink-soft transition-colors duration-150 hover:bg-paper-sunk hover:text-ink'

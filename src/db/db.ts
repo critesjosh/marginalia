@@ -9,6 +9,7 @@ import {
   type BookMemory,
   type Conversation,
   type Highlight,
+  type Hint,
   type Message,
   type Settings,
 } from './types'
@@ -112,6 +113,19 @@ export async function saveSettings(patch: Partial<Settings>): Promise<void> {
   await db.transaction('rw', db.settings, async () => {
     const current = await getSettings()
     await db.settings.put({ ...current, ...patch, id: 'settings' })
+  })
+}
+
+/**
+ * Records a one-time hint as shown, and says whether this call did. Atomic, so
+ * two hints closing together both stick and only one caller sees `true`.
+ */
+export async function markHintSeen(hint: Hint): Promise<boolean> {
+  return db.transaction('rw', db.settings, async () => {
+    const current = await getSettings()
+    if (current.seenHints?.includes(hint)) return false
+    await db.settings.put({ ...current, seenHints: [...(current.seenHints ?? []), hint] })
+    return true
   })
 }
 

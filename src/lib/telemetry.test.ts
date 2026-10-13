@@ -406,9 +406,13 @@ describe('filtering', () => {
       http_status: 1234,
       error_ref: 'not-a-ref',
     })
+    telemetry.capture('hint_closed', {
+      hint: 'library',
+      how: 'Try it with Moby Dick' as 'link',
+    })
     await telemetry.flush()
 
-    const [selected, imported, failed] = events().map((event) => event.properties)
+    const [selected, imported, failed, hint] = events().map((event) => event.properties)
     expect(selected).not.toHaveProperty('text')
     expect(selected).not.toHaveProperty('title')
     expect(selected).not.toHaveProperty('$current_url')
@@ -418,6 +422,8 @@ describe('filtering', () => {
     expect(failed).not.toHaveProperty('error_name')
     expect(failed).not.toHaveProperty('http_status')
     expect(failed).not.toHaveProperty('error_ref')
+    expect(hint).toMatchObject({ hint: 'library' })
+    expect(hint).not.toHaveProperty('how')
   })
 
   it('ignores event names outside the schema', async () => {

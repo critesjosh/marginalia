@@ -120,6 +120,7 @@ test('a bundled book that lost its files is fetched again', async ({ page }) => 
 
   // The broken cover sets off the repair from the library itself.
   const card = page.getByRole('button', { name: /^Moby Dick/ })
+  await card.scrollIntoViewIfNeeded()
   await expect(card.locator('img')).toBeVisible()
 
   await card.click()
@@ -158,7 +159,12 @@ test("an imported book that lost its cover gets the EPUB's own back", async ({ p
   await storeLostCopy(page, 'sample-genealogy-of-morals', 'imported-genealogy-of-morals', ['cover'])
   await page.reload()
 
-  const covers = page.getByRole('button', { name: /^The Genealogy of Morals/ }).locator('img')
+  const cards = page.getByRole('button', { name: /^The Genealogy of Morals/ })
+  const covers = cards.locator('img')
+  // Covers load lazily, and on a phone the first-run card can push one below the
+  // fold. Scroll the cards: a recovered cover replaces its <img> mid-scroll.
+  await expect(cards).toHaveCount(2)
+  for (const card of await cards.all()) await card.scrollIntoViewIfNeeded()
   await expect
     .poll(() =>
       covers.evaluateAll((imgs) => imgs.map((img) => Reflect.get(img, 'naturalWidth') > 0)),

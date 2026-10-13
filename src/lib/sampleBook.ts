@@ -48,6 +48,16 @@ const SAMPLE_BOOKS: SampleBook[] = [
   { id: 'sample-king-james-bible', filename: 'king-james-bible.epub', gutenbergId: 10 },
 ]
 
+/**
+ * Where the library's first-run hint sends a new reader: Moby Dick's opening
+ * chapter rather than its cover, which has no text to select. A TOC href, as
+ * the reader's table of contents passes it, so it rests on the shipped file.
+ */
+export const FIRST_RUN_BOOK = {
+  id: 'sample-moby-dick',
+  start: '8047383309311746791_2701-h-0.htm.xhtml#pgepubid00006',
+}
+
 const SAMPLE_IDS = new Set(SAMPLE_BOOKS.map((sample) => sample.id))
 
 export function isSampleBookId(id: string): boolean {
