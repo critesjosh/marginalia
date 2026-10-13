@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import type { Contents } from 'epubjs'
-import { archiveBook, db, deleteBook, getSettings, markHintSeen, saveSettings } from '../db/db'
+import { archiveBook, db, deleteBook, getSettings, saveSettings } from '../db/db'
 import { DEFAULT_SETTINGS, type Conversation, type Highlight, type ReaderTheme } from '../db/types'
-import { useUnseenHint } from '../lib/hints'
+import { retireHint, useUnseenHint } from '../lib/hints'
 import { useReader } from '../lib/useReader'
 import { useThemeColor } from '../lib/useThemeColor'
 import { THEMES } from '../lib/themes'
@@ -89,15 +89,15 @@ export default function ReaderPage() {
   const tapHint = useUnseenHint('reader') && reader.ready
   useEffect(() => {
     if (!tapHint) return
-    const timer = window.setTimeout(() => void markHintSeen('reader'), TAP_HINT_MS)
+    const timer = window.setTimeout(() => void retireHint('reader', 'seen'), TAP_HINT_MS)
     return () => {
       window.clearTimeout(timer)
-      void markHintSeen('reader')
+      void retireHint('reader', 'seen')
     }
   }, [tapHint])
   const interacted = chromeVisible || Boolean(active || chatId || panel)
   useEffect(() => {
-    if (tapHint && interacted) void markHintSeen('reader')
+    if (tapHint && interacted) void retireHint('reader', 'seen')
   }, [tapHint, interacted])
 
   // Once per book open: the first time it renders, or the first time it fails.

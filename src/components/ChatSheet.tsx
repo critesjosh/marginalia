@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getSettings, markHintSeen } from '../db/db'
+import { db, getSettings } from '../db/db'
 import { newId } from '../lib/id'
 import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
-import { useRetireOnceSeen, useUnseenHint } from '../lib/hints'
+import { retireHint, useRetireOnceSeen, useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import { telemetry } from '../lib/telemetry'
@@ -312,7 +312,7 @@ export default function ChatSheet({
         {threadHint && (
           <HintNote
             label="What Rami sees"
-            onDismiss={() => void markHintSeen('thread')}
+            onDismiss={() => void retireHint('thread', 'dismissed')}
             onSeen={threadHintSeen}
           >
             Rami reads this passage with the text around it, your chapter, and what it remembers
@@ -338,15 +338,18 @@ export default function ChatSheet({
         {memoryHint && bookId && (
           <HintNote
             label="Rami's memory"
-            onDismiss={() => void markHintSeen('memory')}
+            onDismiss={() => void retireHint('memory', 'dismissed')}
             onSeen={memoryHintSeen}
           >
             Rami has started a memory of this book from your threads and brings it into every
             thread.{' '}
             <Link
               to={`/book/${bookId}/chats?tab=memory`}
-              // Closes the sheet too, for when it is already open on that page.
-              onClick={onClose}
+              onClick={() => {
+                void retireHint('memory', 'link')
+                // Closes the sheet too, for when it is already open on that page.
+                onClose()
+              }}
               className="text-moss underline underline-offset-2"
             >
               Read or edit it under Memory

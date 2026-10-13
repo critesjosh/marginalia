@@ -11,16 +11,19 @@ const STEPS = [
 ]
 
 /**
- * Shown on the library until the reader starts a first thread or dismisses it,
- * since the selection bar is the whole idea and nothing else points to it.
+ * Shown on the library until the reader starts a first thread, follows one of
+ * its links or dismisses it, since the selection bar is the whole idea and nothing else points to it.
  */
 export default function FirstRunHint({
   tryLink,
   onDismiss,
+  onFollow,
 }: {
   /** Where “Try it with Moby Dick” goes, if the book is still on the shelf. */
   tryLink?: string
   onDismiss: () => void
+  /** Following either link retires the card too: the reader has taken it up. */
+  onFollow: () => void
 }) {
   return (
     <section
@@ -44,11 +47,11 @@ export default function FirstRunHint({
       </ol>
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {tryLink && (
-          <Link to={tryLink} className={button.secondary}>
+          <Link to={tryLink} onClick={onFollow} className={button.secondary}>
             Try it with Moby Dick
           </Link>
         )}
-        <Link to="/help" className={button.quiet}>
+        <Link to="/help" onClick={onFollow} className={button.quiet}>
           More about Rami
         </Link>
       </div>

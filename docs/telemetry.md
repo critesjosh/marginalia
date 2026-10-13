@@ -68,10 +68,13 @@ PostHog control properties the relay sets (`$process_person_profile: false`,
 | `annotation_deleted` | A highlight is deleted           | none                                                                                                                                |
 | `ai_message_sent`    | A chat turn ends                 | `outcome`: `success`, `failure`, `canceled`; `turn`: `first`, `follow_up`; `duration_bucket`; `error_category`; `http_status`       |
 | `error_occurred`     | A captured failure               | `feature`, `operation`, `error_category`, `error_name`, `http_status`, `error_ref`                                                  |
+| `hint_closed`        | A one-time hint goes away        | `hint`: `library`, `thread`, `memory`, `reader`, `shelf`; `how`: `dismissed`, `link`, `seen`                                        |
 | `problem_reported`   | Report a problem is sent         | `has_feedback`, `feedback`, and the last error's `error_ref`, `feature`, `operation`, `error_category`, `error_name`, `http_status` |
 
 `outcome` is `success` or `failure`. `duration_bucket` is `under_2s`,
-`2_10s`, `10_30s` or `30s_plus`.
+`2_10s`, `10_30s` or `30s_plus`. `hint_closed` is sent once per hint per
+browser: `dismissed` is its ×, `link` is a link inside it, and `seen` is leaving
+the place it appeared once at least half of it was on screen.
 
 ### Error classification
 
@@ -122,6 +125,9 @@ show within-session conversion, not returning readers.
    `ai_message_sent` (`outcome = success`).
 3. **Import to read**: `book_imported` (`outcome = success`) >
    `reader_opened` (`outcome = success`), broken down by `source`.
+4. **First-run card**: `hint_closed` (`hint = library`, `how = link`) >
+   `text_selected` > `annotation_created` (`trigger = ask`), against the same
+   funnel starting from `how = dismissed`.
 
 ## Example dashboards
 

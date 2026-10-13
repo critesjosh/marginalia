@@ -2,6 +2,15 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { getSettings, markHintSeen } from '../db/db'
 import type { Hint } from '../db/types'
+import type { EventProperties } from '../../shared/telemetrySchema'
+import { telemetry } from './telemetry'
+
+type HintClose = NonNullable<EventProperties<'hint_closed'>['how']>
+
+/** Retires a shown hint, counting how it went the first time only. */
+export async function retireHint(hint: Hint, how: HintClose): Promise<void> {
+  if (await markHintSeen(hint)) telemetry.capture('hint_closed', { hint, how })
+}
 
 /** The hints already shown, or undefined until settings load. */
 export function useSeenHints(): Hint[] | undefined {
@@ -28,7 +37,7 @@ export function useRetireOnceSeen(hint: Hint, shown: boolean): () => void {
     if (!shown) return
     const flag = seen
     return () => {
-      if (flag.current) void markHintSeen(hint)
+      if (flag.current) void retireHint(hint, 'seen')
     }
   }, [hint, shown])
   return useCallback(() => {

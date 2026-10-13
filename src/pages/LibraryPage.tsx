@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { archiveBook, db, deleteBook, markHintSeen } from '../db/db'
+import { archiveBook, db, deleteBook } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError } from '../lib/epub'
 import { importEpub } from '../lib/importBook'
-import { useRetireOnceSeen, useSeenHints } from '../lib/hints'
+import { retireHint, useRetireOnceSeen, useSeenHints } from '../lib/hints'
 import { FIRST_RUN_BOOK, seedSampleBooks } from '../lib/sampleBook'
 import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
@@ -176,7 +176,8 @@ export default function LibraryPage() {
         {showHint && (
           <FirstRunHint
             tryLink={firstRunLink(books)}
-            onDismiss={() => void markHintSeen('library')}
+            onDismiss={() => void retireHint('library', 'dismissed')}
+            onFollow={() => void retireHint('library', 'link')}
           />
         )}
 
@@ -199,7 +200,7 @@ export default function LibraryPage() {
               <div className="mb-6 max-w-[640px]">
                 <HintNote
                   label="The book menu"
-                  onDismiss={() => void markHintSeen('shelf')}
+                  onDismiss={() => void retireHint('shelf', 'dismissed')}
                   onSeen={shelfHintSeen}
                 >
                   Tap ⋯ beside a book to change its cover or, for a Project Gutenberg book, share it
