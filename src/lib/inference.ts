@@ -16,9 +16,6 @@ export class InferenceError extends Error {
 
 const HOSTED_ENDPOINT = '/api/chat'
 
-/** Model shown in the UI; the relay pins the real value server-side. */
-export const HOSTED_MODEL_LABEL = 'Gemma 4 26B (via OpenRouter)'
-
 interface RequestOptions {
   messages: ChatMessage[]
   signal?: AbortSignal

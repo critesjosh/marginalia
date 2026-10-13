@@ -7,7 +7,6 @@ import { BUILD } from '../lib/buildInfo'
 import { HIGHLIGHT_COLORS } from '../lib/highlights'
 import { READER_FONTS } from '../lib/themes'
 import { useIssueUrl } from '../lib/useIssueUrl'
-import { HOSTED_MODEL_LABEL } from '../lib/inference'
 import { telemetry } from '../lib/telemetry'
 import { BackIcon } from '../components/Icons'
 import InstructionsEditor from '../components/InstructionsEditor'
@@ -39,13 +38,67 @@ export default function SettingsPage() {
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-8">
         <section className={card}>
-          <h2 className="font-book text-heading font-medium">Chat model</h2>
+          <h2 className="font-book text-heading font-medium">How Rami works</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
-            Chat works out of the box — no account or key needed.
+            Asking about a passage, turning pages, memory, sharing and your library, in one place.
+          </p>
+          <Link to="/help" className={`${button.secondary} mt-3`}>
+            Read the guide
+          </Link>
+        </section>
+
+        <section className={card}>
+          <h2 className="font-book text-heading font-medium">Standing instructions</h2>
+          <p className="mt-1 font-ui text-body text-ink-soft">
+            Sent with every message about every book. Tell Rami what to call you, how to answer, or
+            anything else it should always do. Each book can add its own on its Memory tab.
+          </p>
+          <InstructionsEditor
+            stored={settings.instructions}
+            label="Standing instructions"
+            placeholder="For example: Call me Sam, and work in a little Latin so I can start learning it."
+            onSave={(instructions) => saveSettings({ instructions })}
+          />
+        </section>
+
+        <section className={card}>
+          <h2 className="font-book text-heading font-medium">Data</h2>
+          <p className="mt-1 font-ui text-body text-ink-soft">
+            Everything lives in this browser's IndexedDB. The export is a JSON file containing your
+            highlighted passages and the surrounding text, every thread, and Rami's running notes on
+            each book. It does not include the book files. Treat it as a record of what you read and
+            thought.
+          </p>
+          <button onClick={() => void exportData()} className={`${button.secondary} mt-3`}>
+            Export highlights and chats
+          </button>
+        </section>
+
+        <section className={card}>
+          <h2 className="font-book text-heading font-medium">Feedback and community</h2>
+          <p className="mt-1 font-ui text-body text-ink-soft">
+            Share an idea or wander through other readers’ questions in the discussions. Something
+            broken? Report a problem or open an issue. Anything else, write to {CONTACT_EMAIL}.
           </p>
           <p className="mt-2 font-ui text-meta text-ink-faint">
-            {HOSTED_MODEL_LABEL}. Requests go through this site's relay.
+            A new issue starts with this app’s version, your browser, and a short log of storage
+            problems on this device. It names no books or notes, and you can edit it before
+            submitting.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href={DISCUSSIONS_URL} target="_blank" rel="noreferrer" className={button.secondary}>
+              Join the discussion ↗
+            </a>
+            <button onClick={() => setReporting(true)} className={button.secondary}>
+              Report a problem
+            </button>
+            <a href={issueUrl} target="_blank" rel="noreferrer" className={button.secondary}>
+              Open an issue ↗
+            </a>
+            <a href={`mailto:${CONTACT_EMAIL}`} className={button.secondary}>
+              Email Rami
+            </a>
+          </div>
         </section>
 
         <Ornament short />
@@ -108,75 +161,11 @@ export default function SettingsPage() {
           </label>
         </section>
 
-        <section className={card}>
-          <h2 className="font-book text-heading font-medium">Standing instructions</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Sent with every message about every book. Tell Rami what to call you, how to answer, or
-            anything else it should always do. Each book can add its own on its Memory tab.
-          </p>
-          <InstructionsEditor
-            stored={settings.instructions}
-            label="Standing instructions"
-            placeholder="For example: Call me Sam, and work in a little Latin so I can start learning it."
-            onSave={(instructions) => saveSettings({ instructions })}
-          />
-        </section>
-
         <Ornament short />
-
-        <section className={card}>
-          <h2 className="font-book text-heading font-medium">Data</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Everything lives in this browser's IndexedDB. The export is a JSON file containing your
-            highlighted passages and the surrounding text, every thread, and Rami's running notes on
-            each book. It does not include the book files. Treat it as a record of what you read and
-            thought.
-          </p>
-          <button onClick={() => void exportData()} className={`${button.secondary} mt-3`}>
-            Export highlights and chats
-          </button>
-        </section>
 
         <KoreaderImport />
 
         <UsageDataSection />
-
-        <section className={card}>
-          <h2 className="font-book text-heading font-medium">How Rami works</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Asking about a passage, turning pages, memory, sharing and your library, in one place.
-          </p>
-          <Link to="/help" className={`${button.secondary} mt-3`}>
-            Read the guide
-          </Link>
-        </section>
-
-        <section className={card}>
-          <h2 className="font-book text-heading font-medium">Feedback and community</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Share an idea or wander through other readers’ questions in the discussions. Something
-            broken? Report a problem or open an issue. Anything else, write to {CONTACT_EMAIL}.
-          </p>
-          <p className="mt-2 font-ui text-meta text-ink-faint">
-            A new issue starts with this app’s version, your browser, and a short log of storage
-            problems on this device. It names no books or notes, and you can edit it before
-            submitting.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <a href={DISCUSSIONS_URL} target="_blank" rel="noreferrer" className={button.secondary}>
-              Join the discussion ↗
-            </a>
-            <button onClick={() => setReporting(true)} className={button.secondary}>
-              Report a problem
-            </button>
-            <a href={issueUrl} target="_blank" rel="noreferrer" className={button.secondary}>
-              Open an issue ↗
-            </a>
-            <a href={`mailto:${CONTACT_EMAIL}`} className={button.secondary}>
-              Email Rami
-            </a>
-          </div>
-        </section>
 
         <p className="text-center font-ui text-meta text-ink-faint">
           Version{' '}
