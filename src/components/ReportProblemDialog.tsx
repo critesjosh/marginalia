@@ -49,8 +49,7 @@ export default function ReportProblemDialog({ onClose }: { onClose: () => void }
         {canSend && (
           <>
             <p className="mt-1 font-ui text-body text-ink-soft">
-              Tell us what went wrong, if you like. Please don’t paste passages, notes, or personal
-              details.
+              Tell us what went wrong, if you like.
             </p>
             <textarea
               value={note}
