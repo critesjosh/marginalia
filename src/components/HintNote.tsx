@@ -2,6 +2,9 @@ import { useEffect, useRef } from 'react'
 import { CloseIcon } from './Icons'
 import { iconButton } from './ui'
 
+/** How much of a note must be on screen for it to count as seen. */
+const SEEN_RATIO = 0.5
+
 /** A one-time aside inside a panel, set apart from the conversation it sits in. */
 export default function HintNote({
   label,
@@ -24,11 +27,12 @@ export default function HintNote({
     // sheet's fold does not count.
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry?.isIntersecting) return
+        // The first entry is delivered whatever the ratio, so check it here.
+        if (!entry?.isIntersecting || entry.intersectionRatio < SEEN_RATIO) return
         onSeen()
         observer.disconnect()
       },
-      { threshold: 0.5 },
+      { threshold: SEEN_RATIO },
     )
     observer.observe(note)
     return () => observer.disconnect()
