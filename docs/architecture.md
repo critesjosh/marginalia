@@ -15,6 +15,9 @@ rolling per-book memory makes new chats aware of earlier ones.
 - Chat works for any visitor with no signup or API key.
 - The KOReader plugin can ask about a selection on an e-reader and hand its
   highlights to the PWA.
+- Product telemetry is consent-gated by region, allowlisted, and anonymous,
+  sent through the Worker's relay, and off unless the Worker has a project key
+  (decision 0008).
 
 ## Constraints
 
@@ -30,7 +33,8 @@ rolling per-book memory makes new chats aware of earlier ones.
   and book cards (title, author, Gutenberg id, cover) a reader explicitly
   publishes. EPUB files are never uploaded.
 - Syncing memory between the PWA and KOReader.
-- Third-party telemetry.
+- Telemetry that identifies readers or carries their content: no person
+  profiles, persistent ids, session recording, or autocapture (decision 0008).
 
 ## Service and data boundaries
 
@@ -44,6 +48,8 @@ flowchart LR
   Relay --> OL[Open Library covers]
   Relay --> KV[(Workers KV: published threads and book links)]
   Relay --> TS[Turnstile siteverify]
+  PWA -. consented, allowlisted events .-> Relay
+  Relay -. no reader IP or headers .-> PH[PostHog Cloud EU]
 ```
 
 Deploy adapters share `shared/relay.ts`, `shared/gutenberg.ts` and
@@ -67,8 +73,12 @@ HTTP contracts are `docs/api.openapi.yml`. Lua-to-reader handoff validation is
 
 Chat sends the user-selected context to the chosen model provider. Offline
 reading and normal tests need no external services.
-The app sends no third-party telemetry. Worker metrics are fixed operation names,
-status codes, and numeric durations. Publishing a thread sends its snapshot to
+When the Worker has a PostHog key and the reader's preference allows, the PWA
+sends allowlisted product events to the Worker's relay, which checks them again
+and forwards them to PostHog Cloud without the reader's IP address or headers
+(`src/lib/telemetry.ts`, `shared/telemetryRelay.ts`, [telemetry.md](telemetry.md)):
+event names, enum properties, the app version, and a tab-session id. Never book content, titles, notes, chats, or URLs. Worker
+metrics are fixed operation names, status codes, and numeric durations. Publishing a thread sends its snapshot to
 the Worker, and sharing a book sends its title, author, Gutenberg id and a
 re-encoded cover. Both load Cloudflare Turnstile in their dialog only. A local storage-loss log is shared only
 when the reader submits a prefilled GitHub issue from Settings.
@@ -85,3 +95,4 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0005 KOReader keeps its own digest and folds it lazily](decisions/0005-koreader-device-digest.md)
 - [0006 Publish shared threads at unlisted links](decisions/0006-public-thread-links.md)
 - [0007 Share books at links that add them for the recipient](decisions/0007-shared-book-links.md)
+- [0008 Send privacy-first product telemetry to PostHog Cloud](decisions/0008-privacy-first-telemetry.md)

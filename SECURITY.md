@@ -8,5 +8,10 @@ contact the owner before sending sensitive reproduction material.
 EPUBs are untrusted. Scripts remain disabled, CSP remains restrictive, and XML
 entity resolution must stay off. Use synthetic payloads for reproduction.
 Books and keys stay local except for explicitly requested model-provider calls.
-Optional analytics require reader consent; see `docs/operations.md` for retention,
-deletion, scrubbing, secret management, and incident response.
+Optional product telemetry is off unless configured, respects the reader's
+setting and browser privacy signals, and never sends book content, notes,
+chats, or URLs. Events go through a same-origin relay that re-checks the
+allowlist and forwards them without the reader's IP address; the PostHog key
+stays on the server. See
+`docs/telemetry.md` for the schema, retention, and scrubbing, and
+`docs/operations.md` for secrets and incident response.

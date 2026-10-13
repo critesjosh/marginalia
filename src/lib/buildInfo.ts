@@ -26,3 +26,5 @@ const BUILT_AT = import.meta.env.APP_BUILT_AT as string | undefined
 
 export const BUILD: BuildInfo = describeBuild(COMMIT, BUILT_AT)
 export const BUILD_ID = buildId(COMMIT, BUILT_AT)
+/** Short version for telemetry: the commit, or `dev`. */
+export const APP_VERSION = COMMIT || 'dev'

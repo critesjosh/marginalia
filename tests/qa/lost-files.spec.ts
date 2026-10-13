@@ -103,7 +103,7 @@ test('a lost file is logged for the issue link in Settings', async ({ page }) =>
   await expect(page.getByText(/removed from your library|lost the EPUB/)).toBeVisible()
 
   await page.goto('/settings')
-  const link = page.getByRole('link', { name: /Report an issue/ })
+  const link = page.getByRole('link', { name: /Open an issue/ })
   await expect(link).toHaveAttribute('href', /lost%20EPUB/)
   const body = new URL((await link.getAttribute('href'))!).searchParams.get('body')!
   expect(body).toMatch(/- Version: \S+ built \d{4}-\d{2}-\d{2}T[\d:.]+Z/)

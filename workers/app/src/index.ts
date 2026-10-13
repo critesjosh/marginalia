@@ -10,12 +10,14 @@ import { isCrossOrigin } from '../../../shared/http-guards.ts'
 import type { LinkStore, PublishOptions } from '../../../shared/publishing.ts'
 import { handleRelayRequest } from '../../../shared/relay.ts'
 import { operationMetric } from '../../../shared/telemetry.ts'
+import { handleTelemetryRequest } from '../../../shared/telemetryRelay.ts'
 import { handleThreadPage } from '../../../shared/threadPage.ts'
 import { handleThreadsRequest } from '../../../shared/threads.ts'
 
 /** Turnstile's challenge for publishing a thread (docs/decisions/0006). */
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com'
 
+// Telemetry goes through `/api/telemetry/events`, so `connect-src` stays `'self'`.
 const CONTENT_SECURITY_POLICY =
   `default-src 'self'; script-src 'self' ${TURNSTILE_ORIGIN}; style-src 'self' 'unsafe-inline' blob:; ` +
   "img-src 'self' data: blob: https://www.gutenberg.org; font-src 'self' data: blob:; " +
@@ -149,6 +151,21 @@ const worker = {
             enabled: env.CHAT_ENABLED !== 'false',
           },
           { ip: request.headers.get('CF-Connecting-IP') ?? '' },
+        )
+      }
+
+      if (url.pathname.startsWith('/api/telemetry/')) {
+        return await handleTelemetryRequest(
+          request,
+          {
+            apiKey: env.TELEMETRY_KEY,
+            host: env.TELEMETRY_HOST,
+            defaultMode: env.TELEMETRY_DEFAULT,
+          },
+          {
+            ip: request.headers.get('CF-Connecting-IP') ?? '',
+            country: request.cf?.country as string | undefined,
+          },
         )
       }
 

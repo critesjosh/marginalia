@@ -8,6 +8,9 @@ import { useReader } from '../lib/useReader'
 import { useThemeColor } from '../lib/useThemeColor'
 import { THEMES } from '../lib/themes'
 import { newId } from '../lib/id'
+import { isSampleBookId } from '../lib/sampleBook'
+import { telemetry } from '../lib/telemetry'
+import { lengthBucket } from '../../shared/telemetrySchema'
 import {
   contextAround,
   paintHighlight,
@@ -66,6 +69,7 @@ export default function ReaderPage() {
     const rect = selectionRect(contents, cfiRange)
     const text = selectionText(contents, cfiRange)
     if (!rect || !text) return
+    telemetry.capture('text_selected', { length_bucket: lengthBucket(text.length) })
     setActive({ cfiRange, text, rect, contents })
   }, [])
 
@@ -77,6 +81,27 @@ export default function ReaderPage() {
     onEscape: toggleChrome,
     onSelected: handleSelected,
   })
+
+  // Once per book open: the first time it renders, or the first time it fails.
+  const openReported = useRef<string>(undefined)
+  useEffect(() => {
+    if (!bookId || openReported.current === bookId) return
+    // A failure waits for the book record, which says whether it is just missing.
+    if (!reader.ready && (!reader.error || book === undefined)) return
+    openReported.current = bookId
+    const book_kind = isSampleBookId(bookId) ? 'bundled' : 'imported'
+    if (reader.ready) {
+      telemetry.capture('reader_opened', { book_kind, outcome: 'success' })
+      return
+    }
+    // A missing or removed book is not an error; anything else was captured as one.
+    const missing = !book?.file
+    telemetry.capture('reader_opened', {
+      book_kind,
+      outcome: 'failure',
+      error_category: missing ? 'not_found' : (telemetry.lastError()?.category ?? 'unknown'),
+    })
+  }, [bookId, book, reader.ready, reader.error])
 
   const palette = THEMES[settings.theme]
   useThemeColor(palette.bg)
@@ -166,7 +191,7 @@ export default function ReaderPage() {
     if (!active || !bookId) return undefined
     if (active.highlight) return active.highlight
 
-    const highlight = await addHighlight()
+    const highlight = await addHighlight('ask')
     clearSelection()
     setActive(undefined)
     return highlight
@@ -174,7 +199,7 @@ export default function ReaderPage() {
 
   /** Saves the selection as a highlight, leaving the selection bar open. */
   async function keepHighlight() {
-    const highlight = await addHighlight()
+    const highlight = await addHighlight('highlight')
     if (!highlight) return
     // The reader may have moved on to another selection during the write.
     setActive((current) =>
@@ -182,7 +207,7 @@ export default function ReaderPage() {
     )
   }
 
-  async function addHighlight(): Promise<Highlight | undefined> {
+  async function addHighlight(trigger: 'highlight' | 'ask'): Promise<Highlight | undefined> {
     if (!active || !bookId) return undefined
     const highlight: Highlight = {
       id: newId(),
@@ -196,14 +221,26 @@ export default function ReaderPage() {
       color: highlightColor,
       createdAt: Date.now(),
     }
-    await db.highlights.add(highlight)
+    try {
+      await db.highlights.add(highlight)
+    } catch (err) {
+      telemetry.captureError('annotations', 'save_highlight', err)
+      throw err
+    }
+    telemetry.capture('annotation_created', { trigger })
     return highlight
   }
 
   async function deleteHighlight() {
     if (!active?.highlight || !reader.rendition) return
     unpaintHighlight(reader.rendition, active.highlight.cfiRange)
-    await db.highlights.delete(active.highlight.id)
+    try {
+      await db.highlights.delete(active.highlight.id)
+    } catch (err) {
+      telemetry.captureError('annotations', 'delete_highlight', err)
+      throw err
+    }
+    telemetry.capture('annotation_deleted')
     setActive(undefined)
   }
 

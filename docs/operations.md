@@ -7,9 +7,23 @@ The OpenRouter key is a server-side secret.
 The browser holds no API keys; chat goes through the relay. Never export keys or
 access tokens.
 
-The app has no third-party telemetry. Workers log only the operation metrics
-described below; read them in Cloudflare Workers observability. Builds do not
-emit source maps.
+The privacy policy at `/privacy` (`src/pages/PrivacyPage.tsx`) describes every
+flow of data off the device. Change it with any change to what is sent, stored,
+or logged, and update its date.
+
+Product telemetry (decision 0008) goes through the Worker's relay at
+`/api/telemetry/*` and is collected only when the Worker has a `TELEMETRY_KEY`
+secret (the public `phc_` project key) and `TELEMETRY_HOST`, which is in
+`wrangler.jsonc`. Enable production after privacy review with
+`wrangler secret put TELEMETRY_KEY`. Previews have no key unless one is added
+to the Preview base config in the dashboard (Workers, Settings, Variables and
+secrets); use a separate PostHog project there so test traffic stays out of
+production data. Nothing is set at build time. Event schema, PostHog project
+settings, retention, and dashboards are in [telemetry.md](telemetry.md). To
+stop it in an emergency, run `wrangler secret delete TELEMETRY_KEY`: the relay
+refuses every batch at once, without a build or deploy, and new page loads
+stop capturing. Workers log only the operation metrics described below; read
+them in Cloudflare Workers observability. Builds do not emit source maps.
 
 Lost stored files and app updates are logged on the device in localStorage
 (`src/lib/diagnostics.ts`), each stamped with the exact build. Nothing is sent:
@@ -92,6 +106,7 @@ A failure opens or updates one issue per leg, which closes when that leg passes
 again. If only beta or `playwright-next` fails, a coming browser change (or, for
 `playwright-next`, a Playwright change) is the likely cause: fix it or report it
 upstream before release.
+
 ## Shared book links
 
 Readers can share a Project Gutenberg book at `/b/<id>` (decision 0007). The

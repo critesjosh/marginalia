@@ -1,3 +1,4 @@
+import { useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings, saveSettings } from '../db/db'
@@ -7,10 +8,12 @@ import { HIGHLIGHT_COLORS } from '../lib/highlights'
 import { READER_FONTS } from '../lib/themes'
 import { useIssueUrl } from '../lib/useIssueUrl'
 import { HOSTED_MODEL_LABEL } from '../lib/inference'
+import { telemetry } from '../lib/telemetry'
 import { BackIcon } from '../components/Icons'
 import InstructionsEditor from '../components/InstructionsEditor'
 import KoreaderImport from '../components/KoreaderImport'
 import Ornament from '../components/Ornament'
+import ReportProblemDialog from '../components/ReportProblemDialog'
 import { button, card, iconButton } from '../components/ui'
 
 const ISSUES_URL = 'https://github.com/critesjosh/marginalia/issues'
@@ -21,6 +24,7 @@ export default function SettingsPage() {
   const issueUrl = useIssueUrl(ISSUES_URL)
   const stored = useLiveQuery(() => getSettings(), [])
   const settings = stored ?? DEFAULT_SETTINGS
+  const [reporting, setReporting] = useState(false)
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
@@ -135,11 +139,13 @@ export default function SettingsPage() {
 
         <KoreaderImport />
 
+        <UsageDataSection />
+
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Feedback and community</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
             Share an idea or wander through other readers’ questions in the discussions. Something
-            broken? Open an issue. Anything else, write to {CONTACT_EMAIL}.
+            broken? Report a problem or open an issue. Anything else, write to {CONTACT_EMAIL}.
           </p>
           <p className="mt-2 font-ui text-meta text-ink-faint">
             A new issue starts with this app’s version, your browser, and a short log of storage
@@ -150,8 +156,11 @@ export default function SettingsPage() {
             <a href={DISCUSSIONS_URL} target="_blank" rel="noreferrer" className={button.secondary}>
               Join the discussion ↗
             </a>
+            <button onClick={() => setReporting(true)} className={button.secondary}>
+              Report a problem
+            </button>
             <a href={issueUrl} target="_blank" rel="noreferrer" className={button.secondary}>
-              Report an issue ↗
+              Open an issue ↗
             </a>
             <a href={`mailto:${CONTACT_EMAIL}`} className={button.secondary}>
               Email Rami
@@ -168,9 +177,51 @@ export default function SettingsPage() {
           ) : (
             BUILD.label
           )}
+          {' · '}
+          <Link to="/privacy" className="underline">
+            Privacy policy
+          </Link>
         </p>
       </main>
+
+      {reporting && <ReportProblemDialog onClose={() => setReporting(false)} />}
     </div>
+  )
+}
+
+function UsageDataSection() {
+  const preference = useSyncExternalStore(telemetry.subscribe, telemetry.preference)
+  const configured = useSyncExternalStore(telemetry.subscribe, telemetry.configured)
+
+  return (
+    <section className={card}>
+      <h2 className="font-book text-heading font-medium">Usage data</h2>
+      {configured ? (
+        <label className="mt-3 flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={preference === 'on'}
+            onChange={(e) => telemetry.setPreference(e.target.checked ? 'on' : 'off')}
+            className="mt-1 h-4 w-4 accent-moss"
+          />
+          <span>
+            <span className="font-ui text-label font-medium">Share anonymous usage data</span>
+            <span className="mt-0.5 block font-ui text-meta text-ink-soft">
+              Counts of actions like opening a book or asking Rami, and error types, so we can see
+              what breaks. Never book titles, text, highlights, notes, chats, or links. No cookies,
+              and no id that outlasts this tab.
+            </span>
+          </span>
+        </label>
+      ) : (
+        <p className="mt-1 font-ui text-body text-ink-soft">
+          This copy of Rami sends no usage data.
+        </p>
+      )}
+      <Link to="/privacy" className={`${button.quiet} mt-2 -ml-3`}>
+        How Rami handles your data
+      </Link>
+    </section>
   )
 }
 

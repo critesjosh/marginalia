@@ -6,6 +6,8 @@ import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
+import { telemetry } from '../lib/telemetry'
+import { durationBucket } from '../../shared/telemetrySchema'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
@@ -159,6 +161,18 @@ export default function ChatSheet({
     // Tracks how far we got, so a failure can put the reader back where they
     // were instead of stranding a question with no answer.
     let userMessageId: string | undefined
+    const started = Date.now()
+    let turn: 'first' | 'follow_up' = 'first'
+    const track = (outcome: 'success' | 'failure' | 'canceled', err?: unknown) => {
+      const failure = err === undefined ? undefined : telemetry.lastError()
+      telemetry.capture('ai_message_sent', {
+        outcome,
+        turn,
+        duration_bucket: durationBucket(Date.now() - started),
+        error_category: failure?.category,
+        http_status: failure?.status,
+      })
+    }
 
     try {
       const settings = await getSettings()
@@ -185,6 +199,7 @@ export default function ChatSheet({
         getBookMemory(conversation.bookId),
       ])
       if (!book) throw new Error('This book is no longer in your library.')
+      if (history.some((message) => message.role === 'assistant')) turn = 'follow_up'
 
       let acc = ''
       const reply = await streamChat({
@@ -207,12 +222,18 @@ export default function ChatSheet({
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
         void updateBookMemory(conversation.bookId, conversationId)
       }
+      track('success')
     } catch (err) {
       // A canceled request keeps its question: the reader chose to stop, and
       // deleting what they typed would read as data loss. Any other failure
       // rolls the turn back so the transcript never shows a question that was
       // never actually asked, and hands the text back to the composer.
-      if ((err as Error)?.name === 'AbortError') return
+      if ((err as Error)?.name === 'AbortError') {
+        track('canceled')
+        return
+      }
+      telemetry.captureError('chat', 'send_message', err)
+      track('failure', err)
 
       if (userMessageId) {
         await db.messages.delete(userMessageId).catch(() => {})

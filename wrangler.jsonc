@@ -8,9 +8,12 @@
   // the namespace on the first deploy.
   "kv_namespaces": [{ "binding": "THREADS" }],
   // Public Turnstile site key for publishing threads. Its secret is set with
-  // `wrangler secret put TURNSTILE_SECRET_KEY`.
+  // `wrangler secret put TURNSTILE_SECRET_KEY`. TELEMETRY_HOST is where the
+  // telemetry relay forwards to (decision 0008); nothing is collected until
+  // `wrangler secret put TELEMETRY_KEY` sets the PostHog project key.
   "vars": {
-    "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo",
+    "TELEMETRY_HOST": "https://eu.i.posthog.com"
   },
   "assets": {
     "directory": "./dist",
@@ -35,7 +38,8 @@
     // Previews keep test threads out of production's namespace.
     "kv_namespaces": [{ "binding": "THREADS", "id": "b4bff0c4922a45b3a525901837cc8147" }],
     "vars": {
-      "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo"
+      "TURNSTILE_SITE_KEY": "0x4AAAAAAFUKtahRDYHdeywo",
+      "TELEMETRY_HOST": "https://eu.i.posthog.com"
     }
   },
   "observability": {
