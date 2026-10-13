@@ -5,7 +5,7 @@ import { db, getSettings, markHintSeen } from '../db/db'
 import { newId } from '../lib/id'
 import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
-import { useUnseenHint } from '../lib/hints'
+import { useRetireOnceSeen, useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import { telemetry } from '../lib/telemetry'
@@ -71,13 +71,9 @@ export default function ChatSheet({
   // Shown once Rami has written something down, which takes a few exchanges.
   const memoryHint = useUnseenHint('memory') && hasMemory === true
 
-  // Each hint gets one thread: closing the sheet it appeared in retires it.
-  useEffect(() => {
-    if (threadHint) return () => void markHintSeen('thread')
-  }, [threadHint])
-  useEffect(() => {
-    if (memoryHint) return () => void markHintSeen('memory')
-  }, [memoryHint])
+  // Each hint gets one thread: closing the sheet it was seen in retires it.
+  const threadHintSeen = useRetireOnceSeen('thread', threadHint)
+  const memoryHintSeen = useRetireOnceSeen('memory', memoryHint)
 
   // Opening a conversation lands on its most recent message. Only once: every
   // later move is either the anchor below or the reader's own scrolling.
@@ -314,7 +310,11 @@ export default function ChatSheet({
         className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-5"
       >
         {threadHint && (
-          <HintNote label="What Rami sees" onDismiss={() => void markHintSeen('thread')}>
+          <HintNote
+            label="What Rami sees"
+            onDismiss={() => void markHintSeen('thread')}
+            onSeen={threadHintSeen}
+          >
             Rami reads this passage with the text around it, your chapter, and what it remembers
             from your other threads about this book. Every thread is kept under Threads, and the
             buttons below its messages share it or publish a link to it.
@@ -336,7 +336,11 @@ export default function ChatSheet({
         {streaming && <Bubble role="assistant">{streaming}</Bubble>}
 
         {memoryHint && bookId && (
-          <HintNote label="Rami's memory" onDismiss={() => void markHintSeen('memory')}>
+          <HintNote
+            label="Rami's memory"
+            onDismiss={() => void markHintSeen('memory')}
+            onSeen={memoryHintSeen}
+          >
             Rami has started a memory of this book from your threads and brings it into every
             thread.{' '}
             <Link

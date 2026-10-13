@@ -5,7 +5,7 @@ import { archiveBook, db, deleteBook, markHintSeen } from '../db/db'
 import type { Book } from '../db/types'
 import { EpubImportError } from '../lib/epub'
 import { importEpub } from '../lib/importBook'
-import { useSeenHints } from '../lib/hints'
+import { useRetireOnceSeen, useSeenHints } from '../lib/hints'
 import { FIRST_RUN_BOOK, seedSampleBooks } from '../lib/sampleBook'
 import { telemetry } from '../lib/telemetry'
 import { useModal } from '../lib/useModal'
@@ -111,9 +111,7 @@ export default function LibraryPage() {
   if (showHint && !cardShown) setCardShown(true)
   const showShelfHint =
     hintsReady && !seenHints.includes('shelf') && !showHint && !cardShown && Boolean(books?.length)
-  useEffect(() => {
-    if (showShelfHint) return () => void markHintSeen('shelf')
-  }, [showShelfHint])
+  const shelfHintSeen = useRetireOnceSeen('shelf', showShelfHint)
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
@@ -199,7 +197,11 @@ export default function LibraryPage() {
             <h2 className="mb-6 font-book text-heading font-medium">All books</h2>
             {showShelfHint && (
               <div className="mb-6 max-w-[640px]">
-                <HintNote label="The book menu" onDismiss={() => void markHintSeen('shelf')}>
+                <HintNote
+                  label="The book menu"
+                  onDismiss={() => void markHintSeen('shelf')}
+                  onSeen={shelfHintSeen}
+                >
                   Tap ⋯ beside a book to change its cover or, for a Project Gutenberg book, share it
                   with someone.
                 </HintNote>
