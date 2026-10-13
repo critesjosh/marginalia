@@ -47,10 +47,13 @@ construction, not by convention at each call site.
   Everything else is dropped, by the PWA and again by the relay. Lengths and durations are bucketed. Errors send
   class name, category, HTTP status and a random reference, never messages or
   stacks.
-- **No identity.** Each page load gets a random id held in memory. The relay
-  sets `$process_person_profile: false` and `$geoip_disable: true` on every event. No cookies, no
-  stored id, no URL, referrer, title or user agent string. The only stored
-  value is the on/off preference.
+- **No lasting identity.** Each tab session gets a random id in
+  `sessionStorage`, written only once an event is sent and removed on opt-out.
+  It survives reloads in that tab and ends when the tab closes. The relay sets
+  `$process_person_profile: false` and `$geoip_disable: true` on every event.
+  No cookies, no id in `localStorage`, no URL, referrer, title or user agent
+  string. Besides the session id, the only stored value is the on/off
+  preference.
 - **Report a problem.** A dialog sends an optional, scrubbed note with the
   last error reference. Pressing Send is its own consent, so it goes even with
   usage data off. Deployments without telemetry link to GitHub issues instead.
@@ -86,7 +89,10 @@ The event schema, retention settings and dashboards are in
 - **No telemetry.** The previous position. Simplest and most private, but
   failures stay invisible unless a reader reports them.
 
-Without a person id, funnels and retention only span one page load, and
-returning-reader counts are unavailable. That is the intended cost. Cloudflare
+Without a person id, funnels span one tab session, and retention and
+returning-reader counts are unavailable. That is the intended cost. A
+`localStorage` id would give retention but needs consent everywhere under
+ePrivacy rules and was rejected. A per-load id was the first design; it split
+one sitting into many sessions whenever the reader reloaded. Cloudflare
 still sees the reader's IP address, as it does for every request, and the
 relay's throttle holds it in isolate memory for a minute.

@@ -77,7 +77,7 @@ When the Worker has a PostHog key and the reader's preference allows, the PWA
 sends allowlisted product events to the Worker's relay, which checks them again
 and forwards them to PostHog Cloud without the reader's IP address or headers
 (`src/lib/telemetry.ts`, `shared/telemetryRelay.ts`, [telemetry.md](telemetry.md)):
-event names, enum properties, the app version, and a page-load id. Never book content, titles, notes, chats, or URLs. Worker
+event names, enum properties, the app version, and a tab-session id. Never book content, titles, notes, chats, or URLs. Worker
 metrics are fixed operation names, status codes, and numeric durations. Publishing a thread sends its snapshot to
 the Worker, and sharing a book sends its title, author, Gutenberg id and a
 re-encoded cover. Both load Cloudflare Turnstile in their dialog only. A local storage-loss log is shared only

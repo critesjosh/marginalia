@@ -209,7 +209,7 @@ function UsageDataSection() {
             <span className="mt-0.5 block font-ui text-meta text-ink-soft">
               Counts of actions like opening a book or asking Rami, and error types, so we can see
               what breaks. Never book titles, text, highlights, notes, chats, or links. No cookies,
-              and no id that outlasts this page. Sent to PostHog.
+              and no id that outlasts this tab. Sent to PostHog.
             </span>
           </span>
         </label>

@@ -11,7 +11,7 @@ a test in `src/lib/telemetry.test.ts`.
 Book text, titles, authors, file names, selected passages, highlights, notes,
 prompts, model replies, memory, standing instructions, emails, URLs (including
 the page URL and referrer), error messages, stack traces, user agent strings,
-cookies, and any id that outlasts the page load. The only free text is the
+cookies, and any id that outlasts the tab session. The only free text is the
 optional note in Report a problem, after scrubbing.
 
 ## How events travel
@@ -46,7 +46,7 @@ test traffic stays out of production data (docs/operations.md).
 
 ## Common properties
 
-Every event carries these, plus `distinct_id` (random per page load) and the
+Every event carries these, plus `distinct_id` (random per tab session) and the
 PostHog control properties the relay sets (`$process_person_profile: false`,
 `$geoip_disable: true`, `$lib: rami-web`).
 
@@ -111,8 +111,10 @@ contains personal data the scrubber missed (PostHog event deletion by
 
 ## Example funnels
 
-Funnels group by `distinct_id`, which lasts one page load. They show
-within-session conversion, not returning readers.
+Funnels group by `distinct_id`, which lasts one tab session: it is kept in
+`sessionStorage` (`marginalia.telemetry.session`) once an event is sent,
+survives reloads, and ends when the tab closes or the reader opts out. They
+show within-session conversion, not returning readers.
 
 1. **First read**: `app_opened` > `reader_opened` (`outcome = success`) >
    `text_selected` > `annotation_created`.

@@ -5,13 +5,13 @@ import { MAX_BATCH } from './telemetrySchema.ts'
 // Built at runtime so secret scanners don't take the fixture for a real key.
 const KEY = `phc_${'a'.repeat(32)}`
 const HOST = 'https://eu.i.posthog.test'
-const LOAD_ID = '0b5c1f0e-8d4e-4c38-9a4d-5a3f8f2a1b7c'
+const SESSION_ID = '0b5c1f0e-8d4e-4c38-9a4d-5a3f8f2a1b7c'
 
 function event(name = 'app_opened', properties: Record<string, unknown> = {}) {
   return {
     event: name,
     timestamp: '2026-10-12T10:00:00.000Z',
-    properties: { distinct_id: LOAD_ID, ...properties },
+    properties: { distinct_id: SESSION_ID, ...properties },
   }
 }
 
@@ -122,7 +122,7 @@ describe('POST /api/telemetry/events', () => {
       properties: {
         book_kind: 'imported',
         browser_family: 'firefox',
-        distinct_id: LOAD_ID,
+        distinct_id: SESSION_ID,
         $process_person_profile: false,
         $geoip_disable: true,
         $lib: 'rami-web',
@@ -137,7 +137,7 @@ describe('POST /api/telemetry/events', () => {
     expect(sanitized?.properties.feedback).toBe('mail me at [email]')
   })
 
-  it('drops unknown events, ids that are not load ids, and bad timestamps', async () => {
+  it('drops unknown events, ids that are not session ids, and bad timestamps', async () => {
     expect(sanitizeEvent(event('$pageview'))).toBeUndefined()
     expect(sanitizeEvent(event('app_opened', { distinct_id: 'reader@example.com' }))).toBe(
       undefined,

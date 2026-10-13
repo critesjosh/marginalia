@@ -20,6 +20,7 @@ function memoryStore() {
   return {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
   }
 }
 
@@ -32,16 +33,18 @@ interface Sent {
 async function setup(server = INFORM, deps: Partial<TelemetryDeps> = {}, start = true) {
   const sent: Sent[] = []
   const store = memoryStore()
+  const session = memoryStore()
   const telemetry = createTelemetry(
     { appVersion: 'a1b2c3d' },
     {
       store,
+      session,
       fetch: (url, init) => {
         sent.push({ url, init, body: JSON.parse(init.body as string) })
         return Promise.resolve({ ok: true })
       },
       now: () => Date.parse('2026-10-12T12:00:00.000Z'),
-      loadId: () => 'load-1',
+      newId: () => 'session-1',
       privacySignal: () => false,
       context: () => ({ form_factor: 'touch', browser_family: 'safari' }),
       serverConfig: () => Promise.resolve(server),
@@ -50,7 +53,7 @@ async function setup(server = INFORM, deps: Partial<TelemetryDeps> = {}, start =
   )
   if (start) await telemetry.start()
   const events = () => sent.flatMap((request) => request.body.batch)
-  return { telemetry, sent, events, store }
+  return { telemetry, sent, events, store, session }
 }
 
 afterEach(() => {
@@ -190,7 +193,7 @@ describe('regional default', () => {
           return Promise.resolve({ ok: true })
         },
         now: () => 0,
-        loadId: () => 'load-1',
+        newId: () => 'session-1',
         privacySignal: () => false,
         context: () => ({ form_factor: 'touch', browser_family: 'safari' }),
         serverConfig,
@@ -277,7 +280,7 @@ describe('emission', () => {
         app_version: 'a1b2c3d',
         form_factor: 'touch',
         browser_family: 'safari',
-        distinct_id: 'load-1',
+        distinct_id: 'session-1',
       },
     })
   })
@@ -298,6 +301,49 @@ describe('emission', () => {
     await telemetry.start()
     await telemetry.flush()
     expect(sent.map((request) => request.body.batch.length)).toEqual([MAX_BATCH, 5])
+  })
+
+  it('keeps one id for the tab session, stored only once something is sent', async () => {
+    const SESSION = 'marginalia.telemetry.session'
+    const declined = await setup(ASK)
+    declined.telemetry.capture('annotation_deleted')
+    await declined.telemetry.flush()
+    await declined.telemetry.report({ feedback: 'Stuck on chapter 2' })
+    expect(declined.events()[0].properties.distinct_id).toBe('session-1')
+    expect(declined.session.getItem(SESSION)).toBeNull()
+
+    // A reload in the same tab reuses the stored id; a malformed one is replaced.
+    const ids = vi.fn(() => 'session-2')
+    const { telemetry, events, session } = await setup(INFORM, { newId: ids })
+    session.setItem(SESSION, 'reloaded-tab-id')
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    expect(events()[0].properties.distinct_id).toBe('reloaded-tab-id')
+    expect(ids).not.toHaveBeenCalled()
+
+    telemetry.setPreference('off')
+    expect(session.getItem(SESSION)).toBeNull()
+    telemetry.setPreference('on')
+    session.setItem(SESSION, 'Not An Id!')
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    expect(events()[1].properties.distinct_id).toBe('session-2')
+    expect(session.getItem(SESSION)).toBe('session-2')
+  })
+
+  it('falls back to an id for the page load when session storage is blocked', async () => {
+    const blocked = () => {
+      throw new DOMException('denied', 'SecurityError')
+    }
+    const session = { getItem: blocked, setItem: blocked, removeItem: blocked }
+    const { telemetry, events } = await setup(INFORM, { session })
+    telemetry.capture('annotation_deleted')
+    telemetry.capture('annotation_deleted')
+    await telemetry.flush()
+    expect(events().map((event) => event.properties.distinct_id)).toEqual([
+      'session-1',
+      'session-1',
+    ])
   })
 
   it('caps events per page load', async () => {

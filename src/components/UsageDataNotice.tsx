@@ -23,8 +23,8 @@ export default function UsageDataNotice() {
         <div className="min-w-0 flex-1 basis-64 font-ui">
           <p className="text-label font-medium text-ink">{copy.title}</p>
           <p className="text-meta text-ink-soft">
-            Counts of actions like opening a book or asking Rami, and error types, sent to PostHog.
-            Never titles, text, notes, chats, or links, and no id that outlasts this page. You can
+            Counts of actions like opening a book or asking Rami, and error types are collected.
+            Never titles, text, notes, chats, or links, and no id that outlasts this tab. You can
             change this in Settings. {/* Outside the router, so a plain link. */}
             <a href="/privacy" className="text-moss underline underline-offset-2">
               Privacy policy

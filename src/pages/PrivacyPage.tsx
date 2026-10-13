@@ -115,9 +115,10 @@ export default function PrivacyPage() {
             a book was opened, a passage was selected, a chat reply failed with a network error, or
             which app version was running. Each count carries only fixed values like these, your
             browser family, and whether you use touch or a mouse. It never includes book titles,
-            text, highlights, notes, chats, links, or error messages. There are no cookies, and the
-            only identifier is random and forgotten when you close the page, so counts cannot be
-            tied to you or to each other across visits.
+            text, highlights, notes, chats, links, or error messages. There are no cookies. The only
+            identifier is random, kept in this tab while it is open so counts from one sitting can
+            be grouped, and deleted when you close the tab or turn usage data off, so counts cannot
+            be tied to you or to each other across visits.
           </p>
           <p>
             Counts go first to our server, which checks them against the same fixed list and passes
@@ -188,9 +189,9 @@ export default function PrivacyPage() {
             Rami, or clear the site’s data. You can turn usage data off in Settings and remove
             anything you published. Where data protection law applies, you may also ask to access,
             correct or delete data we hold, or object to how we use it, by writing to <Email />.
-            Because usage counts carry no identifier, we usually cannot find a particular person’s
-            counts. You can complain to your local data protection authority, such as the ICO in the
-            UK.
+            Because usage counts carry no lasting identifier, we usually cannot find a particular
+            person’s counts. You can complain to your local data protection authority, such as the
+            ICO in the UK.
           </p>
         </Section>
 

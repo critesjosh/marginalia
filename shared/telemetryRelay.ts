@@ -26,8 +26,8 @@ import {
 } from './telemetrySchema.ts'
 
 const MAX_BODY_BYTES = 64 * 1024
-/** Matches `newId` in the PWA: a UUID, or a base-36 fallback on insecure origins. */
-const LOAD_ID_PATTERN = /^[a-z0-9-]{8,64}$/
+/** The PWA's session id (`newId`): a UUID, or a base-36 fallback on insecure origins. */
+const SESSION_ID_PATTERN = /^[a-z0-9-]{8,64}$/
 
 /** A tab flushes every few seconds at most; a burst beyond this is not a reader. */
 const rateLimited = createRateLimiter({ windowMs: 60_000, maxRequests: 60 })
@@ -90,7 +90,7 @@ export function sanitizeEvent(raw: unknown): ForwardedEvent | undefined {
   if (!isRecord(raw) || !isEventName(raw.event) || !isRecord(raw.properties)) return undefined
   const { properties } = raw
   const distinctId = properties.distinct_id
-  if (typeof distinctId !== 'string' || !LOAD_ID_PATTERN.test(distinctId)) return undefined
+  if (typeof distinctId !== 'string' || !SESSION_ID_PATTERN.test(distinctId)) return undefined
 
   const kept = {
     ...pickAllowed(COMMON_SCHEMA, properties),

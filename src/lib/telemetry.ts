@@ -6,8 +6,9 @@
  * Off unless the relay says this deployment collects usage data, and then only
  * while the reader's preference is on. Events and properties are allowlisted
  * in `shared/telemetrySchema.ts`, here and again on the relay. There is no SDK,
- * so no autocapture, session recording, cookies or stored identifiers: each
- * page load gets a random id held in memory.
+ * so no autocapture, session recording or cookies. The only identifier is a
+ * random id kept in `sessionStorage`, so it lasts until the tab closes, and
+ * written only once an event is sent.
  */
 
 import { APP_VERSION } from './buildInfo'
@@ -30,6 +31,9 @@ import type { TelemetryConfigResponse } from '../../shared/telemetryRelay'
 import { classifyError, newErrorRef, type ClassifiedError } from './telemetryErrors'
 
 const PREFERENCE_KEY = 'marginalia.telemetry'
+const SESSION_KEY = 'marginalia.telemetry.session'
+/** What the relay accepts as `distinct_id`; anything else in storage is replaced. */
+const SESSION_ID_PATTERN = /^[a-z0-9-]{8,64}$/
 const EVENTS_URL = '/api/telemetry/events'
 const FLUSH_AT = 10
 const FLUSH_INTERVAL_MS = 10_000
@@ -54,13 +58,16 @@ export interface TelemetryConfig {
 }
 
 type KeyValueStore = Pick<Storage, 'getItem' | 'setItem'>
+type SessionStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 export interface TelemetryDeps {
   store?: KeyValueStore
+  /** Holds the session id; it ends when the tab closes. */
+  session?: SessionStore
   fetch: (url: string, init: RequestInit) => Promise<Pick<Response, 'ok'>>
   now: () => number
-  /** Random id for this page load only. */
-  loadId: () => string
+  /** Random id, used when this tab has no session id yet. */
+  newId: () => string
   /** Global Privacy Control or Do Not Track. */
   privacySignal: () => boolean
   context: () => Omit<CommonProperties, 'app_version'>
@@ -97,7 +104,8 @@ function errorProperties(error: RecordedError) {
 }
 
 export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
-  const distinctId = deps.loadId()
+  let sessionId: string | undefined
+  let reportId: string | undefined
   const listeners = new Set<() => void>()
   let queue: QueuedEvent[] = []
   let sentThisLoad = 0
@@ -109,6 +117,45 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
   let unsaved = false
   let server: ServerState = 'pending'
   let starting: Promise<void> | undefined
+
+  /**
+   * Survives reloads in this tab; created on first send, so declined readers
+   * store nothing. A report sent with usage data off gets an id that is never stored.
+   */
+  function distinctId(): string {
+    if (!enabled()) return (reportId ??= deps.newId())
+    sessionId ??= storedSession() ?? saveSession(deps.newId())
+    return sessionId
+  }
+
+  function storedSession(): string | undefined {
+    try {
+      const stored = deps.session?.getItem(SESSION_KEY)
+      return stored && SESSION_ID_PATTERN.test(stored) ? stored : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Blocked storage still yields the id, which then lasts this page load. */
+  function saveSession(id: string): string {
+    try {
+      deps.session?.setItem(SESSION_KEY, id)
+    } catch {
+      // Kept in memory only.
+    }
+    return id
+  }
+
+  /** After an opt-out, a later opt-in starts a new session. */
+  function forgetSession() {
+    sessionId = undefined
+    try {
+      deps.session?.removeItem(SESSION_KEY)
+    } catch {
+      // Nothing was stored.
+    }
+  }
 
   function readStored(): Preference | undefined {
     try {
@@ -177,6 +224,7 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
       unsaved = true
     }
     if (next === 'off') {
+      forgetSession()
       queue = []
       if (timer) clearTimeout(timer)
       timer = undefined
@@ -192,12 +240,16 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
       properties: {
         ...common,
         ...pickAllowed(EVENT_SCHEMA[name], properties),
-        distinct_id: distinctId,
       },
     }
   }
 
-  function postChunk(batch: QueuedEvent[]): Promise<boolean> {
+  function postChunk(chunk: QueuedEvent[]): Promise<boolean> {
+    const id = distinctId()
+    const batch = chunk.map((event) => ({
+      ...event,
+      properties: { ...event.properties, distinct_id: id },
+    }))
     return deps
       .fetch(EVENTS_URL, {
         method: 'POST',
@@ -329,9 +381,9 @@ export function createTelemetry(config: TelemetryConfig, deps: TelemetryDeps) {
 
 export type Telemetry = ReturnType<typeof createTelemetry>
 
-function defaultStore(): KeyValueStore | undefined {
+function browserStorage(kind: 'localStorage' | 'sessionStorage'): Storage | undefined {
   try {
-    return globalThis.localStorage
+    return globalThis[kind]
   } catch {
     return undefined
   }
@@ -347,11 +399,12 @@ function browserFamily(userAgent: string): CommonProperties['browser_family'] {
 
 function browserDeps(): TelemetryDeps {
   return {
-    store: defaultStore(),
+    store: browserStorage('localStorage'),
+    session: browserStorage('sessionStorage'),
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now(),
     // `crypto.randomUUID` is missing on plain-HTTP origins such as a LAN dev server.
-    loadId: newId,
+    newId,
     privacySignal: () => {
       const nav = navigator as Navigator & { globalPrivacyControl?: boolean }
       return nav.globalPrivacyControl === true || nav.doNotTrack === '1'
