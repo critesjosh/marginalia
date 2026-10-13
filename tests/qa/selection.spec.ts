@@ -41,8 +41,6 @@ const scrollLeft = (page: Page) =>
 
 async function openChapterOne(page: Page) {
   await page.goto('/')
-  // The usage-data notice covers the page's last lines; decline it.
-  await page.getByRole('complementary', { name: 'Usage data' }).getByRole('button').first().click()
   await page.getByRole('button', { name: /^Moby Dick/ }).click()
   const contents = await openContents(page)
   await contents.getByRole('button', { name: /Loomings/i }).click()
