@@ -8,6 +8,7 @@ import { buildAnchors, chapterAt, normalizeHref, type ChapterAnchor } from './ch
 import { LONG_PRESS_MS, MOVE_TOLERANCE_PX, longPressToSelect } from './touchSelect'
 import { TAP_TURN_ZONE, mouseEdgeTurn, type TurnPage } from './selectionEdge'
 import { keepFrameInPlace, neutralizeScripts } from './bookScripts'
+import { pageStart } from './pageStart'
 import { readBookFile } from './storedFile'
 import { telemetry } from './telemetry'
 
@@ -235,7 +236,9 @@ export function useReader(
           const release = hold()
           void waitForIdleLayout(rend)
             .then(() =>
-              canceled || navEpoch.current !== epoch ? undefined : rend?.display(target),
+              canceled || navEpoch.current !== epoch
+                ? undefined
+                : rend?.display(pageStart(currentContents(rend), target)),
             )
             .finally(() => {
               // Released on a timer for the same reason as after a resize: the
@@ -584,9 +587,9 @@ async function goToSettled(
 ) {
   if (!rendition) return
   try {
-    await rendition.display(target)
+    await rendition.display(pageStart(currentContents(rendition), target))
     await waitForIdleLayout(rendition)
-    if (stillWanted()) await rendition.display(target)
+    if (stillWanted()) await rendition.display(pageStart(currentContents(rendition), target))
   } catch {
     // Unresolvable target (stale href or broken CFI); leave the view as-is.
   }
