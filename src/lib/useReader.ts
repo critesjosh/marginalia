@@ -692,6 +692,11 @@ async function waitForIdleLayout(rendition: Rendition) {
   // display into it is clamped to its end, pages short of a heading near the
   // end of the section. The view expands synchronously on this event.
   contents.emit('expand')
+
+  // Highlights are drawn from the layout a view renders with, and redrawn only
+  // when the view changes size. A font or image arriving moves the text without
+  // resizing it, leaving each highlight lines off its passage.
+  rendition.views().forEach((view) => (view as { pane?: { render(): void } }).pane?.render())
 }
 
 async function loadLocations(
