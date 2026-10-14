@@ -24,6 +24,7 @@ import { ChatIcon, GearIcon, MoreIcon, PlusIcon, TrashIcon } from '../components
 import { button, iconButton } from '../components/ui'
 
 const COFFEE_URL = 'https://buymeacoffee.com/critesjosh'
+const X_URL = 'https://x.com/rami_reader'
 
 export default function LibraryPage() {
   const fileInput = useRef<HTMLInputElement>(null)
@@ -255,6 +256,15 @@ export default function LibraryPage() {
             className="text-moss underline underline-offset-2 hover:text-moss-deep"
           >
             buy me a coffee
+          </a>
+          . Follow along on{' '}
+          <a
+            href={X_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-moss underline underline-offset-2 hover:text-moss-deep"
+          >
+            X
           </a>
           .
         </p>
