@@ -343,6 +343,7 @@ export function useReader(
 
     let settleTimer = 0
     let releaseTimer = 0
+    let burst = 0
     let releaseHold: (() => void) | undefined
     const release = () => {
       releaseHold?.()
@@ -360,6 +361,7 @@ export function useReader(
       release()
       releaseHold = hold()
       const epoch = navEpoch.current
+      const current = ++burst
       window.clearTimeout(settleTimer)
       window.clearTimeout(releaseTimer)
       settleTimer = window.setTimeout(() => {
@@ -367,7 +369,13 @@ export function useReader(
           release()
           return
         }
-        void goToSettled(rendition, target).finally(() => {
+        // A keyboard opening in stages starts a re-anchor per stage. One that a
+        // later burst has replaced must leave the newest hold alone: releasing
+        // it lets that burst's re-display be recorded, a page short of the
+        // anchor, once per keyboard open or close (#148).
+        const latest = () => burst === current && navEpoch.current === epoch
+        void goToSettled(rendition, target, latest).finally(() => {
+          if (burst !== current) return
           // Stay held a moment longer, so the relocation our own re-display
           // triggers goes by unrecorded. epub.js resolves a CFI to a column
           // with Math.floor, so it reports back up to a page short of the CFI
