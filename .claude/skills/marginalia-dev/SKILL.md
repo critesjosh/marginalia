@@ -143,6 +143,11 @@ names the chapter — suppressing those relocations too eagerly leaves the chrom
 the author fallback after a reopen. A deliberate move must still win over a pending
 re-anchor: turn a page or take a TOC jump ~2s into a reopen and confirm it is not undone.
 
+A single resize per step hides overlapping re-anchors. A soft keyboard opens in stages,
+so also step the height in thirds about 200ms apart, with Chromium's CPU throttled 4x
+(`Emulation.setCPUThrottlingRate` over CDP). That timing is what lost pages behind a chat
+thread in #148: an older burst's re-anchor released the newest burst's hold.
+
 ## Checking a reader interaction
 
 Interaction bugs here hide behind plausible-looking screenshots, so assert on numbers:
