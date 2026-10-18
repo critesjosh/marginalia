@@ -5,11 +5,13 @@
  * already reads, so the client does not know which backend replied.
  *
  * The CLI acts as the reader with whatever MCP servers they allow, so only this
- * machine may call it: loopback peers with a loopback Host, same-origin
- * browsers, and JSON bodies, which a cross-site form cannot send.
+ * machine may call it: loopback peers with a loopback Host, and JSON bodies,
+ * which a cross-site form cannot send. Under the dev server the caller must be
+ * the page itself; behind the bridge (decision 0010) it must be a paired app.
  */
 
 import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -41,6 +43,15 @@ export interface AgentChatOptions {
   spawn?: (command: string, args: string[], options: SpawnOptions) => ChildProcess
   /** Names of the MCP servers Codex has configured. */
   codexServers?: () => Promise<string[]>
+  /** Accept paired cross-origin apps instead of same-origin pages (the bridge). */
+  pairing?: Pairing
+}
+
+export interface Pairing {
+  /** Sent by the app as `Authorization: Bearer <token>`. */
+  token: string
+  /** Exact origins whose browser requests are accepted. */
+  origins: string[]
 }
 
 interface AgentRequestContext {
@@ -68,8 +79,13 @@ const PRIVATE_ENV = [
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
-function isLoopbackPeer(ip: string): boolean {
+export function isLoopbackPeer(ip: string): boolean {
   return ip === '::1' || /^(::ffff:)?127\./.test(ip)
+}
+
+/** Whether a URL hostname names this machine. A rebinding attack uses its own. */
+export function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK_HOSTS.has(hostname)
 }
 
 export function createAgentChat(options: AgentChatOptions): Handler {
@@ -87,7 +103,7 @@ export function createAgentChat(options: AgentChatOptions): Handler {
   }
 
   async function respond(request: Request, context: AgentRequestContext): Promise<Response> {
-    const refusal = refuse(request, context.ip)
+    const refusal = refuse(request, context.ip, options.pairing)
     if (refusal) return refusal
     const conversation = await readConversation(request)
     if ('error' in conversation) return conversation.error
@@ -117,26 +133,54 @@ export function createAgentChat(options: AgentChatOptions): Handler {
   }
 }
 
-function refuse(request: Request, ip: string): Response | null {
+function refuse(request: Request, ip: string, pairing: Pairing | undefined): Response | null {
   if (request.method !== 'POST') return errorResponse(405, 'Use POST.')
-  if (!isLoopbackPeer(ip)) return errorResponse(403, 'The local agent answers only this machine.')
-
-  // The dev server builds the URL from Host, which a rebinding attack sets to
-  // its own hostname.
-  const authority = new URL(request.url)
-  if (!LOOPBACK_HOSTS.has(authority.hostname)) {
-    return errorResponse(403, 'The local agent answers only localhost.')
-  }
-
-  const origin = request.headers.get('origin')
-  const site = request.headers.get('sec-fetch-site')
-  if ((origin !== null && origin !== authority.origin) || (site && site !== 'same-origin')) {
-    return errorResponse(403, 'Cross-origin requests are not allowed.')
-  }
+  const caller = refuseCaller(request, ip, pairing)
+  if (caller) return caller
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
     return errorResponse(415, 'Expected a JSON body.')
   }
   return null
+}
+
+/**
+ * Checks who is calling, whatever the route. The URL must be built from the
+ * request's own Host, which a rebinding attack sets to its own hostname.
+ */
+export function refuseCaller(
+  request: Request,
+  ip: string,
+  pairing: Pairing | undefined,
+): Response | null {
+  if (!isLoopbackPeer(ip)) return errorResponse(403, 'The local agent answers only this machine.')
+  const authority = new URL(request.url)
+  if (!isLoopbackHost(authority.hostname)) {
+    return errorResponse(403, 'The local agent answers only localhost.')
+  }
+
+  const origin = request.headers.get('origin')
+  if (!pairing) {
+    const site = request.headers.get('sec-fetch-site')
+    if ((origin !== null && origin !== authority.origin) || (site && site !== 'same-origin')) {
+      return errorResponse(403, 'Cross-origin requests are not allowed.')
+    }
+    return null
+  }
+  // No Origin means a non-browser client, which still needs the token.
+  if (origin !== null && !pairing.origins.includes(origin)) {
+    return errorResponse(403, 'This site is not paired with the local agent.')
+  }
+  if (!tokenMatches(request.headers.get('authorization'), pairing.token)) {
+    return errorResponse(401, 'The pairing token was rejected. Pair again in Settings.')
+  }
+  return null
+}
+
+/** Compares digests, so neither the length nor the content leaks through timing. */
+function tokenMatches(header: string | null, token: string): boolean {
+  const presented = header?.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
+  const digest = (value: string) => createHash('sha256').update(value).digest()
+  return presented !== '' && timingSafeEqual(digest(presented), digest(token))
 }
 
 async function readConversation(
@@ -397,6 +441,6 @@ async function listCodexServers(): Promise<string[]> {
   return servers.map((server) => String((server as { name?: unknown }).name))
 }
 
-function errorResponse(status: number, message: string): Response {
+export function errorResponse(status: number, message: string): Response {
   return Response.json({ error: { message } }, { status, headers: { 'Cache-Control': 'no-store' } })
 }

@@ -79,9 +79,12 @@ export default function PrivacyPage() {
             server.
           </p>
           <p>
-            If you run Rami yourself with a local Claude Code or Codex setup, the same request goes
-            to that tool instead, and from it to Anthropic or OpenAI and to any MCP servers you
-            allow it to use, under their policies and your accounts with them.
+            If you connect Rami to your own Claude Code or Codex in Settings, or run Rami yourself
+            with one, these requests go to that tool on your computer instead of through our server.
+            From there they go to Anthropic or OpenAI and to any MCP servers you let it use, under
+            their policies and your accounts with them. Those servers can act on what they receive,
+            so allow only ones you trust with what you read. The pairing token stays in this browser
+            and is never sent to us.
           </p>
         </Section>
 

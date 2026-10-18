@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "agent-bridge": "node dev/agentBridge.ts",
     "build": "tsc -b && vite build",
     "build:cloudflare": "npm run build && tsc -p tsconfig.cloudflare.json",
     "cloudflare:types": "wrangler types workers/app/worker-configuration.d.ts --env-file workers/app/.dev.vars.example --include-runtime false --strict-vars false",

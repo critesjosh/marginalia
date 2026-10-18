@@ -1,4 +1,5 @@
 import type { Role } from '../db/types'
+import { BRIDGE_UNREACHABLE, bridgeFetch, localAgentState } from './localAgent'
 
 export interface ChatMessage {
   role: Role
@@ -22,16 +23,31 @@ interface RequestOptions {
 }
 
 /**
- * Every request goes to this site's own relay, which holds an OpenRouter key
- * server-side and pins the model, so visitors need no setup.
+ * Requests go to this site's own relay, which holds an OpenRouter key
+ * server-side and pins the model, so visitors need no setup. A reader paired
+ * with a local agent (decision 0010) is answered by it instead, and never falls
+ * back to the relay: their passages would go somewhere they chose not to send them.
  */
-function post({ messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
-  return fetch(HOSTED_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, stream }),
-    signal,
-  })
+async function post({ messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
+  const body = JSON.stringify({ messages, stream })
+  const headers = { 'Content-Type': 'application/json' }
+  const agent = localAgentState()
+
+  if (agent.kind === 'unreadable') {
+    throw new InferenceError(
+      "Rami can't read its local agent setting in this browser, so it sent nothing. Check that " +
+        'this site may store data, then pair again in Settings.',
+    )
+  }
+  if (agent.kind === 'off') {
+    return fetch(HOSTED_ENDPOINT, { method: 'POST', headers, body, signal })
+  }
+  try {
+    return await bridgeFetch('/v1/chat', agent.token, { method: 'POST', headers, body, signal })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new InferenceError(BRIDGE_UNREACHABLE)
+  }
 }
 
 /** Streams a chat completion, calling `onDelta` for each token chunk. */

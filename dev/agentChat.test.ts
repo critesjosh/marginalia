@@ -53,6 +53,13 @@ beforeEach(() => {
   script = join(dir, 'fake-cli.cjs')
   writeFileSync(script, FAKE_CLI)
   vi.spyOn(console, 'info').mockImplementation(() => {})
+  // The PWA reads its pairing from localStorage; unpaired, it uses /api/chat.
+  const store = new Map<string, string>()
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  })
   process.env.OPENROUTER_API_KEY = 'relay-key-placeholder'
 })
 

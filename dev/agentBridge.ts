@@ -1,0 +1,276 @@
+/**
+ * The local agent bridge (decision 0010): lets the hosted Rami app answer chat
+ * with the reader's own Claude Code or Codex CLI. It serves the decision 0009
+ * handler at http://127.0.0.1:47615 to paired apps only.
+ *
+ *   npm run agent-bridge -- --agent claude --mcp tavily
+ *
+ * Every request must come from this machine, name this machine in its Host,
+ * carry the pairing token, and, from a browser, come from an allowed origin.
+ * The bridge cannot defend against software already running as the reader,
+ * such as a browser extension that reads pages or a process that reads the
+ * token file; those are outside its threat model.
+ */
+
+import { randomBytes } from 'node:crypto'
+import { watch } from 'node:fs'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { dirname } from 'node:path'
+import { Readable } from 'node:stream'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
+import { parseArgs } from 'node:util'
+import {
+  createAgentChat,
+  errorResponse,
+  isLoopbackHost,
+  isLoopbackPeer,
+  refuseCaller,
+  type AgentChatOptions,
+  type Pairing,
+} from './agentChat.ts'
+import { readAgentConfig, type AgentConfig } from './agentCli.ts'
+import { configDir, loadToken, readToken } from './bridgeToken.ts'
+
+/** The only port the hosted app's CSP lets it reach. */
+export const BRIDGE_PORT = 47615
+export const DEFAULT_ORIGINS = ['https://rami.agenticpossible.com']
+
+const MAX_BODY_BYTES = 600_000
+const ALLOWED_METHODS = new Set(['GET', 'POST'])
+const ALLOWED_HEADERS = new Set(['authorization', 'content-type'])
+
+export interface BridgeOptions extends Pick<AgentChatOptions, 'spawn' | 'codexServers'> {
+  config: AgentConfig
+  /** Shared, so the CLI can rotate the token once it owns the port. */
+  pairing: Pairing
+  /** 0 takes a free port. */
+  port: number
+}
+
+export function createBridgeServer(options: BridgeOptions): Server {
+  const { pairing } = options
+  const chat = createAgentChat({ ...options, pairing })
+
+  const server = createServer((req, res) => {
+    void route(req, res).catch(() => {
+      if (!res.headersSent) send(res, errorResponse(500, 'The bridge failed.'), null)
+      else res.destroy()
+    })
+  })
+  return server
+
+  async function route(req: IncomingMessage, res: ServerResponse) {
+    const origin = typeof req.headers.origin === 'string' ? req.headers.origin : null
+    // CORS headers go only to an allowed origin, so others cannot read replies.
+    const cors = origin && pairing.origins.includes(origin) ? origin : null
+
+    // Checked before anything else, on every route: a rebinding attack reaches
+    // this port under its own hostname.
+    const host = req.headers.host ?? ''
+    // Port 0 lets tests take any free port; Host must then name the real one.
+    const port = options.port || (server.address() as AddressInfo).port
+    if (!isBridgeHost(host, port) || !isLoopbackPeer(req.socket.remoteAddress ?? '')) {
+      return send(res, errorResponse(403, 'The local agent answers only this machine.'), null)
+    }
+
+    const path = (req.url ?? '').split('?')[0]
+    if (path !== '/v1/status' && path !== '/v1/chat') {
+      return send(res, errorResponse(404, 'Not found.'), cors)
+    }
+    if (req.method === 'OPTIONS') return send(res, preflight(req, origin, cors), cors)
+
+    const request = await webRequest(req, host)
+    if (!request) return send(res, errorResponse(413, 'Request body too large.'), cors)
+
+    if (path === '/v1/status') {
+      if (req.method !== 'GET') return send(res, errorResponse(405, 'Use GET.'), cors)
+      const refusal = refuseCaller(request, req.socket.remoteAddress ?? '', pairing)
+      const { agent, mcp } = options.config
+      return send(res, refusal ?? Response.json({ agent, mcp }), cors)
+    }
+
+    // Stops the agent when the reader closes the reply.
+    const closed = new AbortController()
+    res.on('close', () => closed.abort())
+    const response = await chat(request, {
+      ip: req.socket.remoteAddress ?? '',
+      signal: closed.signal,
+    })
+    return send(res, response, cors)
+  }
+}
+
+/** `127.0.0.1:47615` or `localhost:47615`, and nothing else. */
+function isBridgeHost(host: string, port: number): boolean {
+  try {
+    const url = new URL(`http://${host}`)
+    return isLoopbackHost(url.hostname) && url.port === String(port)
+  } catch {
+    return false
+  }
+}
+
+/** Answers a CORS preflight, which carries no token, so it checks everything else. */
+function preflight(req: IncomingMessage, origin: string | null, cors: string | null): Response {
+  if (!origin || !cors) return errorResponse(403, 'This site is not paired with the local agent.')
+  const method = String(req.headers['access-control-request-method'] ?? '')
+  const headers = String(req.headers['access-control-request-headers'] ?? '')
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean)
+  if (!ALLOWED_METHODS.has(method) || !headers.every((name) => ALLOWED_HEADERS.has(name))) {
+    return errorResponse(403, 'That request is not allowed.')
+  }
+
+  const response = new Response(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Methods': 'GET, POST',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type',
+      'Access-Control-Max-Age': '600',
+    },
+  })
+  // Chrome's older private network access preflight. Its replacement, local
+  // network access, asks the reader instead.
+  if (req.headers['access-control-request-private-network'] === 'true') {
+    response.headers.set('Access-Control-Allow-Private-Network', 'true')
+  }
+  return response
+}
+
+async function webRequest(req: IncomingMessage, host: string): Promise<Request | null> {
+  const chunks: Buffer[] = []
+  let bytes = 0
+  for await (const chunk of req) {
+    bytes += (chunk as Buffer).length
+    if (bytes > MAX_BODY_BYTES) return null
+    chunks.push(chunk as Buffer)
+  }
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === 'string') headers.set(name, value)
+  }
+  return new Request(new URL(req.url ?? '/', `http://${host}`), {
+    method: req.method,
+    headers,
+    body: chunks.length ? Buffer.concat(chunks) : undefined,
+  })
+}
+
+function send(res: ServerResponse, response: Response, cors: string | null) {
+  res.statusCode = response.status
+  response.headers.forEach((value, key) => res.setHeader(key, value))
+  res.setHeader('Cache-Control', 'no-store')
+  res.setHeader('Vary', 'Origin')
+  if (cors) res.setHeader('Access-Control-Allow-Origin', cors)
+  // The DOM and Node typings name the same stream differently.
+  if (response.body) Readable.fromWeb(response.body as NodeReadableStream).pipe(res)
+  else res.end()
+}
+
+const USAGE = `Usage: npm run agent-bridge -- [options]
+
+  --agent claude|codex   The CLI that answers (or CHAT_AGENT)
+  --mcp <names>          MCP servers it may call, comma-separated, or * (or CHAT_AGENT_MCP)
+  --model <name>         Model for the agent (or CHAT_AGENT_MODEL)
+  --origin <url>         Another app origin to accept, e.g. http://localhost:5173 (repeatable)
+  --port <n>             Port to listen on (default ${BRIDGE_PORT}; the hosted app reaches only that one)
+  --show-token           Print the pairing token again
+  --new-token            Replace the pairing token, unpairing every browser
+`
+
+async function main() {
+  const { values } = parseArgs({
+    options: {
+      agent: { type: 'string' },
+      mcp: { type: 'string' },
+      model: { type: 'string' },
+      origin: { type: 'string', multiple: true },
+      port: { type: 'string' },
+      'show-token': { type: 'boolean' },
+      'new-token': { type: 'boolean' },
+      help: { type: 'boolean' },
+    },
+  })
+  if (values.help) {
+    console.log(USAGE)
+    return
+  }
+
+  const config = readAgentConfig({
+    ...process.env,
+    CHAT_AGENT: values.agent ?? process.env.CHAT_AGENT,
+    CHAT_AGENT_MCP: values.mcp ?? process.env.CHAT_AGENT_MCP,
+    CHAT_AGENT_MODEL: values.model ?? process.env.CHAT_AGENT_MODEL,
+  })
+  if (!config) {
+    console.error(`Choose an agent with --agent claude or --agent codex.\n\n${USAGE}`)
+    process.exitCode = 1
+    return
+  }
+
+  const port = values.port ? Number(values.port) : BRIDGE_PORT
+  const origins = [...DEFAULT_ORIGINS, ...(values.origin ?? [])].map((url) => new URL(url).origin)
+  const dir = configDir()
+  let loaded = await loadToken(dir)
+  const pairing: Pairing = { token: loaded.token, origins }
+  const server = createBridgeServer({ config, pairing, port })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, '127.0.0.1', () => resolve())
+    })
+  } catch (error) {
+    const busy = (error as NodeJS.ErrnoException).code === 'EADDRINUSE'
+    console.error(
+      busy
+        ? `Port ${port} is in use, probably by another bridge. Stop it first; the token is unchanged.`
+        : `Could not listen on port ${port}.`,
+    )
+    process.exitCode = 1
+    return
+  }
+  // Rotated only once this process owns the port, so no older bridge goes on
+  // accepting the old token.
+  if (values['new-token']) {
+    loaded = await loadToken(dir, true)
+    pairing.token = loaded.token
+  }
+  followToken(loaded.file, pairing)
+
+  const mcp = config.mcp === 'all' ? 'every MCP server' : config.mcp.join(', ') || 'no MCP servers'
+  console.log(`Rami agent bridge: ${config.agent} with ${mcp}, on http://127.0.0.1:${port}`)
+  console.log(`Accepting: ${origins.join(', ')}`)
+  if (port !== BRIDGE_PORT) console.log(`The hosted app can reach only port ${BRIDGE_PORT}.`)
+  if (loaded.created || values['show-token']) {
+    console.log(
+      `\nIn Rami, open Settings, Local agent, and paste this pairing token:\n\n  ${loaded.token}\n`,
+    )
+    console.log(`It is saved in ${loaded.file}. Run with --new-token to replace it.`)
+  } else {
+    console.log('Already paired. Run with --show-token to print the token again.')
+  }
+}
+
+/**
+ * Picks up a token another bridge rotated, so `--new-token` on any port
+ * revokes the old one everywhere. A missing or damaged file revokes it too.
+ */
+function followToken(file: string, pairing: Pairing) {
+  async function reload() {
+    const token = await readToken(file).catch(() => null)
+    if (token === pairing.token) return
+    if (token) {
+      pairing.token = token
+      console.log('The pairing token changed; using the new one.')
+    } else {
+      // An unguessable token nobody holds: every request is refused until a restart.
+      pairing.token = randomBytes(32).toString('base64url')
+      console.log('The token file is gone; refusing requests. Restart the bridge to pair again.')
+    }
+  }
+  watch(dirname(file), { persistent: false }, () => void reload())
+}
+
+if (import.meta.main) await main()

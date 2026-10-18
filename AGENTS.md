@@ -5,8 +5,9 @@
 - `.`: React/TypeScript EPUB reader PWA. `src/` contains the UI and IndexedDB
   model; `shared/relay.ts` serves chat through Vite and Cloudflare.
   `workers/app/` is a deployment adapter for this app, not a separate service.
-  `dev/` is Node-only dev-server code (the local agent chat backend); never
-  import it from `src/` or a Worker.
+  `dev/` is Node-only code that runs on the reader's machine: the local agent
+  chat backend and its bridge (`npm run agent-bridge`). Never import it from
+  `src/` or a Worker.
 - `koreader/`: independently installed Lua plugin. Its README covers device
   installation; its unit and integration tests run through the root Vitest setup.
 
@@ -95,8 +96,9 @@ Device chat uses the hosted relay and is billed; ask before testing live chat.
 - Mirror system-prompt changes between `src/lib/prompt.ts` and
   `koreader/marginalia.koplugin/marginalia_prompt.lua`; run the plugin prompt specs.
 - Preserve Dexie migrations and edition matching by file hash, not title.
-- Do not enable EPUB scripts or weaken CSP/TLS checks. Book text is untrusted
-  and must remain fenced before entering model prompts.
+- Do not enable EPUB scripts or weaken CSP/TLS checks. The one exception is the
+  local agent bridge's fixed loopback port in `connect-src` (decision 0010).
+  Book text is untrusted and must remain fenced before entering model prompts.
 
 ## Planning and decisions
 
