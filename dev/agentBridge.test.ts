@@ -5,7 +5,7 @@ import { createServer as createNetServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createBridgeServer } from './agentBridge.ts'
+import { createBridgeServer, DEFAULT_ORIGINS, PREVIEW_ORIGIN } from './agentBridge.ts'
 
 const TOKEN = 'a'.repeat(43)
 const APP = 'https://rami.agenticpossible.com'
@@ -256,5 +256,54 @@ describe('command line', () => {
     const again = await run([...args, '--new-token'], env, /Rami agent bridge/)
     expect(again.exitCode).toBe(1)
     expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+})
+
+describe('preview builds', () => {
+  it('matches branch and version previews, and nothing that only resembles one', () => {
+    for (const origin of [
+      'https://feat-local-agent-chat-marginalia.cloudflare-cdd.workers.dev',
+      'https://30641a4b-marginalia.cloudflare-cdd.workers.dev',
+    ]) {
+      expect(PREVIEW_ORIGIN.test(origin)).toBe(true)
+    }
+    for (const origin of [
+      'http://feat-marginalia.cloudflare-cdd.workers.dev',
+      'https://feat-marginalia.cloudflare-cdd.workers.dev.evil.example',
+      'https://feat-marginalia.cloudflare-cdd.workers.dev:8443',
+      'https://feat-marginalia.someone-else.workers.dev',
+      'https://evil.example/feat-marginalia.cloudflare-cdd.workers.dev',
+      'https://-marginalia.cloudflare-cdd.workers.dev',
+      'https://marginalia.cloudflare-cdd.workers.dev',
+      'https://feat-other.cloudflare-cdd.workers.dev',
+    ]) {
+      expect(PREVIEW_ORIGIN.test(origin)).toBe(false)
+    }
+    expect(DEFAULT_ORIGINS).toContain('https://marginalia.adjacentpossible.dev')
+  })
+
+  it('pairs a preview when the bridge allows previews', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    server = createBridgeServer({
+      config: { agent: 'claude', mcp: [], timeoutMs: 10_000 },
+      pairing: { token: TOKEN, origins: [APP], originPattern: PREVIEW_ORIGIN },
+      port: 0,
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    port = (server.address() as AddressInfo).port
+
+    const preview = 'https://feat-local-agent-chat-marginalia.cloudflare-cdd.workers.dev'
+    const preflight = await call('OPTIONS', '/v1/status', {
+      Origin: preview,
+      'Access-Control-Request-Method': 'GET',
+      'Access-Control-Request-Headers': 'authorization',
+    })
+    expect(preflight.status).toBe(204)
+    expect(preflight.headers['access-control-allow-origin']).toBe(preview)
+    const status = await call('GET', '/v1/status', { ...auth, Origin: preview })
+    expect(status.status).toBe(200)
+    expect(status.headers['access-control-allow-origin']).toBe(preview)
+    const lookalike = { ...auth, Origin: 'https://feat-marginalia.someone-else.workers.dev' }
+    expect((await call('GET', '/v1/status', lookalike)).status).toBe(403)
   })
 })

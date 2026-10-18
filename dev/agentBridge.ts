@@ -25,6 +25,7 @@ import {
   errorResponse,
   isLoopbackHost,
   isLoopbackPeer,
+  isPairedOrigin,
   refuseCaller,
   type AgentChatOptions,
   type Pairing,
@@ -34,7 +35,19 @@ import { configDir, loadToken, readToken } from './bridgeToken.ts'
 
 /** The only port the hosted app's CSP lets it reach. */
 export const BRIDGE_PORT = 47615
-export const DEFAULT_ORIGINS = ['https://rami.agenticpossible.com']
+/** The app's production hosts (both routes in wrangler.jsonc). */
+export const DEFAULT_ORIGINS = [
+  'https://rami.agenticpossible.com',
+  'https://marginalia.adjacentpossible.dev',
+]
+
+/**
+ * Workers Builds previews of the app: `<branch or version>-marginalia` on the
+ * account's workers.dev subdomain. They are built from branches of the app's
+ * own repository, so anyone who can make one can already ship production.
+ */
+export const PREVIEW_ORIGIN =
+  /^https:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-marginalia\.cloudflare-cdd\.workers\.dev$/
 
 const MAX_BODY_BYTES = 600_000
 const ALLOWED_METHODS = new Set(['GET', 'POST'])
@@ -63,7 +76,7 @@ export function createBridgeServer(options: BridgeOptions): Server {
   async function route(req: IncomingMessage, res: ServerResponse) {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : null
     // CORS headers go only to an allowed origin, so others cannot read replies.
-    const cors = origin && pairing.origins.includes(origin) ? origin : null
+    const cors = origin && isPairedOrigin(pairing, origin) ? origin : null
 
     // Checked before anything else, on every route: a rebinding attack reaches
     // this port under its own hostname.
@@ -175,6 +188,7 @@ const USAGE = `Usage: npm run agent-bridge -- [options]
   --mcp <names>          MCP servers it may call, comma-separated, or * (or CHAT_AGENT_MCP)
   --model <name>         Model for the agent (or CHAT_AGENT_MODEL)
   --origin <url>         Another app origin to accept, e.g. http://localhost:5173 (repeatable)
+  --no-previews          Refuse the app's preview builds (*-marginalia.cloudflare-cdd.workers.dev)
   --port <n>             Port to listen on (default ${BRIDGE_PORT}; the hosted app reaches only that one)
   --show-token           Print the pairing token again
   --new-token            Replace the pairing token, unpairing every browser
@@ -190,6 +204,7 @@ async function main() {
       port: { type: 'string' },
       'show-token': { type: 'boolean' },
       'new-token': { type: 'boolean' },
+      'no-previews': { type: 'boolean' },
       help: { type: 'boolean' },
     },
   })
@@ -214,7 +229,12 @@ async function main() {
   const origins = [...DEFAULT_ORIGINS, ...(values.origin ?? [])].map((url) => new URL(url).origin)
   const dir = configDir()
   let loaded = await loadToken(dir)
-  const pairing: Pairing = { token: loaded.token, origins }
+  const previews = !values['no-previews']
+  const pairing: Pairing = {
+    token: loaded.token,
+    origins,
+    originPattern: previews ? PREVIEW_ORIGIN : undefined,
+  }
   const server = createBridgeServer({ config, pairing, port })
   try {
     await new Promise<void>((resolve, reject) => {
@@ -242,6 +262,7 @@ async function main() {
   const mcp = config.mcp === 'all' ? 'every MCP server' : config.mcp.join(', ') || 'no MCP servers'
   console.log(`Rami agent bridge: ${config.agent} with ${mcp}, on http://127.0.0.1:${port}`)
   console.log(`Accepting: ${origins.join(', ')}`)
+  if (previews) console.log('and preview builds at https://*-marginalia.cloudflare-cdd.workers.dev')
   if (port !== BRIDGE_PORT) console.log(`The hosted app can reach only port ${BRIDGE_PORT}.`)
   if (loaded.created || values['show-token']) {
     console.log(

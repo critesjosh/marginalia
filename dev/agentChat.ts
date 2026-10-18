@@ -52,6 +52,12 @@ export interface Pairing {
   token: string
   /** Exact origins whose browser requests are accepted. */
   origins: string[]
+  /** Also accept origins matching this, such as the app's preview builds. */
+  originPattern?: RegExp
+}
+
+export function isPairedOrigin(pairing: Pairing, origin: string): boolean {
+  return pairing.origins.includes(origin) || pairing.originPattern?.test(origin) === true
 }
 
 interface AgentRequestContext {
@@ -167,7 +173,7 @@ export function refuseCaller(
     return null
   }
   // No Origin means a non-browser client, which still needs the token.
-  if (origin !== null && !pairing.origins.includes(origin)) {
+  if (origin !== null && !isPairedOrigin(pairing, origin)) {
     return errorResponse(403, 'This site is not paired with the local agent.')
   }
   if (!tokenMatches(request.headers.get('authorization'), pairing.token)) {

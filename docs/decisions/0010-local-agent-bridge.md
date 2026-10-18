@@ -34,8 +34,12 @@ A local bridge, `npm run agent-bridge` (`dev/agentBridge.ts`), serves the
   and every running bridge follows the file, so rotation revokes the old
   token everywhere; disconnecting in Settings forgets only the browser's copy.
 - **Origins.** Every request from a browser `Origin` outside the allowlist is
-  refused outright, not just left without CORS headers: the production app by
-  default, plus any `--origin` the reader adds (for a dev server). `Origin:
+  refused outright, not just left without CORS headers: the production hosts
+  and the app's Workers Builds previews
+  (`<branch or version>-marginalia.cloudflare-cdd.workers.dev`, which only
+  people who can push to the repository can create) by default, plus any
+  `--origin` the reader adds (for a dev server). `--no-previews` drops the
+  previews. `Origin:
   null` is refused. A request without `Origin` is a non-browser client and
   still needs the token. The raw `Host` must be `127.0.0.1` or `localhost` on
   the bridge's port and the peer must be loopback, checked before anything

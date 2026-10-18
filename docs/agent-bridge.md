@@ -25,6 +25,7 @@ bridge is using. Keep the terminal open while you read.
 | `--mcp <names>` | MCP servers it may call, comma-separated, or `*` (or `CHAT_AGENT_MCP`). Empty allows none. |
 | `--model <name>` | Model for the agent (or `CHAT_AGENT_MODEL`) |
 | `--origin <url>` | Another app origin to accept, such as `http://localhost:5173` for a dev server. Repeatable. |
+| `--no-previews` | Refuse the app's preview builds (see below) |
 | `--port <n>` | Port to listen on. The hosted app can reach only 47615. |
 | `--show-token` | Print the pairing token again |
 | `--new-token` | Replace the token, unpairing every browser |
@@ -72,8 +73,14 @@ The bridge answers only:
 - connections from this machine, whose `Host` is `127.0.0.1` or `localhost` on
   the bridge's port, which stops DNS rebinding;
 - requests carrying `Authorization: Bearer <token>`;
-- browser requests whose `Origin` is the hosted app or one you added with
-  `--origin`. Others are refused before anything runs.
+- browser requests whose `Origin` is the hosted app (`rami.agenticpossible.com`
+  or `marginalia.adjacentpossible.dev`), one of its Workers Builds previews
+  (`https://<branch or version>-marginalia.cloudflare-cdd.workers.dev`), or one
+  you added with `--origin`. Others are refused before anything runs.
+
+Previews are built from branches of this repository, so whoever can create one
+can already ship the production app; `--no-previews` turns them off. A preview
+has its own storage, so pair it separately in its own Settings.
 
 It cannot protect you from software already running as you, such as a browser
 extension that reads Rami's pages, or a program that reads the token file or
