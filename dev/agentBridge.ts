@@ -43,8 +43,10 @@ export const DEFAULT_ORIGINS = [
 
 /**
  * Workers Builds previews of the app: `<branch or version>-marginalia` on the
- * account's workers.dev subdomain. They are built from branches of the app's
- * own repository, so anyone who can make one can already ship production.
+ * account's workers.dev subdomain. A hostname cannot tell these apart from a
+ * Worker in the same Cloudflare account whose own name ends in `-marginalia`,
+ * so this trusts the account: whoever can deploy there or push a branch here
+ * can already ship the production app.
  */
 export const PREVIEW_ORIGIN =
   /^https:\/\/[a-z0-9](?:[a-z0-9-]*[a-z0-9])?-marginalia\.cloudflare-cdd\.workers\.dev$/

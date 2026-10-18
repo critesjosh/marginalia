@@ -279,6 +279,10 @@ describe('preview builds', () => {
     ]) {
       expect(PREVIEW_ORIGIN.test(origin)).toBe(false)
     }
+    // Indistinguishable from a preview, so trusting previews trusts the account.
+    expect(PREVIEW_ORIGIN.test('https://feat-other-marginalia.cloudflare-cdd.workers.dev')).toBe(
+      true,
+    )
     expect(DEFAULT_ORIGINS).toContain('https://marginalia.adjacentpossible.dev')
   })
 

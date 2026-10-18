@@ -78,8 +78,11 @@ The bridge answers only:
   (`https://<branch or version>-marginalia.cloudflare-cdd.workers.dev`), or one
   you added with `--origin`. Others are refused before anything runs.
 
-Previews are built from branches of this repository, so whoever can create one
-can already ship the production app; `--no-previews` turns them off. A preview
+Previews are built from branches of this repository. The hostname cannot
+distinguish them from another Worker in the same Cloudflare account whose name
+ends in `-marginalia`, so in effect the bridge trusts that account: anyone who
+can deploy there or push a branch here can already ship the production app.
+`--no-previews` turns them off. A preview
 has its own storage, so pair it separately in its own Settings.
 
 It cannot protect you from software already running as you, such as a browser

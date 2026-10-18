@@ -34,17 +34,18 @@ A local bridge, `npm run agent-bridge` (`dev/agentBridge.ts`), serves the
   and every running bridge follows the file, so rotation revokes the old
   token everywhere; disconnecting in Settings forgets only the browser's copy.
 - **Origins.** Every request from a browser `Origin` outside the allowlist is
-  refused outright, not just left without CORS headers: the production hosts
-  and the app's Workers Builds previews
-  (`<branch or version>-marginalia.cloudflare-cdd.workers.dev`, which only
-  people who can push to the repository can create) by default, plus any
-  `--origin` the reader adds (for a dev server). `--no-previews` drops the
-  previews. `Origin:
-  null` is refused. A request without `Origin` is a non-browser client and
-  still needs the token. The raw `Host` must be `127.0.0.1` or `localhost` on
-  the bridge's port and the peer must be loopback, checked before anything
-  else, which stops DNS rebinding. Preflights carry no token, so they check
-  the peer, Host, origin, method and headers instead.
+  refused outright, not just left without CORS headers. By default the
+  allowlist is the production hosts and the app's Workers Builds previews
+  (`<branch or version>-marginalia.cloudflare-cdd.workers.dev`), plus any
+  `--origin` the reader adds (for a dev server); `--no-previews` drops the
+  previews. The preview hostname also matches any Worker in the same
+  Cloudflare account named `*-marginalia`, so this trusts the account, whose
+  deployers can already ship production. `Origin: null` is refused. A request
+  without `Origin` is a non-browser client and still needs the token. The raw
+  `Host` must be `127.0.0.1` or `localhost` on the bridge's port and the peer
+  must be loopback, checked before anything else, which stops DNS rebinding.
+  Preflights carry no token, so they check the peer, Host, origin, method and
+  headers instead.
 - **Endpoints.** `GET /v1/status` returns the agent name and the MCP allowlist
   for the Settings check. `POST /v1/chat` takes the `/api/chat` body and
   returns the same SSE or JSON. Both are documented in `docs/agent-bridge.md`.
