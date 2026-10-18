@@ -2,12 +2,12 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
     "workers/**/src/index.ts",
-    "{src,shared,koreader/tests,workers}/**/*.test.ts",
+    "{src,shared,dev,koreader/tests,workers}/**/*.test.ts",
     "tests/**/*.spec.ts",
     "scripts/**/*.mjs"
   ],
   "project": [
-    "{src,shared,workers,koreader/tests}/**/*.{ts,tsx,css}",
+    "{src,shared,dev,workers,koreader/tests}/**/*.{ts,tsx,css}",
     "*.config.ts",
     "scripts/**/*.mjs",
     "tests/**/*.ts"

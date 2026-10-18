@@ -37,6 +37,17 @@ A Vite plugin serves `/api/chat` in dev using the same handler the deployed edge
 
 To use the deployed relay and its key instead, set `CHAT_RELAY_URL=https://rami.agenticpossible.com` in `.env.local`. Dev chat is then billed to the production key.
 
+### Chat through Claude Code or Codex
+
+The dev server can answer chat with a local agent CLI instead, using your own subscription and the MCP servers you allow ([decision 0009](docs/decisions/0009-local-agent-chat.md)). Install and sign in to the CLI, then set in `.env.local`:
+
+```
+CHAT_AGENT=claude          # or codex
+CHAT_AGENT_MCP=tavily      # names from `claude mcp list` / `codex mcp list`, or *
+```
+
+Each reply runs the CLI once in an empty temporary directory with its built-in tools off (no shell, file or web access), so the agent can use only the MCP servers you list. A highlighted passage is untrusted text that the agent reads alongside those tools, so allow only servers you would let any book use: search and documentation, not mail or file access. Requests are accepted only from this machine. With Claude, your own hooks still run on each request. Replies start after a few seconds of CLI and MCP startup, and Codex sends each message whole rather than streaming it. Production and the KOReader plugin keep using OpenRouter.
+
 ```bash
 npm run build     # production build + service worker
 npm run lint      # oxlint

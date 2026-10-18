@@ -251,6 +251,10 @@ served by the `marginalia-chat-relay` Vite plugin in `vite.config.ts`, running t
 `OPENROUTER_API_KEY` in gitignored `.env.local`; without it the relay answers 503 and
 the chat sheet shows the message.
 
+With `CHAT_AGENT=claude` or `codex` in `.env.local`, the same route runs that local CLI
+instead (`dev/agentChat.ts`, decision 0009), and the dev server logs which backend and
+MCP servers are active at startup. It answers only `localhost`/`127.0.0.1` callers.
+
 Vite restarts when `vite.config.ts` or `shared/relay.ts` changes, so relay edits take a
 second to land. Check the relay directly before blaming the UI:
 

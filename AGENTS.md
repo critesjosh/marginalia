@@ -5,6 +5,8 @@
 - `.`: React/TypeScript EPUB reader PWA. `src/` contains the UI and IndexedDB
   model; `shared/relay.ts` serves chat through Vite and Cloudflare.
   `workers/app/` is a deployment adapter for this app, not a separate service.
+  `dev/` is Node-only dev-server code (the local agent chat backend); never
+  import it from `src/` or a Worker.
 - `koreader/`: independently installed Lua plugin. Its README covers device
   installation; its unit and integration tests run through the root Vitest setup.
 
@@ -38,6 +40,7 @@ Run focused tests while editing, then run the checks above before handing off:
 ```bash
 npm test -- src/lib/anchor.test.ts
 npm test -- shared/relay.test.ts
+npm test -- dev/agentCli.test.ts dev/agentChat.test.ts
 npm test -- koreader/tests/plugin.test.ts koreader/tests/integration.test.ts
 ```
 
@@ -84,8 +87,8 @@ Device chat uses the hosted relay and is billed; ask before testing live chat.
   semicolons. Prefer explicit types at storage, API, and untrusted-input boundaries.
 - Lua: snake_case functions/variables and UPPER_SNAKE_CASE constants. Preserve
   Lua module-table conventions.
-- Name TypeScript tests `*.test.ts` under `src/`, `shared/`, `workers/`, or
-  `koreader/tests/`. Name Lua specs `koreader/tests/*_spec.lua`, exercised
+- Name TypeScript tests `*.test.ts` under `src/`, `shared/`, `dev/`, `workers/`,
+  or `koreader/tests/`. Name Lua specs `koreader/tests/*_spec.lua`, exercised
   through their Vitest harnesses.
 - Follow `docs/design-system.md` (Rami) for UI: use its token utilities and the
   controls in `src/components/ui.ts`, not raw colors or one-off button styles.

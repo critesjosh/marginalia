@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dev-only option to answer chat with a local Claude Code or Codex CLI and the
+  MCP servers the reader allows (`CHAT_AGENT`, decision 0009).
 - One-time hints for new readers, each where its feature first applies: a
   three-step library card, the reader's tap zones on a first book, notes on a
   first thread and a first memory, and a later note on the book menu. A

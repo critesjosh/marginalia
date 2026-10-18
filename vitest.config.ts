@@ -5,6 +5,7 @@ export default defineConfig({
     include: [
       'src/**/*.test.ts',
       'shared/**/*.test.ts',
+      'dev/**/*.test.ts',
       'koreader/tests/**/*.test.ts',
       'workers/**/*.test.ts',
     ],
@@ -13,7 +14,7 @@ export default defineConfig({
     fileParallelism: true,
     coverage: {
       provider: 'v8',
-      include: ['src/lib/**/*.ts', 'src/db/**/*.ts', 'shared/**/*.ts'],
+      include: ['src/lib/**/*.ts', 'src/db/**/*.ts', 'shared/**/*.ts', 'dev/**/*.ts'],
       exclude: ['**/*.test.ts', 'src/lib/use*.ts'],
       reporter: ['text', 'json-summary', 'lcov'],
       thresholds: { statements: 30, branches: 40, functions: 25, lines: 30 },

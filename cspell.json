@@ -167,6 +167,11 @@
     "widgetcontainer",
     "Workbox",
     "xpointer",
-    "xpointers"
+    "xpointers",
+    "tavily",
+    "Tavily",
+    "dontAsk",
+    "unstub",
+    "Starbuck"
   ]
 }

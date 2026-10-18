@@ -78,6 +78,11 @@ export default function PrivacyPage() {
             The KOReader plugin sends the same kind of request, from your e-reader, to the same
             server.
           </p>
+          <p>
+            If you run Rami yourself with a local Claude Code or Codex setup, the same request goes
+            to that tool instead, and from it to Anthropic or OpenAI and to any MCP servers you
+            allow it to use, under their policies and your accounts with them.
+          </p>
         </Section>
 
         <Section title="Finding books and covers">

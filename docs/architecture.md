@@ -55,6 +55,11 @@ flowchart LR
 Deploy adapters share `shared/relay.ts`, `shared/gutenberg.ts` and
 `shared/covers.ts`; they must not import browser modules.
 
+In development only, `CHAT_AGENT` lets the Vite server answer `/api/chat`
+with a local Claude Code or Codex CLI and the MCP servers the reader allows,
+instead of OpenRouter (`dev/agentChat.ts`, decision 0009). The Worker never
+loads `dev/`.
+
 ## Local storage schema
 
 `src/db/types.ts` defines records; `src/db/db.ts` owns Dexie versions 1–6.
@@ -96,3 +101,4 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0006 Publish shared threads at unlisted links](decisions/0006-public-thread-links.md)
 - [0007 Share books at links that add them for the recipient](decisions/0007-shared-book-links.md)
 - [0008 Send privacy-first product telemetry to PostHog Cloud](decisions/0008-privacy-first-telemetry.md)
+- [0009 Let the dev server answer chat with a local agent CLI](decisions/0009-local-agent-chat.md)
