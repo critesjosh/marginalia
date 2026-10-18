@@ -256,10 +256,15 @@ async function main() {
 /**
  * Picks up a token another bridge rotated, so `--new-token` on any port
  * revokes the old one everywhere. A missing or damaged file revokes it too.
+ *
+ * Reads run one at a time, and an event during a read queues one more, so a
+ * slow read of the old file can never land after a newer one.
  */
 function followToken(file: string, pairing: Pairing) {
-  async function reload() {
-    const token = await readToken(file).catch(() => null)
+  let reading = false
+  let stale = false
+
+  function apply(token: string | null) {
     if (token === pairing.token) return
     if (token) {
       pairing.token = token
@@ -270,7 +275,26 @@ function followToken(file: string, pairing: Pairing) {
       console.log('The token file is gone; refusing requests. Restart the bridge to pair again.')
     }
   }
+
+  async function reload() {
+    if (reading) {
+      stale = true
+      return
+    }
+    reading = true
+    try {
+      do {
+        stale = false
+        apply(await readToken(file).catch(() => null))
+      } while (stale)
+    } finally {
+      reading = false
+    }
+  }
+
   watch(dirname(file), { persistent: false }, () => void reload())
+  // Catches a rotation between loading the token and starting to watch.
+  void reload()
 }
 
 if (import.meta.main) await main()

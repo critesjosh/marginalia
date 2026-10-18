@@ -4,7 +4,7 @@ A mobile-friendly EPUB reader that lets you highlight a passage and start an AI 
 
 Built as a PWA: installable on Android, works offline, stores everything locally in IndexedDB.
 
-Chat works for every visitor with no signup and no API key: requests go through a Cloudflare Worker that holds an OpenRouter key server-side. Three public-domain books seed the default library (Melville's Moby Dick, Nietzsche's The Genealogy of Morals and the King James Bible), so a first-time visitor has something to read immediately.
+Chat works for every visitor with no signup and no API key: by default, requests go through a Cloudflare Worker that holds an OpenRouter key server-side. On a desktop browser, a reader can instead pair their own Claude Code or Codex through a local bridge ([docs/agent-bridge.md](docs/agent-bridge.md)). Three public-domain books seed the default library (Melville's Moby Dick, Nietzsche's The Genealogy of Morals and the King James Bible), so a first-time visitor has something to read immediately.
 
 ## Status
 
