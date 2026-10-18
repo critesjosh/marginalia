@@ -39,8 +39,8 @@ A local bridge, `npm run agent-bridge` (`dev/agentBridge.ts`), serves the
   (`<branch or version>-marginalia.cloudflare-cdd.workers.dev`), plus any
   `--origin` the reader adds (for a dev server); `--no-previews` drops the
   previews. The preview hostname also matches any Worker in the same
-  Cloudflare account named `*-marginalia`, so this trusts the account, whose
-  deployers can already ship production. `Origin: null` is refused. A request
+  Cloudflare account named `*-marginalia`, so this trusts the account: anyone
+  who can deploy there can already ship production. `Origin: null` is refused. A request
   without `Origin` is a non-browser client and still needs the token. The raw
   `Host` must be `127.0.0.1` or `localhost` on the bridge's port and the peer
   must be loopback, checked before anything else, which stops DNS rebinding.
