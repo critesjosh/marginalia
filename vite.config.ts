@@ -236,7 +236,10 @@ export default defineConfig(({ mode }) => {
       { apiKey, siteUrl: new URL(request.url).origin, enabled: chatEnabled },
       { ip },
     )
-  const chatHandler = agent && chatEnabled ? createAgentChat({ config: agent }) : openRouterRelay
+  const chatHandler =
+    agent && chatEnabled
+      ? createAgentChat({ config: agent, debugLog: env.CHAT_AGENT_DEBUG_LOG })
+      : openRouterRelay
 
   return {
     plugins: [

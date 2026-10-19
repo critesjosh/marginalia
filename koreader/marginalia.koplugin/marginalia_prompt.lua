@@ -164,7 +164,7 @@ function Prompt.system(ctx)
     table.insert(lines, "")
     table.insert(lines, "## Where the reader is")
     if is_set(ctx.chapter) then
-        table.insert(lines, "Current chapter: " .. ctx.chapter)
+        table.insert(lines, fenced(fence, "Current chapter: " .. ctx.chapter))
     end
     if type(ctx.progress) == "number" then
         table.insert(

@@ -24,6 +24,8 @@ bridge is using. Keep the terminal open while you read.
 | `--agent claude\|codex` | The CLI that answers (or `CHAT_AGENT`) |
 | `--mcp <names>` | MCP servers it may call, comma-separated, or `*` (or `CHAT_AGENT_MCP`). Empty allows none. |
 | `--model <name>` | Model for the agent (or `CHAT_AGENT_MODEL`) |
+| `--reasoning-effort <level>` | Codex effort: `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` (or `CHAT_AGENT_REASONING_EFFORT`). Unset inherits the CLI setting. |
+| `--debug-log <path>` | Opt-in local classified stderr log (or `CHAT_AGENT_DEBUG_LOG`); see diagnostics below. |
 | `--origin <url>` | Another app origin to accept, such as `http://localhost:5173` for a dev server. Repeatable. |
 | `--no-previews` | Refuse the app's preview builds (see below) |
 | `--save-dir <path>` | Keep a Markdown copy of each thread in this folder (see below) |
@@ -113,6 +115,34 @@ has its own storage, so pair it separately in its own Settings.
 It cannot protect you from software already running as you, such as a browser
 extension that reads Rami's pages, or a program that reads the token file or
 takes port 47615 while the bridge is stopped.
+
+## Diagnosing agent errors
+
+The bridge terminal emits local JSON diagnostics with a random `requestId`.
+An agent failure shows that same value as `Reference: ...` in the browser.
+Find it in the bridge's terminal output to see setup/MCP discovery, CLI start,
+model errors, tool calls, process exit code/signal and the final reply outcome.
+The existing HTTP metric may say 200 when a stream later fails; the
+`agent_diagnostic` record with `stage: "reply"` is the final outcome. A CLI
+can be terminated by the bridge after its success event; a process signal
+does not override a successful reply.
+
+Configuration records show the model, explicit Codex reasoning effort, MCP
+names and CLI version. `inherited` means Rami did not override the CLI setting,
+not that it inspected your user configuration. Tool records include the MCP
+server/tool names and elapsed time, never arguments, queries or results.
+Error events are reduced to fixed categories such as `authentication`,
+`rate_limit`, `model_unavailable`, `connection` and `unknown`; raw error text,
+book text, prompts, replies, URLs and credentials are never logged.
+
+For stderr diagnostics, start with `--debug-log /path/to/agent-debug.jsonl`.
+The parent folder must already exist. Only the last 8 KiB/32 lines per process
+are considered, and only their error categories are written, with the request
+reference. Unknown prose is discarded rather than guessed safe. The file is
+owner-only (0600), symlinks and multiply linked/foreign files are refused, and
+logging stops at 1 MiB. A refusal emits a warning without interrupting chat.
+Remove or rename the debug file to start a fresh one. Leave the option unset
+to discard stderr. These logs stay on your machine and are never telemetry.
 
 ## Endpoints
 

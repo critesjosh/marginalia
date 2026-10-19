@@ -18,6 +18,8 @@ const { spawn } = require('node:child_process')
 let input = ''
 process.stdin.on('data', (chunk) => (input += chunk))
 process.stdin.on('end', async () => {
+  if (process.env.FAKE_STDERR) process.stderr.write(process.env.FAKE_STDERR)
+  process.exitCode = Number(process.env.FAKE_EXIT_CODE || 0)
   fs.writeFileSync(process.env.FAKE_RECORD, JSON.stringify({
     args: process.argv.slice(2), cwd: process.cwd(), files: fs.readdirSync('.'), input,
     leaked: process.env.OPENROUTER_API_KEY ?? null,
@@ -239,6 +241,31 @@ describe('streaming replies', () => {
 describe('setup failures', () => {
   const agentDirs = () => readdirSync(tmpdir()).filter((name) => name.startsWith('rami-agent-'))
 
+  it('records a real nonzero exit and a classified stderr tail without leaking content', async () => {
+    const debugLog = join(dir, 'diagnostic.jsonl')
+    const fake = fakeSpawn([], {
+      FAKE_EXIT_CODE: '23',
+      FAKE_STDERR: 'connection refused https://private.example/?token=secret\nprivate passage',
+    })
+    const handle = createAgentChat({
+      config: { agent: 'claude', mcp: [], timeoutMs: 1000 },
+      spawn: fake.run,
+      debugLog,
+    })
+    const response = await handle(chatRequest(), { ip: '127.0.0.1' })
+    expect(response.status).toBe(502)
+    const body = await response.text()
+    expect(body).toMatch(/Reference: [a-f0-9]{16}/)
+    const logs = vi.mocked(console.info).mock.calls.map(([value]) => JSON.parse(String(value)))
+    expect(logs).toContainEqual(
+      expect.objectContaining({ stage: 'process', exitCode: 23, signal: null }),
+    )
+    const debug = readFileSync(debugLog, 'utf8')
+    expect(debug).toContain('connection')
+    expect(debug).not.toContain('private')
+    expect(debug).not.toContain('secret')
+  })
+
   it('removes the temporary directory when the CLI cannot be spawned', async () => {
     const before = agentDirs()
     const handle = createAgentChat({
@@ -334,6 +361,32 @@ describe('stopping runs', () => {
 describe('codex', () => {
   const message = (id: string, text: string) =>
     line({ type: 'item.completed', item: { id, type: 'agent_message', text } })
+
+  it('links an in-band failure to a final failed outcome even after HTTP 200', async () => {
+    const { handle } = handler(
+      [
+        message('answer', 'Searching.'),
+        line({
+          type: 'turn.failed',
+          error: { message: 'rate limit: private passage and secret credential' },
+        }),
+      ],
+      { agent: 'codex' },
+    )
+    const response = await handle(chatRequest(), { ip: '127.0.0.1' })
+    expect(response.status).toBe(200)
+    const body = await response.text()
+    const requestId = /Reference: ([a-f0-9]{16})/.exec(body)![1]
+    const logs = vi.mocked(console.info).mock.calls.map(([value]) => JSON.parse(String(value)))
+    expect(logs).toContainEqual(
+      expect.objectContaining({ requestId, stage: 'reply', outcome: 'failed' }),
+    )
+    expect(logs).toContainEqual(
+      expect.objectContaining({ requestId, stage: 'model', reason: 'rate_limit' }),
+    )
+    expect(JSON.stringify(logs)).not.toContain('private passage')
+    expect(body).not.toContain('secret credential')
+  })
 
   it('runs codex with unlisted servers switched off and the prompt on stdin', async () => {
     const { handle, commands } = handler(

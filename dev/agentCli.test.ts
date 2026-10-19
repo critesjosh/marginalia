@@ -54,6 +54,15 @@ describe('readAgentConfig', () => {
     })
     expect(all).toMatchObject({ mcp: 'all', model: 'gpt-5.5', timeoutMs: 30_000 })
   })
+
+  it('validates an explicit reasoning effort and passes it to Codex', () => {
+    const config = readAgentConfig({ CHAT_AGENT: 'codex', CHAT_AGENT_REASONING_EFFORT: 'low' })!
+    expect(config.reasoningEffort).toBe('low')
+    expect(codexArgs(config, 'Rules', [], true)).toContain('model_reasoning_effort="low"')
+    expect(() =>
+      readAgentConfig({ CHAT_AGENT: 'codex', CHAT_AGENT_REASONING_EFFORT: 'wrong' }),
+    ).toThrow('CHAT_AGENT_REASONING_EFFORT')
+  })
 })
 
 describe('agentPrompt', () => {

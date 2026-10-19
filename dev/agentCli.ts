@@ -20,6 +20,7 @@ export interface AgentConfig {
   /** MCP servers the agent may call during chat, or 'all'. Empty allows none. */
   mcp: string[] | 'all'
   model?: string
+  reasoningEffort?: string
   timeoutMs: number
 }
 
@@ -37,10 +38,18 @@ export function readAgentConfig(env: Record<string, string | undefined>): AgentC
     .map((name) => name.trim())
     .filter(Boolean)
   const seconds = Number(env.CHAT_AGENT_TIMEOUT_SECONDS)
+  const reasoningEffort = env.CHAT_AGENT_REASONING_EFFORT?.trim() || undefined
+  if (
+    reasoningEffort &&
+    !['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(reasoningEffort)
+  ) {
+    throw new Error('CHAT_AGENT_REASONING_EFFORT must be low, medium, high, xhigh, max, or ultra.')
+  }
   return {
     agent,
     mcp: servers.includes('*') ? 'all' : servers,
     model: env.CHAT_AGENT_MODEL?.trim() || undefined,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     timeoutMs: (seconds > 0 ? seconds : DEFAULT_TIMEOUT_SECONDS) * 1000,
   }
 }
@@ -238,6 +247,8 @@ export function codexArgs(
   ]
   for (const feature of CODEX_DISABLED_FEATURES) args.push('--disable', feature)
   if (config.model) args.push('--model', config.model)
+  if (config.reasoningEffort)
+    args.push('-c', `model_reasoning_effort=${tomlString(config.reasoningEffort)}`)
 
   const mcp = tools ? config.mcp : []
   for (const name of configured) {
@@ -254,7 +265,8 @@ export type AgentParser = (line: string) => AgentEvent[]
 
 const DISALLOWED = (name: string) =>
   `The agent tried to use ${name}, which CHAT_AGENT_MCP does not allow, so the reply was stopped.`
-const FAILED = 'The local agent stopped with an error. Run it in a terminal to see why.'
+const FAILED =
+  'The local agent stopped with an error. Check the agent bridge tool logs for details.'
 
 function parseLine(line: string): Record<string, unknown> | null {
   try {

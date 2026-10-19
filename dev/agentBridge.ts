@@ -59,7 +59,10 @@ const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT'])
 const THREAD_PATH = /^\/v1\/threads\/([A-Za-z0-9_-]{1,64})$/
 const ALLOWED_HEADERS = new Set(['authorization', 'content-type'])
 
-export interface BridgeOptions extends Pick<AgentChatOptions, 'spawn' | 'codexServers'> {
+export interface BridgeOptions extends Pick<
+  AgentChatOptions,
+  'spawn' | 'codexServers' | 'debugLog'
+> {
   config: AgentConfig
   /** Shared, so the CLI can rotate the token once it owns the port. */
   pairing: Pairing
@@ -230,6 +233,8 @@ const USAGE = `Usage: npm run agent-bridge -- [options]
   --agent claude|codex   The CLI that answers (or CHAT_AGENT)
   --mcp <names>          MCP servers it may call, comma-separated, or * (or CHAT_AGENT_MCP)
   --model <name>         Model for the agent (or CHAT_AGENT_MODEL)
+  --reasoning-effort <n> Codex reasoning effort (or CHAT_AGENT_REASONING_EFFORT)
+  --debug-log <path>    Private, bounded classified stderr log (or CHAT_AGENT_DEBUG_LOG)
   --origin <url>         Another app origin to accept, e.g. http://localhost:5173 (repeatable)
   --no-previews          Refuse the app's preview builds (*-marginalia.cloudflare-cdd.workers.dev)
   --save-dir <path>      Keep a Markdown copy of each thread in this folder
@@ -244,6 +249,8 @@ async function main() {
       agent: { type: 'string' },
       mcp: { type: 'string' },
       model: { type: 'string' },
+      'reasoning-effort': { type: 'string' },
+      'debug-log': { type: 'string' },
       origin: { type: 'string', multiple: true },
       port: { type: 'string' },
       'show-token': { type: 'boolean' },
@@ -263,6 +270,8 @@ async function main() {
     CHAT_AGENT: values.agent ?? process.env.CHAT_AGENT,
     CHAT_AGENT_MCP: values.mcp ?? process.env.CHAT_AGENT_MCP,
     CHAT_AGENT_MODEL: values.model ?? process.env.CHAT_AGENT_MODEL,
+    CHAT_AGENT_REASONING_EFFORT:
+      values['reasoning-effort'] ?? process.env.CHAT_AGENT_REASONING_EFFORT,
   })
   if (!config) {
     console.error(`Choose an agent with --agent claude or --agent codex.\n\n${USAGE}`)
@@ -290,7 +299,13 @@ async function main() {
       return
     }
   }
-  const server = createBridgeServer({ config, pairing, port, saveDir })
+  const server = createBridgeServer({
+    config,
+    pairing,
+    port,
+    saveDir,
+    debugLog: values['debug-log'] ?? process.env.CHAT_AGENT_DEBUG_LOG,
+  })
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject)

@@ -22,7 +22,8 @@ rolling per-book memory makes new chats aware of earlier ones.
 ## Constraints
 
 - DRM-free EPUBs only. EPUB scripts stay disabled.
-- Book text is untrusted and stays fenced in model prompts.
+- Book text, including EPUB chapter names and metadata, is untrusted and stays
+  fenced in model prompts.
 - Every hosted chat request is billed; the provider credit cap is the ceiling.
 - iOS Safari limits IndexedDB storage more than Android Chrome.
 

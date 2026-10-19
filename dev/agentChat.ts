@@ -36,6 +36,12 @@ import {
   type AgentParser,
   type AgentPrompt,
 } from './agentCli.ts'
+import {
+  cliVersion,
+  createDiagnostics,
+  errorCategory,
+  type Diagnostics,
+} from './agentDiagnostics.ts'
 
 export interface AgentChatOptions {
   config: AgentConfig
@@ -45,6 +51,8 @@ export interface AgentChatOptions {
   codexServers?: () => Promise<string[]>
   /** Accept paired cross-origin apps instead of same-origin pages (the bridge). */
   pairing?: Pairing
+  /** Opt-in private file containing classified (never raw) stderr diagnostics. */
+  debugLog?: string
 }
 
 export interface Pairing {
@@ -96,6 +104,7 @@ export function isLoopbackHost(hostname: string): boolean {
 
 export function createAgentChat(options: AgentChatOptions): Handler {
   let running = 0
+  let version: Promise<string> | undefined
   return async (request, context) => {
     const started = performance.now()
     const response = await respond(request, context)
@@ -118,6 +127,13 @@ export function createAgentChat(options: AgentChatOptions): Handler {
     }
 
     running++
+    version ??= options.spawn ? Promise.resolve('test-cli') : cliVersion(options.config.agent)
+    const diagnostics = createDiagnostics(
+      options.config,
+      conversation.stream,
+      version,
+      options.debugLog,
+    )
     let released = false
     const release = () => {
       if (!released) running--
@@ -126,15 +142,18 @@ export function createAgentChat(options: AgentChatOptions): Handler {
     try {
       // Background summaries never get tools; only the reader's thread does.
       const { prompt, stream } = conversation
-      const run = await startRun(options, prompt, stream, context.signal, release)
+      const run = await startRun(options, prompt, stream, context.signal, release, diagnostics)
       if ('error' in run) {
         release()
         return run.error
       }
       return stream ? await streamReply(run) : await completeReply(run)
-    } catch {
+    } catch (error) {
       release()
-      return errorResponse(500, 'The local agent could not start.')
+      diagnostics.log('setup', 'failed', {
+        reason: errorCategory((error as NodeJS.ErrnoException)?.code),
+      })
+      return errorResponse(500, diagnostics.fail('The local agent could not start.'))
     }
   }
 }
@@ -219,18 +238,23 @@ async function startRun(
   tools: boolean,
   signal: AbortSignal | undefined,
   release: () => void,
+  diagnostics: Diagnostics,
 ): Promise<Run | { error: Response }> {
   const { config } = options
   const dir = await mkdtemp(join(tmpdir(), 'rami-agent-'))
   let child: ChildProcess
   let parser: AgentParser
   try {
-    const setup = await prepare(options, dir, prompt, tools)
+    const setup = await prepare(options, dir, prompt, tools, diagnostics)
     if ('error' in setup) {
       await rm(dir, { recursive: true, force: true })
-      return setup
+      const body = (await setup.error.json()) as { error: { message: string } }
+      return {
+        error: errorResponse(setup.error.status, diagnostics.fail(body.error.message)),
+      }
     }
     parser = setup.parser
+    diagnostics.log('cli_start', 'started')
     child = (options.spawn ?? spawn)(config.agent, setup.args, {
       cwd: join(dir, 'work'),
       env: agentEnv(),
@@ -243,17 +267,19 @@ async function startRun(
     await rm(dir, { recursive: true, force: true })
     throw error
   }
-  const exit = watchExit(child)
+  const exit = watchExit(child, diagnostics)
 
   let stopped = false
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
+    diagnostics.finish('timeout')
     stop()
   }, config.timeoutMs)
   function stop() {
     if (stopped) return
     stopped = true
+    diagnostics.finish('canceled')
     clearTimeout(timer)
     signal?.removeEventListener('abort', stop)
     killGroup(child)
@@ -263,12 +289,12 @@ async function startRun(
   signal?.addEventListener('abort', stop)
   if (signal?.aborted) stop()
 
-  // The CLI's own diagnostics can carry config values, so they are discarded.
-  child.stderr?.resume()
+  // Only a bounded, classified tail may reach the opt-in local debug file.
+  child.stderr?.on('data', (chunk: Buffer) => diagnostics.stderr(chunk))
   child.stdin?.on('error', () => {})
   child.stdin?.end(prompt.prompt)
 
-  return { events: agentEvents(child, parser, exit, () => timedOut), stop }
+  return { events: agentEvents(child, parser, exit, () => timedOut, diagnostics), stop }
 }
 
 /** Writes the run's files and builds its command line. */
@@ -277,6 +303,7 @@ async function prepare(
   dir: string,
   prompt: AgentPrompt,
   tools: boolean,
+  diagnostics: Diagnostics,
 ): Promise<{ args: string[]; parser: AgentParser } | { error: Response }> {
   const { config } = options
   await mkdir(join(dir, 'work'))
@@ -295,10 +322,16 @@ async function prepare(
     return { args: claudeArgs(config, files, tools), parser: claudeParser(mcp) }
   }
 
+  diagnostics.log('mcp_discovery', 'started')
   const configured = await (options.codexServers ?? listCodexServers)().catch(() => null)
   const problem = configured
     ? codexServerProblem(config, configured)
     : 'Could not list Codex MCP servers. Check that `codex mcp list` works.'
+  diagnostics.log(
+    'mcp_discovery',
+    problem ? 'failed' : 'success',
+    problem ? { reason: 'configuration' } : {},
+  )
   if (problem) return { error: errorResponse(503, problem) }
   const args = codexArgs(config, prompt.system, configured ?? [], tools)
   if (args.some((arg) => Buffer.byteLength(arg) > MAX_ARG_BYTES)) {
@@ -328,12 +361,18 @@ function killGroup(child: ChildProcess) {
 }
 
 /** Watches for the exit, attached right after spawn so no `error` goes unheard. */
-function watchExit(child: ChildProcess) {
+function watchExit(child: ChildProcess, diagnostics: Diagnostics) {
   let spawnFailed = false
-  child.once('error', () => {
+  child.once('error', (error: NodeJS.ErrnoException) => {
     spawnFailed = true
+    diagnostics.log('cli_start', 'failed', { reason: errorCategory(error.code) })
   })
-  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  const closed = new Promise<void>((resolve) =>
+    child.once('close', (code, signal) => {
+      diagnostics.close(code, signal)
+      resolve()
+    }),
+  )
   return { closed, spawnFailed: () => spawnFailed }
 }
 
@@ -347,20 +386,25 @@ async function* agentEvents(
   parse: AgentParser,
   exit: ReturnType<typeof watchExit>,
   timedOut: () => boolean,
+  diagnostics: Diagnostics,
 ): AsyncGenerator<AgentEvent> {
   if (child.stdout) {
     for await (const line of createInterface({ input: child.stdout, crlfDelay: Infinity })) {
+      diagnostics.observe(line)
       for (const event of parse(line)) {
-        yield event
+        if ('done' in event) diagnostics.finish('success')
+        yield 'fail' in event ? { fail: diagnostics.fail(event.fail) } : event
         if (!('text' in event)) return
       }
     }
   }
   await Promise.race([exit.closed, new Promise((resolve) => setTimeout(resolve, 1000))])
-  if (timedOut()) yield { fail: 'The local agent took too long and was stopped.' }
+  if (timedOut()) yield { fail: diagnostics.fail('The local agent took too long and was stopped.') }
   else if (exit.spawnFailed()) {
-    yield { fail: 'Could not start the local agent. Check that its CLI is installed.' }
-  } else yield { fail: CUT_SHORT }
+    yield {
+      fail: diagnostics.fail('Could not start the local agent. Check that its CLI is installed.'),
+    }
+  } else yield { fail: diagnostics.fail(CUT_SHORT) }
 }
 
 const CUT_SHORT = 'The local agent ended before it finished the reply.'

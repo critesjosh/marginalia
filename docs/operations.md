@@ -40,6 +40,11 @@ while keeping reading available. Vite and Cloudflare honor it. On
 Cloudflare, use `wrangler secret put CHAT_ENABLED` so later deploys keep it.
 
 Relay metrics log operation/status/duration, never URLs, prompts, or IPs.
+The self-run agent bridge also emits local request-linked configuration,
+stage, tool and final-outcome diagnostics; it classifies errors instead of
+logging raw CLI text. Its opt-in private stderr file is bounded and contains
+only categories. See [bridge diagnostics](agent-bridge.md#diagnosing-agent-errors).
+None of those records are sent to telemetry or hosted services.
 Upstream header waits stop after 30 seconds; request/error bodies have byte
 limits. Five consecutive transient provider failures open an isolate-local
 30-second breaker. This and IP throttling are best effort, not global budgets.
