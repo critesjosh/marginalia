@@ -65,6 +65,11 @@ in `src/components/logoPaths.ts`.
 - Rami's replies are prose in the conversation voice (Alegreya Sans), not lists
   or headings, unless the reader asks. A reply may close with one open question
   or one pointer to another passage.
+- Thread replies render CommonMark Markdown while streaming and after reopening:
+  emphasis, paragraphs, lists, compact headings, links, block quotations, and code.
+  Quotations use italic Garamond; headings stay at the reply's body size. Reader
+  messages stay plain text. Raw HTML is ignored, unsafe link schemes are blocked,
+  and image descriptions appear as text without fetching remote images.
 - Greet by the hour (“A good evening for reading”), never with exclamation marks.
 - Use real typography in UI copy: curly quotes, the ellipsis character, and an
   unspaced em dash.
