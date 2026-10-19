@@ -1,5 +1,5 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { request as httpRequest, type Server } from 'node:http'
 import { createServer as createNetServer, type AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -122,7 +122,7 @@ describe('status', () => {
   it('reports the agent and its servers to the paired app', async () => {
     const reply = await call('GET', '/v1/status', { ...auth, ...fromApp })
     expect(reply.status).toBe(200)
-    expect(JSON.parse(reply.body)).toEqual({ agent: 'claude', mcp: ['tavily'] })
+    expect(JSON.parse(reply.body)).toEqual({ agent: 'claude', mcp: ['tavily'], saveDir: null })
     expect(reply.headers['access-control-allow-origin']).toBe(APP)
     expect(reply.headers['cache-control']).toBe('no-store')
   })
@@ -309,5 +309,74 @@ describe('preview builds', () => {
     expect(status.headers['access-control-allow-origin']).toBe(preview)
     const lookalike = { ...auth, Origin: 'https://feat-marginalia.someone-else.workers.dev' }
     expect((await call('GET', '/v1/status', lookalike)).status).toBe(403)
+  })
+})
+
+describe('saving threads', () => {
+  const THREAD_ID = '0b7e5d3c-1f2a-4b6c-9d8e-7f6a5b4c3d2e'
+  const body = JSON.stringify({
+    book: { id: 'sample-moby-dick', title: 'Moby Dick', author: 'Herman Melville' },
+    thread: { id: THREAD_ID, title: 'Loomings', createdAt: 1, updatedAt: 2 },
+    turns: [{ role: 'user', content: 'Hi', createdAt: 1 }],
+  })
+
+  async function restart(saveDir?: string) {
+    await new Promise((resolve) => server.close(resolve))
+    server = createBridgeServer({
+      config: { agent: 'claude', mcp: [], timeoutMs: 10_000 },
+      pairing: { token: TOKEN, origins: [APP] },
+      port: 0,
+      saveDir,
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    port = (server.address() as AddressInfo).port
+  }
+
+  it('writes a paired app’s thread into the save folder and reports the folder', async () => {
+    const saveDir = join(dir, 'threads')
+    mkdirSync(saveDir, { mode: 0o700 })
+    await restart(saveDir)
+
+    const preflight = await call('OPTIONS', `/v1/threads/${THREAD_ID}`, {
+      Origin: APP,
+      'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': 'authorization,content-type',
+    })
+    expect(preflight.status).toBe(204)
+    // Browsers check the method list itself, not just the status.
+    expect(String(preflight.headers['access-control-allow-methods']).split(', ')).toContain('PUT')
+
+    const put = (headers: Record<string, string>) =>
+      call('PUT', `/v1/threads/${THREAD_ID}`, { ...json, ...headers }, body)
+    expect((await put(fromApp)).status).toBe(401)
+    expect((await put({ ...auth, Origin: 'https://evil.example' })).status).toBe(403)
+    expect(readdirSync(saveDir)).toEqual([])
+
+    const saved = await put({ ...auth, ...fromApp })
+    expect(saved.status).toBe(204)
+    expect(saved.headers['access-control-allow-origin']).toBe(APP)
+    const [bookDir] = readdirSync(saveDir)
+    expect(bookDir).toBe('moby-dick--sample-moby-dick')
+    expect(readdirSync(join(saveDir, bookDir))).toEqual([`1970-01-01-loomings--${THREAD_ID}.md`])
+
+    const status = await call('GET', '/v1/status', auth)
+    expect(JSON.parse(status.body).saveDir).toBe(saveDir)
+  })
+
+  it('refuses ids that are not a single safe path component, and saving when off', async () => {
+    await restart()
+    expect(
+      (
+        await call(
+          'PUT',
+          `/v1/threads/${encodeURIComponent('../../etc')}`,
+          { ...auth, ...json },
+          body,
+        )
+      ).status,
+    ).toBe(404)
+    const off = await call('PUT', `/v1/threads/${THREAD_ID}`, { ...auth, ...json }, body)
+    expect(off.status).toBe(404)
+    expect(JSON.parse(off.body).error.message).toMatch(/--save-dir/)
   })
 })

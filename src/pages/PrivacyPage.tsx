@@ -84,7 +84,8 @@ export default function PrivacyPage() {
             From there they go to Anthropic or OpenAI and to any MCP servers you let it use, under
             their policies and your accounts with them. Those servers can act on what they receive,
             so allow only ones you trust with what you read. The pairing token stays in this browser
-            and is never sent to us.
+            and is never sent to us. If you start that bridge with a save folder, it also writes
+            each thread, with its passage, to a file in that folder on your computer.
           </p>
         </Section>
 

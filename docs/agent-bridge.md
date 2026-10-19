@@ -26,6 +26,7 @@ bridge is using. Keep the terminal open while you read.
 | `--model <name>` | Model for the agent (or `CHAT_AGENT_MODEL`) |
 | `--origin <url>` | Another app origin to accept, such as `http://localhost:5173` for a dev server. Repeatable. |
 | `--no-previews` | Refuse the app's preview builds (see below) |
+| `--save-dir <path>` | Keep a Markdown copy of each thread in this folder (see below) |
 | `--port <n>` | Port to listen on. The hosted app can reach only 47615. |
 | `--show-token` | Print the pairing token again |
 | `--new-token` | Replace the token, unpairing every browser |
@@ -36,6 +37,30 @@ browser's copy; `--new-token` is what stops an old copy from working. A
 running bridge picks up a rotated token, and refuses everything if the file
 disappears. A bridge started with `--new-token` while another holds its port
 exits without changing the token.
+
+## Saving threads to your computer
+
+Start the bridge with `--save-dir ~/Notes/Rami` and it keeps a Markdown file
+for each thread in that folder ([decision 0011](decisions/0011-mirror-threads-to-disk.md)):
+
+```
+~/Notes/Rami/
+  moby-dick-or-the-whale--<book id>/
+    2026-10-18-call-me-ishmael--<thread id>.md
+```
+
+Each file has YAML front matter (book, author, chapter, position, dates), the
+passage you highlighted, and every turn under **Reader** and **Rami**
+headings. The bridge rewrites a thread's file after each reply. In Settings,
+Local agent, "Save all threads now" copies the threads you already have.
+
+It is a one-way copy: Rami never reads these files back, edits you make there
+are overwritten by the next reply in that thread, and deleting a thread in
+Rami leaves its file. The file name keeps the title the thread had when it was
+first saved. Only the bridge's command line sets the folder; the app can see
+it but never change it. Passages and replies are written as literal text, so
+a viewer shows HTML and image links from a book as text rather than running
+or loading them.
 
 ## Browsers
 
@@ -93,7 +118,13 @@ takes port 47615 while the bridge is stopped.
 
 Both require the token. Errors are `{ "error": { "message": string } }`.
 
-`GET /v1/status` returns `{ "agent": "claude" | "codex", "mcp": string[] | "all" }`.
+`GET /v1/status` returns `{ "agent": "claude" | "codex", "mcp": string[] | "all", "saveDir": string | null }`.
+
+`PUT /v1/threads/:id` saves one thread when the bridge has `--save-dir`, and
+answers 204. The body is
+`{ "book": { "id", "title", "author" }, "thread": { "id", "title", "chapter"?, "progress"?, "passage"?, "createdAt", "updatedAt" }, "turns": [{ "role": "user" | "assistant", "content", "createdAt" }] }`,
+up to 2 MB and 1,000 turns. 409 means a newer copy is already saved; 404 means
+the bridge is not saving; 503 means the folder is missing or unsafe.
 
 `POST /v1/chat` takes the same body as the relay's `/api/chat`
 (`docs/api.openapi.yml`): `{ "messages": [{ "role", "content" }], "stream"?: boolean }`,
@@ -105,11 +136,12 @@ ending with `data: [DONE]`; a failure after the first frame arrives in-band as
 
 | Status | Meaning |
 | --- | --- |
-| 400 | Malformed conversation |
+| 400 | Malformed conversation or thread |
 | 401 | Missing or wrong token |
 | 403 | Not from this machine, a foreign `Host`, or an origin that is not paired |
+| 409 | A newer copy of that thread is already saved, or its file is not a plain file |
 | 413 | Body or book context too large |
 | 415 | Body is not JSON |
 | 429 | Two replies are already running |
 | 502 | The agent failed, timed out or was not installed |
-| 503 | The MCP allowlist names a server the agent lacks |
+| 503 | The MCP allowlist names a server the agent lacks, or the save folder is missing or unsafe |

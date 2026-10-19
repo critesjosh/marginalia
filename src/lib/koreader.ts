@@ -3,6 +3,7 @@ import { db } from '../db/db'
 import type { Conversation, Highlight, HighlightColor, Message, Role } from '../db/types'
 import { BookAnchors, isMatch, type AnchorFailure } from './anchor'
 import { newId } from './id'
+import { mirrorThreads } from './threadMirror'
 
 /**
  * Reading a handoff file written by the KOReader plugin in `koreader/`.
@@ -409,6 +410,8 @@ export async function importHandoff(
 
   result.highlightsAdded = rows.length
   result.threadsAdded = conversations.length
+  // After the commit, never inside it: saving is network work and may fail.
+  void mirrorThreads([...conversations.map(({ id }) => id), ...touched.map(({ id }) => id)])
   return result
 }
 

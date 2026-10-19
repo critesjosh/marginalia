@@ -120,7 +120,10 @@ describe('routing', () => {
 describe('checkBridge', () => {
   it('reads the status, and explains the ways it can fail', async () => {
     vi.stubGlobal('fetch', async () => Response.json({ agent: 'codex', mcp: 'all' }))
-    expect(await checkBridge(TOKEN)).toEqual({ ok: true, status: { agent: 'codex', mcp: 'all' } })
+    expect(await checkBridge(TOKEN)).toEqual({
+      ok: true,
+      status: { agent: 'codex', mcp: 'all', saveDir: null },
+    })
 
     vi.stubGlobal('fetch', async () => new Response(null, { status: 401 }))
     expect(await checkBridge(TOKEN)).toMatchObject({ ok: false, message: /rejected/ })

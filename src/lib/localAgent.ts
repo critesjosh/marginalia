@@ -112,6 +112,8 @@ export const BRIDGE_UNREACHABLE =
 export interface BridgeStatus {
   agent: string
   mcp: string[] | 'all'
+  /** Where the bridge saves threads (decision 0011), or null when it does not. */
+  saveDir?: string | null
 }
 
 export type BridgeCheck = { ok: true; status: BridgeStatus } | { ok: false; message: string }
@@ -133,9 +135,16 @@ export async function checkBridge(token: string, signal?: AbortSignal): Promise<
     return { ok: false, message: `The bridge answered with an error (${response.status}).` }
   }
   try {
-    const { agent, mcp } = (await response.json()) as Partial<BridgeStatus>
+    const { agent, mcp, saveDir } = (await response.json()) as Partial<BridgeStatus>
     if (typeof agent !== 'string') throw new Error('No agent')
-    return { ok: true, status: { agent, mcp: mcp === 'all' || Array.isArray(mcp) ? mcp : [] } }
+    return {
+      ok: true,
+      status: {
+        agent,
+        mcp: mcp === 'all' || Array.isArray(mcp) ? mcp : [],
+        saveDir: typeof saveDir === 'string' ? saveDir : null,
+      },
+    }
   } catch {
     return { ok: false, message: 'The bridge sent an answer Rami could not read.' }
   }

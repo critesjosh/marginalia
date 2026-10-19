@@ -9,6 +9,12 @@ import {
   type BridgeCheck,
   type BridgeStatus,
 } from '../lib/localAgent'
+import {
+  mirrorStatus,
+  saveAllThreads,
+  subscribeMirror,
+  type MirrorStatus,
+} from '../lib/threadMirror'
 import { button, card } from './ui'
 
 const BRIDGE_DOCS = 'https://github.com/critesjosh/marginalia/blob/main/docs/agent-bridge.md'
@@ -110,6 +116,7 @@ export default function LocalAgentSection() {
             and the servers you allow, not to Rami's relay. Disconnecting sends later chats,
             including earlier messages in a thread, back through the relay.
           </p>
+          {check?.ok && check.status.saveDir && <SavedThreads folder={check.status.saveDir} />}
           <div className="mt-3 flex flex-wrap gap-2">
             <button onClick={disconnect} className={button.secondary}>
               Disconnect
@@ -174,4 +181,50 @@ function agentName({ agent }: BridgeStatus): string {
 function servers({ mcp }: BridgeStatus): string {
   if (mcp === 'all') return 'every MCP server it has'
   return mcp.length ? `MCP servers: ${mcp.join(', ')}` : 'no MCP servers'
+}
+
+/** The bridge's save folder (decision 0011), set on its command line only. */
+function SavedThreads({ folder }: { folder: string }) {
+  const status = useSyncExternalStore(subscribeMirror, mirrorStatus)
+  const saving = status.kind === 'saving'
+
+  return (
+    <div className="mt-3 rounded-md border border-rule p-3">
+      <p className="font-ui text-body">
+        Saving each thread as a Markdown file in <code className="break-all">{folder}</code>.
+      </p>
+      <p className="mt-1 font-ui text-meta text-ink-faint">
+        A copy, refreshed after every reply. Edits you make there are overwritten by the next reply
+        in that thread, and deleting a thread here leaves its file.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => void saveAllThreads()}
+          disabled={saving}
+          className={button.secondary}
+        >
+          {saving ? 'Saving…' : 'Save all threads now'}
+        </button>
+        <span
+          className={`font-ui text-meta ${status.kind === 'failed' ? 'text-danger' : 'text-ink-soft'}`}
+          role="status"
+        >
+          {describeMirror(status)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function describeMirror(status: MirrorStatus): string {
+  switch (status.kind) {
+    case 'idle':
+      return ''
+    case 'saving':
+      return `Saved ${status.done} of ${status.total}…`
+    case 'saved':
+      return status.count === 1 ? 'Thread saved.' : `${status.count} threads saved.`
+    case 'failed':
+      return status.message
+  }
 }

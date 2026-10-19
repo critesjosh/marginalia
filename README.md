@@ -46,7 +46,7 @@ CHAT_AGENT=claude          # or codex
 CHAT_AGENT_MCP=tavily      # names from `claude mcp list` / `codex mcp list`, or *
 ```
 
-To use your agent from the hosted app instead, run the bridge and pair it in Settings: see [docs/agent-bridge.md](docs/agent-bridge.md).
+To use your agent from the hosted app instead, run the bridge and pair it in Settings: see [docs/agent-bridge.md](docs/agent-bridge.md). Add `--save-dir <folder>` and the bridge also keeps a Markdown copy of every thread there.
 
 Each reply runs the CLI once in an empty temporary directory with its built-in tools off (no shell, file or web access), so the agent can use only the MCP servers you list. A highlighted passage is untrusted text that the agent reads alongside those tools, so allow only servers you would let any book use: search and documentation, not mail or file access. Requests are accepted only from this machine. With Claude, your own hooks still run on each request. Replies start after a few seconds of CLI and MCP startup, and Codex sends each message whole rather than streaming it. Readers who have not paired a bridge, and the KOReader plugin, keep using OpenRouter.
 

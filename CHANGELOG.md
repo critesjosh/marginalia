@@ -7,6 +7,8 @@
 - Pair the hosted app with a local agent bridge (`npm run agent-bridge`) from
   Settings, Local agent, to answer chat with your own Claude Code or Codex on a
   desktop browser (decision 0010).
+- Keep a Markdown copy of every thread in a folder on your computer by starting
+  the bridge with `--save-dir` (decision 0011).
 - One-time hints for new readers, each where its feature first applies: a
   three-step library card, the reader's tap zones on a first book, notes on a
   first thread and a first memory, and a later note on the book menu. A

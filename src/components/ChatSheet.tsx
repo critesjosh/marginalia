@@ -7,6 +7,7 @@ import { InferenceError, streamChat } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { retireHint, useRetireOnceSeen, useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
+import { mirrorThreads } from '../lib/threadMirror'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import { telemetry } from '../lib/telemetry'
 import { durationBucket } from '../../shared/telemetrySchema'
@@ -237,6 +238,8 @@ export default function ChatSheet({
         })
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
         void updateBookMemory(conversation.bookId, conversationId)
+        // Resolves even on failure, so a save problem can never undo the turn.
+        void mirrorThreads([conversationId])
       }
       track('success')
     } catch (err) {
