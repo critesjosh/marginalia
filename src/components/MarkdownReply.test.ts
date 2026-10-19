@@ -40,6 +40,10 @@ describe('MarkdownReply', () => {
     expect(html).toContain('A whale')
   })
 
+  it('keeps single line breaks', () => {
+    expect(render('Call me Ishmael.\nSome years ago')).toContain('Call me Ishmael.<br/>')
+  })
+
   it('accepts unfinished Markdown chunks while streaming', () => {
     expect(render('A **growing')).toContain('A **growing')
     expect(render('A **growing thought**')).toContain('<strong>growing thought</strong>')
