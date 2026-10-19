@@ -258,8 +258,12 @@ export function codexArgs(
   return args
 }
 
+/** What the agent is doing between bursts of reply text, shown in the thread. */
+type AgentActivity = { kind: 'thinking' } | { kind: 'tool'; server: string; tool: string }
+
 /** What one line of CLI output means for the reply. */
-export type AgentEvent = { text: string } | { fail: string } | { done: true }
+export type AgentEvent =
+  { text: string } | { activity: AgentActivity } | { fail: string } | { done: true }
 
 export type AgentParser = (line: string) => AgentEvent[]
 
@@ -267,6 +271,8 @@ const DISALLOWED = (name: string) =>
   `The agent tried to use ${name}, which CHAT_AGENT_MCP does not allow, so the reply was stopped.`
 const FAILED =
   'The local agent stopped with an error. Check the agent bridge tool logs for details.'
+
+const THINKING: AgentEvent = { activity: { kind: 'thinking' } }
 
 function parseLine(line: string): Record<string, unknown> | null {
   try {
@@ -326,11 +332,17 @@ export function claudeParser(mcp: string[] | 'all'): AgentParser {
       content_block?: { type?: string; name?: string }
       delta?: { type?: string; text?: string }
     }
+    // A new message starts once the model is working, including after a tool returns.
+    if (stream.type === 'message_start') return [THINKING]
     if (stream.type === 'content_block_start') {
       const block = stream.content_block
-      if (block?.type === 'tool_use' && !allowed(String(block.name))) {
-        return [{ fail: DISALLOWED(String(block.name)) }]
+      if (block?.type === 'tool_use') {
+        const name = String(block.name)
+        if (!allowed(name)) return [{ fail: DISALLOWED(name) }]
+        const [, server = name, tool = name] = /^mcp__(.+?)__(.+)$/.exec(name) ?? []
+        return [{ activity: { kind: 'tool', server, tool } }]
       }
+      if (block?.type === 'thinking') return [THINKING]
       if (block?.type === 'text') joiner.block()
       return []
     }
@@ -362,11 +374,15 @@ export function codexParser(mcp: string[] | 'all'): AgentParser {
       type?: string
       text?: string
       server?: string
+      tool?: string
     }
     if (item.type === 'mcp_tool_call') {
       const server = String(item.server)
-      return mcp === 'all' || mcp.includes(server) ? [] : [{ fail: DISALLOWED(server) }]
+      if (mcp !== 'all' && !mcp.includes(server)) return [{ fail: DISALLOWED(server) }]
+      if (event.type === 'item.completed') return [THINKING]
+      return [{ activity: { kind: 'tool', server, tool: String(item.tool ?? server) } }]
     }
+    if (item.type === 'reasoning' && event.type === 'item.started') return [THINKING]
     if (item.type === 'command_execution' || item.type === 'file_change') {
       return [{ fail: DISALLOWED(item.type) }]
     }
@@ -376,6 +392,7 @@ export function codexParser(mcp: string[] | 'all'): AgentParser {
     if (seen.has(id)) return []
     seen.add(id)
     joiner.block()
-    return joiner.text(item.text ?? '')
+    // Codex sends whole messages, so it is still working until the turn completes.
+    return [...joiner.text(item.text ?? ''), THINKING]
   }
 }

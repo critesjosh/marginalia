@@ -394,7 +394,7 @@ async function* agentEvents(
       for (const event of parse(line)) {
         if ('done' in event) diagnostics.finish('success')
         yield 'fail' in event ? { fail: diagnostics.fail(event.fail) } : event
-        if (!('text' in event)) return
+        if ('done' in event || 'fail' in event) return
       }
     }
   }
@@ -414,6 +414,7 @@ async function completeReply({ events, stop }: Run): Promise<Response> {
   try {
     for (let next = await events.next(); !next.done; next = await events.next()) {
       const event = next.value
+      if ('activity' in event) continue
       if ('text' in event) text += event.text
       else if ('fail' in event) return errorResponse(502, event.fail)
       else break
@@ -429,8 +430,14 @@ async function completeReply({ events, stop }: Run): Promise<Response> {
 
 const encoder = new TextEncoder()
 const frame = (data: unknown) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
-const textFrame = (text: string) => frame({ choices: [{ delta: { content: text } }] })
 const DONE_FRAME = encoder.encode('data: [DONE]\n\n')
+
+/** Text as OpenAI-style deltas; activity as Rami's own frame, which other clients ignore. */
+function progressFrame(event: AgentEvent): Uint8Array | null {
+  if ('text' in event) return frame({ choices: [{ delta: { content: event.text } }] })
+  if ('activity' in event) return frame({ activity: event.activity })
+  return null
+}
 
 function failure(next: IteratorResult<AgentEvent>): string | null {
   if (next.done) return CUT_SHORT
@@ -438,8 +445,9 @@ function failure(next: IteratorResult<AgentEvent>): string | null {
 }
 
 /**
- * Holds the response headers until the first text arrives, so a run that fails
- * before writing anything returns a real error status instead of a 200.
+ * Holds the response headers until the model starts working (its first text
+ * or activity), so a run that fails to start returns a real error status
+ * instead of a 200.
  */
 async function streamReply({ events, stop }: Run): Promise<Response> {
   const first = await events.next()
@@ -449,19 +457,20 @@ async function streamReply({ events, stop }: Run): Promise<Response> {
     return errorResponse(502, failed ?? CUT_SHORT)
   }
 
-  const opening = first.value
+  const opening = progressFrame(first.value)
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue('text' in opening ? textFrame(opening.text) : DONE_FRAME)
-      if (!('text' in opening)) {
+      controller.enqueue(opening ?? DONE_FRAME)
+      if (!opening) {
         stop()
         controller.close()
       }
     },
     async pull(controller) {
       const next = await events.next()
-      if (!next.done && 'text' in next.value) {
-        controller.enqueue(textFrame(next.value.text))
+      const progress = next.done ? null : progressFrame(next.value)
+      if (progress) {
+        controller.enqueue(progress)
         return
       }
       // A failure after the headers goes in-band, the way OpenRouter sends it.

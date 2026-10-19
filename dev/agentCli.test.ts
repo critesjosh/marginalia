@@ -226,19 +226,28 @@ const blockStart = (block: unknown) =>
 describe('claudeParser', () => {
   it('streams text deltas and separates text either side of a tool call', () => {
     const parse = claudeParser(['tavily'])
+    const messageStart = line({ type: 'stream_event', event: { type: 'message_start' } })
     const events = [
       line({ type: 'system', subtype: 'init', tools: ['mcp__tavily__tavily_search'] }),
+      messageStart,
       blockStart({ type: 'text' }),
       delta('Let me look.'),
       blockStart({ type: 'tool_use', name: 'mcp__tavily__tavily_search' }),
       line({ type: 'assistant', message: { content: [{ type: 'text', text: 'Let me look.' }] } }),
+      messageStart,
+      blockStart({ type: 'thinking' }),
       blockStart({ type: 'text' }),
       delta('Melville'),
       delta(' wrote it.'),
       line({ type: 'result', subtype: 'success', is_error: false, result: 'repeated text' }),
     ].flatMap(parse)
+    const thinking = { activity: { kind: 'thinking' } }
     expect(events).toEqual([
+      thinking,
       { text: 'Let me look.' },
+      { activity: { kind: 'tool', server: 'tavily', tool: 'tavily_search' } },
+      thinking,
+      thinking,
       { text: '\n\nMelville' },
       { text: ' wrote it.' },
       { done: true },
@@ -253,7 +262,7 @@ describe('claudeParser', () => {
       claudeParser(['tavily'])(blockStart({ type: 'tool_use', name: 'mcp__gmail__send' })),
     ).toEqual([{ fail: expect.stringContaining('mcp__gmail__send') }])
     expect(claudeParser('all')(blockStart({ type: 'tool_use', name: 'mcp__gmail__send' }))).toEqual(
-      [],
+      [{ activity: { kind: 'tool', server: 'gmail', tool: 'send' } }],
     )
   })
 
@@ -278,14 +287,25 @@ describe('codexParser', () => {
       line({ type: 'thread.started', thread_id: 't' }),
       item('item.completed', { id: 'item_0', type: 'error', message: 'unknown config key' }),
       item('item.completed', { id: 'item_1', type: 'agent_message', text: 'Searching.' }),
-      item('item.started', { id: 'item_2', type: 'mcp_tool_call', server: 'cloudflare-docs' }),
+      item('item.started', {
+        id: 'item_2',
+        type: 'mcp_tool_call',
+        server: 'cloudflare-docs',
+        tool: 'search_docs',
+      }),
       item('item.completed', { id: 'item_1', type: 'agent_message', text: 'Searching.' }),
+      item('item.completed', { id: 'item_2', type: 'mcp_tool_call', server: 'cloudflare-docs' }),
       item('item.completed', { id: 'item_3', type: 'agent_message', text: 'A Durable Object…' }),
       line({ type: 'turn.completed', usage: {} }),
     ].flatMap(parse)
+    const thinking = { activity: { kind: 'thinking' } }
     expect(events).toEqual([
       { text: 'Searching.' },
+      thinking,
+      { activity: { kind: 'tool', server: 'cloudflare-docs', tool: 'search_docs' } },
+      thinking,
       { text: '\n\nA Durable Object…' },
+      thinking,
       { done: true },
     ])
   })

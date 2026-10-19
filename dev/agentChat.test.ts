@@ -194,6 +194,31 @@ describe('streaming replies', () => {
     await vi.waitFor(() => expect(existsSync(run.cwd)).toBe(false))
   })
 
+  it('reports thinking and tool calls before and between text', async () => {
+    const event = (value: unknown) => line({ type: 'stream_event', event: value })
+    const messageStart = event({ type: 'message_start' })
+    const tool = event({
+      type: 'content_block_start',
+      content_block: { type: 'tool_use', name: 'mcp__tavily__tavily_search' },
+    })
+    const { handle } = handler([INIT, messageStart, tool, messageStart, delta('Captain.'), SUCCESS])
+    serveFetch(handle)
+    const seen: unknown[] = []
+    const reply = await streamChat({
+      messages: MESSAGES,
+      onDelta: (text) => seen.push(text),
+      onActivity: (activity) => seen.push(activity),
+    })
+
+    expect(reply).toBe('Captain.')
+    expect(seen).toEqual([
+      { kind: 'thinking' },
+      { kind: 'tool', server: 'tavily', tool: 'tavily_search' },
+      { kind: 'thinking' },
+      'Captain.',
+    ])
+  })
+
   it('returns an error status when the run fails before writing anything', async () => {
     const failing = line({ type: 'result', subtype: 'error_during_execution', is_error: true })
     const { handle } = handler([INIT, failing])
@@ -291,7 +316,8 @@ describe('setup failures', () => {
 
 describe('background summaries', () => {
   it('answers without streaming and without MCP servers', async () => {
-    const { handle } = handler([INIT, delta('A summary.'), SUCCESS], { mcp: 'all' })
+    const messageStart = line({ type: 'stream_event', event: { type: 'message_start' } })
+    const { handle } = handler([INIT, messageStart, delta('A summary.'), SUCCESS], { mcp: 'all' })
     serveFetch(handle)
     expect(await completeChat({ messages: MESSAGES })).toBe('A summary.')
     const { args } = recorded()

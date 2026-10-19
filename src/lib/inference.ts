@@ -15,6 +15,9 @@ export class InferenceError extends Error {
   }
 }
 
+/** What a local agent reports it is doing while no reply text is arriving. */
+export type ChatActivity = { kind: 'thinking' } | { kind: 'tool'; server: string; tool: string }
+
 const HOSTED_ENDPOINT = '/api/chat'
 
 interface RequestOptions {
@@ -50,11 +53,32 @@ async function post({ messages, signal }: RequestOptions, stream: boolean): Prom
   }
 }
 
-/** Streams a chat completion, calling `onDelta` for each token chunk. */
+/** The bridge is local but still another program, so its labels are checked and capped. */
+function readActivity(value: unknown): ChatActivity | null {
+  const activity = value as { kind?: unknown; server?: unknown; tool?: unknown } | null
+  if (activity?.kind === 'thinking') return { kind: 'thinking' }
+  if (
+    activity?.kind === 'tool' &&
+    typeof activity.server === 'string' &&
+    typeof activity.tool === 'string'
+  ) {
+    return { kind: 'tool', server: activity.server.slice(0, 60), tool: activity.tool.slice(0, 60) }
+  }
+  return null
+}
+
+/**
+ * Streams a chat completion, calling `onDelta` for each token chunk and
+ * `onActivity` when a local agent reports thinking or calling a tool.
+ */
 export async function streamChat({
   onDelta,
+  onActivity,
   ...options
-}: RequestOptions & { onDelta: (text: string) => void }): Promise<string> {
+}: RequestOptions & {
+  onDelta: (text: string) => void
+  onActivity?: (activity: ChatActivity) => void
+}): Promise<string> {
   const response = await post(options, true)
 
   if (!response.ok || !response.body) {
@@ -95,6 +119,12 @@ export async function streamChat({
           parsed.error.message || 'The model provider failed part-way through the reply.',
           parsed.error.code,
         )
+      }
+
+      const activity = readActivity(parsed?.activity)
+      if (activity) {
+        onActivity?.(activity)
+        continue
       }
 
       const delta: string = parsed?.choices?.[0]?.delta?.content ?? ''

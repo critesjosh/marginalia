@@ -84,6 +84,9 @@ production keeps OpenRouter.
   against Claude Code 2.1.302 and codex-cli 0.162.1; the fail-closed checks
   cover a renamed feature or a stray tool, not every possible change.
 - Cost and latency: answers bill the reader's own Claude or OpenAI plan, not
-  the site's credit. Each turn pays for CLI and MCP startup (seconds), Codex
-  sends each message whole rather than token by token, and tool calls are not
-  shown in the thread.
+  the site's credit. Each turn pays for CLI and MCP startup (seconds), and Codex
+  sends each message whole rather than token by token. To show the agent is
+  still working, the stream carries an extra `activity` frame (thinking, or
+  the server and tool it is calling) that the thread shows and other clients
+  ignore. The response starts with the first such frame, so a failure after
+  the model starts arrives in-band rather than as an HTTP status.

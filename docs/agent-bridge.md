@@ -160,8 +160,10 @@ the bridge is not saving; 503 means the folder is missing or unsafe.
 (`docs/api.openapi.yml`): `{ "messages": [{ "role", "content" }], "stream"?: boolean }`,
 ending with a user message. With `stream: true` it answers
 `text/event-stream` frames `data: {"choices":[{"delta":{"content":…}}]}`,
-ending with `data: [DONE]`; a failure after the first frame arrives in-band as
-`data: {"error":{"message":…}}`. Without it, it answers
+ending with `data: [DONE]`. Between them, `data: {"activity":{"kind":"thinking"}}`
+or `data: {"activity":{"kind":"tool","server":…,"tool":…}}` says what the agent
+is doing, which the thread shows until more text arrives. A failure after the
+first frame arrives in-band as `data: {"error":{"message":…}}`. Without it, it answers
 `{ "choices": [{ "message": { "role": "assistant", "content": string } }] }`.
 
 | Status | Meaning |
