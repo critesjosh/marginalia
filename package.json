@@ -37,7 +37,9 @@
     "epubjs": "^0.3.93",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.1"
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.18.1",
+    "remark-breaks": "^4.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261007.1",
