@@ -14,6 +14,7 @@ import HintNote from './HintNote'
 import ReaderPanel from './ReaderPanel'
 import Passage from './Passage'
 import Mark from './Mark'
+import MarkdownReply from './MarkdownReply'
 import { CopyIcon, LinkIcon, SendIcon, ShareIcon } from './Icons'
 import PublishDialog from './PublishDialog'
 import { button } from './ui'
@@ -429,7 +430,7 @@ export default function ChatSheet({
   )
 }
 
-function Bubble({ id, role, children }: { id?: string; role: string; children: React.ReactNode }) {
+function Bubble({ id, role, children }: { id?: string; role: string; children: string }) {
   if (role === 'user') {
     return (
       <div data-message={id} className="flex justify-end">
@@ -449,7 +450,7 @@ function Bubble({ id, role, children }: { id?: string; role: string; children: R
       >
         <Mark size={18} decorative />
       </span>
-      <p className="mt-0.5 min-w-0 flex-1 font-ui text-body whitespace-pre-wrap">{children}</p>
+      <MarkdownReply>{children}</MarkdownReply>
     </div>
   )
 }
