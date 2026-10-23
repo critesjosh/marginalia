@@ -48,13 +48,7 @@ jobs:
       - run: npm ci
       - if: matrix.leg == 'playwright-next'
         run: npm install --no-save @playwright/test@next
-      # Runner package mirrors occasionally stall; retry rather than hit the job timeout.
-      - run: |
-          for attempt in 1 2 3; do
-            timeout 240 npx playwright install --with-deps $BROWSERS && exit 0
-            echo "Playwright install attempt $attempt failed"
-          done
-          exit 1
+      - run: scripts/install-playwright.sh $BROWSERS
       - id: version
         run: node scripts/qa-browsers.mjs >> "$GITHUB_OUTPUT"
       - run: npm run ${{ matrix.qa }}
