@@ -22,7 +22,8 @@ rolling per-book memory makes new chats aware of earlier ones.
 ## Constraints
 
 - DRM-free EPUBs only. EPUB scripts stay disabled.
-- Book text is untrusted and stays fenced in model prompts.
+- Book text, including EPUB chapter names and metadata, is untrusted and stays
+  fenced in model prompts.
 - Every hosted chat request is billed; the provider credit cap is the ceiling.
 - iOS Safari limits IndexedDB storage more than Android Chrome.
 
@@ -42,6 +43,7 @@ rolling per-book memory makes new chats aware of earlier ones.
 flowchart LR
   PWA[Reader PWA] --> IDB[(IndexedDB)]
   PWA --> Relay[Vite / App Worker]
+  PWA -. paired, desktop only .-> Bridge[Local agent bridge] --> Agent[Reader's Claude Code or Codex + MCP]
   KO[KOReader plugin] --> Relay
   Relay --> OR[OpenRouter, billed]
   Relay --> PG[gutenberg.org]
@@ -54,6 +56,16 @@ flowchart LR
 
 Deploy adapters share `shared/relay.ts`, `shared/gutenberg.ts` and
 `shared/covers.ts`; they must not import browser modules.
+
+A reader can have chat answered by their own Claude Code or Codex CLI and the
+MCP servers they allow, instead of OpenRouter. In development, `CHAT_AGENT`
+makes the Vite server do it at `/api/chat` (decision 0009). From the hosted
+app, a reader pairs in Settings with a local bridge, `npm run agent-bridge`,
+which the PWA calls at `http://127.0.0.1:47615` (decision 0010,
+[agent-bridge.md](agent-bridge.md)). Both run the same Node-only handler in
+`dev/`, which the Worker never loads. A bridge started with `--save-dir` also
+keeps a one-way Markdown copy of each thread in that folder (decision 0011);
+IndexedDB stays the source of truth.
 
 ## Local storage schema
 
@@ -96,3 +108,6 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0006 Publish shared threads at unlisted links](decisions/0006-public-thread-links.md)
 - [0007 Share books at links that add them for the recipient](decisions/0007-shared-book-links.md)
 - [0008 Send privacy-first product telemetry to PostHog Cloud](decisions/0008-privacy-first-telemetry.md)
+- [0009 Let the dev server answer chat with a local agent CLI](decisions/0009-local-agent-chat.md)
+- [0010 Let the hosted app reach a local agent through a paired bridge](decisions/0010-local-agent-bridge.md)
+- [0011 Mirror threads to Markdown files through the bridge](decisions/0011-mirror-threads-to-disk.md)

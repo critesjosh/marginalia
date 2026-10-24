@@ -171,6 +171,16 @@ a direct link to a book or a shared link shows it too. Events captured before th
 default turns out to be on. Either button on the notice records a choice, so
 it shows once.
 
+## Local agent diagnostics
+
+The Node-only local agent bridge writes diagnostics to its own terminal and,
+when explicitly configured, a private bounded file. They use a random request
+reference, configuration labels, stage/outcome, tool names, durations, exit
+codes/signals and fixed error categories. No prompts, passages, conversations,
+tool arguments/results, credentials or URLs are logged. These records never
+enter the product telemetry pipeline and are not sent to PostHog or Rami's relay.
+See [bridge diagnostics](agent-bridge.md#diagnosing-agent-errors).
+
 ## Needs legal review before production
 
 - **Regional default**: confirm the country list (especially Switzerland),

@@ -100,7 +100,7 @@ export function buildSystemPrompt({
   lines.push('', '## The book', fenced(fence, meta.join('\n')))
 
   lines.push('', '## Where the reader is')
-  if (conversation.chapter) lines.push(`Current chapter: ${conversation.chapter}`)
+  if (conversation.chapter) lines.push(fenced(fence, `Current chapter: ${conversation.chapter}`))
   if (typeof conversation.progress === 'number') {
     lines.push(`Position: roughly ${Math.round(conversation.progress * 100)}% through the book`)
   }

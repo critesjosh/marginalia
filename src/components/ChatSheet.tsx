@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSettings } from '../db/db'
 import { newId } from '../lib/id'
-import { InferenceError, streamChat } from '../lib/inference'
+import { InferenceError, streamChat, type ChatActivity } from '../lib/inference'
 import { buildMessages } from '../lib/prompt'
 import { retireHint, useRetireOnceSeen, useUnseenHint } from '../lib/hints'
 import { getBookMemory, updateBookMemory } from '../lib/memory'
+import { mirrorThreads } from '../lib/threadMirror'
 import { prefersShareSheet, shareContent, threadShare } from '../lib/share'
 import { telemetry } from '../lib/telemetry'
 import { durationBucket } from '../../shared/telemetrySchema'
@@ -32,6 +33,9 @@ export default function ChatSheet({
   const [draft, setDraft] = useState('')
   const [streaming, setStreaming] = useState('')
   const [busy, setBusy] = useState(false)
+  // A local agent's latest report, cleared whenever reply text arrives.
+  const [activity, setActivity] = useState<ChatActivity | null>(null)
+  const [started, setStarted] = useState(0)
   const [error, setError] = useState<string>()
   // The seed passage sits on one line until tapped, so the thread keeps the room.
   const [passageOpen, setPassageOpen] = useState(false)
@@ -171,6 +175,7 @@ export default function ChatSheet({
 
     setError(undefined)
     setBusy(true)
+    setStarted(Date.now())
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -225,7 +230,9 @@ export default function ChatSheet({
         onDelta: (delta) => {
           acc += delta
           setStreaming(acc)
+          setActivity(null)
         },
+        onActivity: setActivity,
       })
 
       if (reply.trim()) {
@@ -238,6 +245,8 @@ export default function ChatSheet({
         })
         await db.conversations.update(conversationId, { updatedAt: Date.now() })
         void updateBookMemory(conversation.bookId, conversationId)
+        // Resolves even on failure, so a save problem can never undo the turn.
+        void mirrorThreads([conversationId])
       }
       track('success')
     } catch (err) {
@@ -268,6 +277,7 @@ export default function ChatSheet({
       // question through all of them is what keeps that settling invisible.
       // The reader's next scroll releases it.
       setStreaming('')
+      setActivity(null)
       setBusy(false)
       abortRef.current = null
     }
@@ -359,8 +369,9 @@ export default function ChatSheet({
           </HintNote>
         )}
 
-        {busy && !streaming && (
-          <p className="font-ui text-body text-ink-faint italic">Following the thread…</p>
+        {/* The stored reply can land a frame before `busy` clears. */}
+        {busy && (!streaming || activity) && messages?.at(-1)?.role !== 'assistant' && (
+          <ReplyProgress activity={activity} since={started} />
         )}
 
         {messages && messages.length > 0 && !busy && book && (
@@ -427,6 +438,39 @@ export default function ChatSheet({
         />
       )}
     </ReaderPanel>
+  )
+}
+
+/** Seconds of waiting before the elapsed time is shown. */
+const ELAPSED_AFTER_S = 3
+
+function progressLabel(activity: ChatActivity | null): string {
+  if (activity?.kind === 'tool') {
+    return `Using ${activity.server}: ${activity.tool.replace(/[_-]+/g, ' ')}…`
+  }
+  if (activity?.kind === 'thinking') return 'Thinking…'
+  return 'Following the thread…'
+}
+
+/** Shows the reply is still coming, and what a local agent is doing meanwhile. */
+function ReplyProgress({ activity, since }: { activity: ChatActivity | null; since: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const seconds = Math.floor((now - since) / 1000)
+  return (
+    <p className="flex items-center gap-2 font-ui text-body text-ink-faint italic">
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-moss" />
+      <span role="status">{progressLabel(activity)}</span>
+      {seconds >= ELAPSED_AFTER_S && (
+        <span aria-hidden className="text-meta not-italic tabular-nums">
+          {seconds}s
+        </span>
+      )}
+    </p>
   )
 }
 

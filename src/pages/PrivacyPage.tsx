@@ -5,7 +5,7 @@ import { iconButton } from '../components/ui'
 import { telemetry } from '../lib/telemetry'
 
 const CONTACT_EMAIL = 'rami@agenticpossible.com'
-const UPDATED = '12 October 2026'
+const UPDATED = '18 October 2026'
 
 /**
  * The privacy policy. Every statement here describes what the code does;
@@ -77,6 +77,22 @@ export default function PrivacyPage() {
           <p>
             The KOReader plugin sends the same kind of request, from your e-reader, to the same
             server.
+          </p>
+          <p>
+            If you connect Rami to your own Claude Code or Codex in Settings, or run Rami yourself
+            with one, these requests go to that tool on your computer instead of through our server.
+            From there they go to Anthropic or OpenAI and to any MCP servers you let it use, under
+            their policies and your accounts with them. Those servers can act on what they receive,
+            so allow only ones you trust with what you read. The pairing token stays in this browser
+            and is never sent to us. If you start that bridge with a save folder, it also writes
+            each thread, with its passage, to a file in that folder on your computer.
+          </p>
+          <p>
+            Your local bridge logs request references, configuration, tool names, timing and error
+            categories on your computer to help diagnose failures. An optional private debug file
+            holds only categories derived from a short tail of the tool’s error output. These logs
+            contain no passages, conversations, tool arguments or results, credentials or links, and
+            are never sent to us.
           </p>
         </Section>
 

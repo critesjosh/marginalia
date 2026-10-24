@@ -560,6 +560,7 @@ function Ask:run(snapshot, thread, question, index)
             -- the fenced bodies: unlike a passage, it persists into every later
             -- prompt, so a delimiter that got into it would keep getting a turn.
             local fence, fence_error = Prompt.fence_for({
+                snapshot.chapter or "",
                 snapshot.text,
                 snapshot.context,
                 memory,

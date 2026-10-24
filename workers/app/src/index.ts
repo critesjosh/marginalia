@@ -17,11 +17,12 @@ import { handleThreadsRequest } from '../../../shared/threads.ts'
 /** Turnstile's challenge for publishing a thread (docs/decisions/0006). */
 const TURNSTILE_ORIGIN = 'https://challenges.cloudflare.com'
 
-// Telemetry goes through `/api/telemetry/events`, so `connect-src` stays `'self'`.
+// Telemetry goes through `/api/telemetry/events`. The one other destination is
+// the reader's own local agent bridge, on one fixed loopback port (decision 0010).
 const CONTENT_SECURITY_POLICY =
   `default-src 'self'; script-src 'self' ${TURNSTILE_ORIGIN}; style-src 'self' 'unsafe-inline' blob:; ` +
   "img-src 'self' data: blob: https://www.gutenberg.org; font-src 'self' data: blob:; " +
-  "connect-src 'self'; " +
+  "connect-src 'self' http://127.0.0.1:47615; " +
   `frame-src 'self' blob: data: ${TURNSTILE_ORIGIN}; object-src 'none'; base-uri 'self'; form-action 'self'`
 
 function withSecurityHeaders(response: Response): Response {

@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-const roots = ['src', 'shared', 'workers/app/src', 'koreader/marginalia.koplugin']
+const roots = ['src', 'shared', 'dev', 'workers/app/src', 'koreader/marginalia.koplugin']
 const failures = []
 async function inspect(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
