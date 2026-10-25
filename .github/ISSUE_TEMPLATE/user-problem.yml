@@ -1,0 +1,53 @@
+name: User problem
+description: Capture an observed or suspected problem before jumping to a solution.
+title: "[Problem] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the user's problem. Evidence can be qualitative (interviews, support, observation) or quantitative (usage, errors, telemetry).
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is the user struggling to accomplish, understand, or control?
+      placeholder: Readers lose context when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: user
+    attributes:
+      label: Who experiences this?
+      description: Describe the user or situation precisely enough to reason about tradeoffs.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: What observations, feedback, screenshots, issue links, or telemetry support this?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should become easier, faster, clearer, or more reliable for the user?
+    validations:
+      required: true
+
+  - type: textarea
+    id: assumptions
+    attributes:
+      label: Assumptions and open questions
+      description: What do we still not know? What would change the priority or solution?
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Product, technical, privacy, cost, device, or compatibility constraints that matter.
