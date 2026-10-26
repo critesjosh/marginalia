@@ -1,0 +1,47 @@
+name: publish-agent-bridge
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing agent bridge tag on main (agent-bridge-vX.Y.Z)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: publish-agent-bridge
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configure this environment to require a reviewer (decision 0012).
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+      # No dependency cache: a publish job must not restore state another run wrote.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - name: Refuse a tag that is not on main or does not match the package version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          printf '%s' "$TAG" | grep -Eq '^agent-bridge-v[0-9]+\.[0-9]+\.[0-9]+$'
+          git merge-base --is-ancestor "refs/tags/$TAG" origin/main
+          version=$(node -p "require('./packages/agent-bridge/package.json').version")
+          test "agent-bridge-v$version" = "$TAG"
+      - run: npm ci
+      - run: npm test -- dev/
+      - run: npm run build:agent-bridge
+      - run: node packages/agent-bridge/dist/rami-agent-bridge.js --help
+      - name: Publish with trusted publishing and provenance
+        working-directory: packages/agent-bridge
+        run: npm publish --provenance --access public

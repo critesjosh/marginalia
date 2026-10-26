@@ -97,6 +97,31 @@ on regression.
 These actions require hosted credentials and authorization; local QA never runs
 them. No deployment-frequency or successful-rollback claim follows from this doc.
 
+## Agent bridge npm releases
+
+The `rami-agent-bridge` package (decision 0012) is published only by the
+manual `publish-agent-bridge` workflow, with npm trusted publishing and
+provenance; no npm token is stored here. Publish only with explicit permission.
+
+One-time setup, by the npm package owner:
+
+1. Enable two-factor authentication on the npm account.
+2. Publish the first version by hand, since npm configures a trusted publisher
+   only for an existing package: `npm run build:agent-bridge`, then
+   `npm publish --access public` in `packages/agent-bridge/`.
+3. On npmjs.com, add the trusted publisher: repository `critesjosh/marginalia`,
+   workflow `publish-agent-bridge.yml`, environment `npm`. Then set publishing
+   access to require two-factor authentication and disallow tokens.
+4. In GitHub, create the `npm` environment with a required reviewer.
+
+Each release: bump `version` in `packages/agent-bridge/package.json` in a PR,
+merge it, tag that commit on `main` as `agent-bridge-vX.Y.Z`, push the tag, and
+dispatch the workflow with it. The workflow refuses a tag that is not on
+`main` or does not match the package version. Then update the pinned version
+in the setup instructions. To withdraw a bad release, publish a fixed version
+and run `npm deprecate rami-agent-bridge@X.Y.Z "<reason>"`; npm allows
+unpublishing only within 72 hours.
+
 ## Browser releases
 
 The nightly `browser-canary` workflow runs QA in three legs:

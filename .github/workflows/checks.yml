@@ -31,6 +31,10 @@ jobs:
       - name: Validate production build documented in AGENTS.md
         run: npm run build:cloudflare
       - run: node scripts/bundle-budget.mjs
+      - name: Bundle the agent bridge npm package and start it
+        run: |
+          npm run build:agent-bridge
+          node packages/agent-bridge/dist/rami-agent-bridge.js --help
       - run: npm audit --audit-level=moderate
       - uses: actions/upload-artifact@v7
         with:

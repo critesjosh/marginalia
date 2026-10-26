@@ -1,0 +1,21 @@
+{
+  "name": "rami-agent-bridge",
+  "version": "0.1.0",
+  "description": "Lets the Rami reader answer chat with your own Claude Code or Codex CLI",
+  "type": "module",
+  "bin": {
+    "rami-agent-bridge": "dist/rami-agent-bridge.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/critesjosh/marginalia.git",
+    "directory": "packages/agent-bridge"
+  },
+  "homepage": "https://github.com/critesjosh/marginalia/blob/main/docs/agent-bridge.md"
+}
