@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { BackIcon } from '../components/Icons'
 import { iconButton } from '../components/ui'
+import { BRIDGE_DOCS } from '../lib/localAgent'
 
 /**
  * Everything Rami does, in one place to come back to. The one-time hints point
@@ -13,6 +14,10 @@ export default function HelpPage() {
   const location = useLocation()
   // Reached from the library and from Settings, so go back to whichever it was.
   const back = () => (location.key === 'default' ? navigate('/') : navigate(-1))
+
+  useEffect(() => {
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView()
+  }, [location.hash])
 
   return (
     <div className="paper-grain min-h-full bg-paper text-ink">
@@ -65,6 +70,44 @@ export default function HelpPage() {
           </li>
         </Topic>
 
+        <Topic title="Use your own local agent" id="local-agent">
+          <li>
+            On a computer, install Node.js 24 and sign in to Claude Code or Codex. Download or clone
+            the{' '}
+            <a href="https://github.com/critesjosh/marginalia" target="_blank" rel="noreferrer">
+              Rami repository
+            </a>
+            , then run <code>npm ci</code> in its folder.
+          </li>
+          <li>
+            If you want the agent to use search or other tools, set up those MCP servers in your
+            agent first. Check their names with <code>claude mcp list</code> or{' '}
+            <code>codex mcp list</code>. A server can include file editing tools as well as search;
+            allow only servers whose full capabilities you trust.
+          </li>
+          <li>
+            Start the bridge from the Rami folder with{' '}
+            <code>npm run agent-bridge -- --agent claude --mcp tavily</code>. Replace the agent and
+            server names with yours; omit <code>--mcp</code> to allow no MCP tools. Add{' '}
+            <code>--model &lt;model name&gt;</code> to choose a model. Keep this terminal open while
+            reading.
+          </li>
+          <li>
+            In <Link to="/settings">Settings → Local agent</Link>, paste the pairing token printed
+            on the first run and choose Connect. Settings shows the connected agent and allowed
+            servers. If the bridge stops, paired chat shows an error until you start it again.
+          </li>
+          <li>
+            This works in Chrome, Edge and Firefox on the same computer as the bridge. It does not
+            work on phones or in Safari. Your chats go to your agent provider and any MCP servers
+            you allow. See the{' '}
+            <a href={BRIDGE_DOCS} target="_blank" rel="noreferrer">
+              full setup and troubleshooting guide
+            </a>
+            .
+          </li>
+        </Topic>
+
         <Topic title="Sharing">
           <li>A passage: select it and choose “Share”.</li>
           <li>
@@ -104,9 +147,9 @@ export default function HelpPage() {
   )
 }
 
-function Topic({ title, children }: { title: string; children: ReactNode }) {
+function Topic({ title, children, id }: { title: string; children: ReactNode; id?: string }) {
   return (
-    <section>
+    <section id={id} className="scroll-mt-20">
       <h2 className="mb-3 font-book text-heading font-medium text-ink">{title}</h2>
       <ul className="list-disc space-y-2 pl-5 marker:text-rubric">{children}</ul>
     </section>

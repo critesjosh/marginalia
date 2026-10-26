@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Link } from 'react-router-dom'
 import {
+  BRIDGE_DOCS,
   checkBridge,
   clearPairing,
   isPairingToken,
@@ -16,8 +18,6 @@ import {
   type MirrorStatus,
 } from '../lib/threadMirror'
 import { button, card } from './ui'
-
-const BRIDGE_DOCS = 'https://github.com/critesjosh/marginalia/blob/main/docs/agent-bridge.md'
 
 /** Settings: pairing with the reader's own Claude Code or Codex (decision 0010). */
 export default function LocalAgentSection() {
@@ -96,7 +96,7 @@ export default function LocalAgentSection() {
         Answer from your own Claude Code or Codex on this computer, with the tools you allow it.
         Start the bridge from a Rami checkout with <code>npm run agent-bridge</code> and paste the
         token it prints. Works in Chrome, Edge and Firefox on a computer, not on phones or in
-        Safari.
+        Safari. Each MCP server you allow may offer file editing tools as well as search.
       </p>
 
       {state.kind === 'unreadable' && (
@@ -155,14 +155,14 @@ export default function LocalAgentSection() {
           Disconnect
         </button>
       )}
-      <a
-        href={BRIDGE_DOCS}
-        target="_blank"
-        rel="noreferrer"
-        className={`${button.quiet} mt-2 -ml-3`}
-      >
-        How the bridge works ↗
-      </a>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Link to="/help#local-agent" className={`${button.quiet} -ml-3`}>
+          Set up a local agent
+        </Link>
+        <a href={BRIDGE_DOCS} target="_blank" rel="noreferrer" className={button.quiet}>
+          Full guide ↗
+        </a>
+      </div>
     </section>
   )
 }

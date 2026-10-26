@@ -19,19 +19,35 @@ The first run prints a pairing token. In Rami, open Settings, Local agent,
 paste it and choose Connect. Settings then shows which agent and servers the
 bridge is using. Keep the terminal open while you read.
 
-| Option | Meaning |
-| --- | --- |
-| `--agent claude\|codex` | The CLI that answers (or `CHAT_AGENT`) |
-| `--mcp <names>` | MCP servers it may call, comma-separated, or `*` (or `CHAT_AGENT_MCP`). Empty allows none. |
-| `--model <name>` | Model for the agent (or `CHAT_AGENT_MODEL`) |
+To choose a model, check which MCP servers your agent has, then start the
+bridge from the repository root:
+
+```bash
+claude mcp list
+npm run agent-bridge -- --agent claude --model claude-sonnet-5-5 --mcp tavily
+```
+
+The names after `--mcp` must match the names in `claude mcp list` (or
+`codex mcp list`). This is an allowlist by server, not by individual tool:
+Rami's chat can call any tool those servers expose, and some servers offer
+file creation and editing tools alongside search. The bridge passes `--model`
+to the CLI for each chat. Starting the bridge does not make a model request or
+confirm that your account can use that model. If the bridge stops, paired chat
+shows an error instead of switching to Rami's hosted relay.
+
+| Option                       | Meaning                                                                                                                               |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `--agent claude\|codex`      | The CLI that answers (or `CHAT_AGENT`)                                                                                                |
+| `--mcp <names>`              | MCP servers it may call, comma-separated, or `*` (or `CHAT_AGENT_MCP`). Empty allows none.                                            |
+| `--model <name>`             | Model for the agent (or `CHAT_AGENT_MODEL`)                                                                                           |
 | `--reasoning-effort <level>` | Codex effort: `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` (or `CHAT_AGENT_REASONING_EFFORT`). Unset inherits the CLI setting. |
-| `--debug-log <path>` | Opt-in local classified stderr log (or `CHAT_AGENT_DEBUG_LOG`); see diagnostics below. |
-| `--origin <url>` | Another app origin to accept, such as `http://localhost:5173` for a dev server. Repeatable. |
-| `--no-previews` | Refuse the app's preview builds (see below) |
-| `--save-dir <path>` | Keep a Markdown copy of each thread in this folder (see below) |
-| `--port <n>` | Port to listen on. The hosted app can reach only 47615. |
-| `--show-token` | Print the pairing token again |
-| `--new-token` | Replace the token, unpairing every browser |
+| `--debug-log <path>`         | Opt-in local classified stderr log (or `CHAT_AGENT_DEBUG_LOG`); see diagnostics below.                                                |
+| `--origin <url>`             | Another app origin to accept, such as `http://localhost:5173` for a dev server. Repeatable.                                           |
+| `--no-previews`              | Refuse the app's preview builds (see below)                                                                                           |
+| `--save-dir <path>`          | Keep a Markdown copy of each thread in this folder (see below)                                                                        |
+| `--port <n>`                 | Port to listen on. The hosted app can reach only 47615.                                                                               |
+| `--show-token`               | Print the pairing token again                                                                                                         |
+| `--new-token`                | Replace the token, unpairing every browser                                                                                            |
 
 The token is kept in `$XDG_CONFIG_HOME/rami/agent-bridge.json` (by default
 `~/.config/rami/`), readable only by you. Disconnecting in Settings forgets the
@@ -66,12 +82,12 @@ or loading them.
 
 ## Browsers
 
-| Browser | Works | Notes |
-| --- | --- | --- |
-| Chrome, Edge | Yes | May ask to let Rami reach other apps and services on this device. Allow it; if you declined, change it in the site settings. |
-| Firefox | Yes | May ask for local network or device access in the same way. |
-| Safari | No | WebKit blocks an HTTPS page from reaching `http://127.0.0.1`. |
-| Phones | No | A phone cannot reach your computer's `127.0.0.1`. |
+| Browser      | Works | Notes                                                                                                                        |
+| ------------ | ----- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Chrome, Edge | Yes   | May ask to let Rami reach other apps and services on this device. Allow it; if you declined, change it in the site settings. |
+| Firefox      | Yes   | May ask for local network or device access in the same way.                                                                  |
+| Safari       | No    | WebKit blocks an HTTPS page from reaching `http://127.0.0.1`.                                                                |
+| Phones       | No    | A phone cannot reach your computer's `127.0.0.1`.                                                                            |
 
 Tested with Playwright's Chromium, Firefox and WebKit builds against an
 HTTPS page with the production CSP; shipping browsers' permission prompts
@@ -166,14 +182,14 @@ is doing, which the thread shows until more text arrives. A failure after the
 first frame arrives in-band as `data: {"error":{"message":…}}`. Without it, it answers
 `{ "choices": [{ "message": { "role": "assistant", "content": string } }] }`.
 
-| Status | Meaning |
-| --- | --- |
-| 400 | Malformed conversation or thread |
-| 401 | Missing or wrong token |
-| 403 | Not from this machine, a foreign `Host`, or an origin that is not paired |
-| 409 | A newer copy of that thread is already saved, or its file is not a plain file |
-| 413 | Body or book context too large |
-| 415 | Body is not JSON |
-| 429 | Two replies are already running |
-| 502 | The agent failed, timed out or was not installed |
-| 503 | The MCP allowlist names a server the agent lacks, or the save folder is missing or unsafe |
+| Status | Meaning                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------- |
+| 400    | Malformed conversation or thread                                                          |
+| 401    | Missing or wrong token                                                                    |
+| 403    | Not from this machine, a foreign `Host`, or an origin that is not paired                  |
+| 409    | A newer copy of that thread is already saved, or its file is not a plain file             |
+| 413    | Body or book context too large                                                            |
+| 415    | Body is not JSON                                                                          |
+| 429    | Two replies are already running                                                           |
+| 502    | The agent failed, timed out or was not installed                                          |
+| 503    | The MCP allowlist names a server the agent lacks, or the save folder is missing or unsafe |

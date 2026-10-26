@@ -10,6 +10,7 @@
  */
 
 export const BRIDGE_ORIGIN = 'http://127.0.0.1:47615'
+export const BRIDGE_DOCS = 'https://github.com/critesjosh/marginalia/blob/main/docs/agent-bridge.md'
 
 /** The bridge's token shape: 32 bytes as unpadded base64url. */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/
