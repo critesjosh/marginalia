@@ -4,19 +4,19 @@ A mobile-friendly EPUB reader that lets you highlight a passage and start an AI 
 
 Built as a PWA: installable on Android, works offline, stores everything locally in IndexedDB.
 
-Chat works for every visitor with no signup and no API key: requests go through a Cloudflare Worker that holds an OpenRouter key server-side. Three public-domain books seed the default library (Melville's Moby Dick, Nietzsche's The Genealogy of Morals and the King James Bible), so a first-time visitor has something to read immediately.
+Chat works for every visitor with no signup and no API key: by default, requests go through a Cloudflare Worker that holds an OpenRouter key server-side. On a desktop browser, a reader can instead pair their own Claude Code or Codex through a local bridge ([docs/agent-bridge.md](docs/agent-bridge.md)). Three public-domain books seed the default library (Melville's Moby Dick, Nietzsche's The Genealogy of Morals and the King James Bible), so a first-time visitor has something to read immediately.
 
 ## Status
 
 Milestones M1 to M5 of the original plan are implemented and verified end to end against Project Gutenberg's Moby Dick. Goals, constraints and design decisions are in [`docs/architecture.md`](docs/architecture.md).
 
-| Milestone     | What works                                                                                                                                                                                 |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| M1 Library    | EPUB import, OPF metadata + cover extraction, library grid, delete with cascade                                                                                                            |
-| M2 Reader     | Paginated epub.js rendition, position persistence, TOC, themes, font size                                                                                                                  |
+| Milestone     | What works                                                                                                                                                                                                                                                           |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M1 Library    | EPUB import, OPF metadata + cover extraction, library grid, delete with cascade                                                                                                                                                                                      |
+| M2 Reader     | Paginated epub.js rendition, position persistence, TOC, themes, font size                                                                                                                                                                                            |
 | M3 Highlights | Selection action bar, one highlight color set in Settings, painted annotations, tap a highlight to reopen its chat, per-book list, share a passage or thread with its book and a link back, share a Gutenberg book at a link that adds it to the recipient's library |
-| M4 Chat       | Hosted relay, context assembly, streaming replies, persisted conversations                                                                                                                 |
-| M5 Memory     | Rolling per-book digest injected into every new conversation, readable and editable under the reader's Memory tab                                                                          |
+| M4 Chat       | Hosted relay, context assembly, streaming replies, persisted conversations                                                                                                                                                                                           |
+| M5 Memory     | Rolling per-book digest injected into every new conversation, readable and editable under the reader's Memory tab                                                                                                                                                    |
 
 Not yet done (M6): PWA share-target import, re-anchoring highlights by text when a CFI breaks, JSON import to match the existing export.
 
@@ -36,6 +36,19 @@ OPENROUTER_API_KEY=<a key from openrouter.ai/keys>
 A Vite plugin serves `/api/chat` in dev using the same handler the deployed edge function runs, so `npm run dev` exercises the real relay — no Wrangler needed.
 
 To use the deployed relay and its key instead, set `CHAT_RELAY_URL=https://rami.agenticpossible.com` in `.env.local`. Dev chat is then billed to the production key.
+
+### Chat through Claude Code or Codex
+
+The dev server can answer chat with a local agent CLI instead, using your own subscription and the MCP servers you allow ([decision 0009](docs/decisions/0009-local-agent-chat.md)). Install and sign in to the CLI, then set in `.env.local`:
+
+```
+CHAT_AGENT=claude          # or codex
+CHAT_AGENT_MCP=tavily      # names from `claude mcp list` / `codex mcp list`, or *
+```
+
+To use your agent from the hosted app instead, run the bridge and pair it in Settings: see [docs/agent-bridge.md](docs/agent-bridge.md). Add `--save-dir <folder>` and the bridge also keeps a Markdown copy of every thread there.
+
+Each reply runs the CLI once in an empty temporary directory with its built-in tools off (no shell, file or web access), so the agent can use only the MCP servers you list. A highlighted passage is untrusted text that the agent reads alongside those tools, so allow only servers you would let any book use: search and documentation, not mail or file access. Requests are accepted only from this machine. With Claude, your own hooks still run on each request. Replies start after a few seconds of CLI and MCP startup, and Codex sends each message whole rather than streaming it. Readers who have not paired a bridge, and the KOReader plugin, keep using OpenRouter.
 
 ```bash
 npm run build     # production build + service worker
@@ -59,13 +72,13 @@ desktop/mobile browser gates. Setup installs a pre-commit hook. See
 
 ## Inference
 
-The browser POSTs to `/api/chat`, a Cloudflare Worker route that adds the OpenRouter key and forwards to OpenRouter. Visitors need no account, and the key never reaches the client.
+Unless the reader has paired a local agent bridge (below and [docs/agent-bridge.md](docs/agent-bridge.md)), the browser POSTs to `/api/chat`, a Cloudflare Worker route that adds the OpenRouter key and forwards to OpenRouter. Visitors need no account, and the key never reaches the client.
 
 | Model                       | Provider routing                                                   |
 | --------------------------- | ------------------------------------------------------------------ |
 | `google/gemma-4-26b-a4b-it` | Cloudflare first (fastest endpoint for this model), others allowed |
 
-One route, so every request is billed. A free-tier route (`:free`, served by Google AI Studio) used to run ahead of it, but it drew on a shared upstream pool that was regularly exhausted: most requests paid a refused round-trip before falling through to the paid model anyway, and the ones the free tier did answer came from the slower endpoint. Dropping it cut a wasted round-trip off the common path and made the faster provider the default for every answer, at the cost of a free-tier buffer that was mostly not there. **Watch the credit limit on the OpenRouter key** — it is now the only thing between the site and its own bill.
+One route, so every request through the relay is billed; a paired reader's chats go to their own agent instead. A free-tier route (`:free`, served by Google AI Studio) used to run ahead of it, but it drew on a shared upstream pool that was regularly exhausted: most requests paid a refused round-trip before falling through to the paid model anyway, and the ones the free tier did answer came from the slower endpoint. Dropping it cut a wasted round-trip off the common path and made the faster provider the default for every answer, at the cost of a free-tier buffer that was mostly not there. **Watch the credit limit on the OpenRouter key** — it is now the only thing between the site and its own bill.
 
 ### Deploying
 

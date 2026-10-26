@@ -11,6 +11,7 @@ import { telemetry } from '../lib/telemetry'
 import { BackIcon } from '../components/Icons'
 import InstructionsEditor from '../components/InstructionsEditor'
 import KoreaderImport from '../components/KoreaderImport'
+import LocalAgentSection from '../components/LocalAgentSection'
 import Ornament from '../components/Ornament'
 import ReportProblemDialog from '../components/ReportProblemDialog'
 import { button, card, iconButton } from '../components/ui'
@@ -60,6 +61,8 @@ export default function SettingsPage() {
             onSave={(instructions) => saveSettings({ instructions })}
           />
         </section>
+
+        <LocalAgentSection />
 
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Data</h2>

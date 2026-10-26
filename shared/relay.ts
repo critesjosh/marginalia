@@ -110,7 +110,7 @@ async function relay(
     return errorResponse(400, 'Expected a JSON body.')
   }
 
-  const parsed = parseBody(payload)
+  const parsed = parseChatBody(payload)
   if ('error' in parsed) return errorResponse(400, parsed.error)
   const { messages, stream } = parsed
 
@@ -182,14 +182,15 @@ function relayResponse(upstream: Response): Response {
   return new Response(upstream.body, { status: 200, headers })
 }
 
-interface RelayMessage {
+export interface RelayMessage {
   role: 'system' | 'user' | 'assistant'
   content: string
 }
 
 type ParsedBody = { messages: RelayMessage[]; stream: boolean } | { error: string }
 
-function parseBody(payload: unknown): ParsedBody {
+/** Validates a chat body against the caps above. The local agent backend shares it. */
+export function parseChatBody(payload: unknown): ParsedBody {
   if (typeof payload !== 'object' || payload === null) return { error: 'Expected a JSON object.' }
   const { messages, stream } = payload as { messages?: unknown; stream?: unknown }
 

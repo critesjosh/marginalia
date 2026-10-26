@@ -1,4 +1,5 @@
 import type { Role } from '../db/types'
+import { BRIDGE_UNREACHABLE, bridgeFetch, localAgentState } from './localAgent'
 
 export interface ChatMessage {
   role: Role
@@ -14,6 +15,9 @@ export class InferenceError extends Error {
   }
 }
 
+/** What a local agent reports it is doing while no reply text is arriving. */
+export type ChatActivity = { kind: 'thinking' } | { kind: 'tool'; server: string; tool: string }
+
 const HOSTED_ENDPOINT = '/api/chat'
 
 interface RequestOptions {
@@ -22,23 +26,59 @@ interface RequestOptions {
 }
 
 /**
- * Every request goes to this site's own relay, which holds an OpenRouter key
- * server-side and pins the model, so visitors need no setup.
+ * Requests go to this site's own relay, which holds an OpenRouter key
+ * server-side and pins the model, so visitors need no setup. A reader paired
+ * with a local agent (decision 0010) is answered by it instead, and never falls
+ * back to the relay: their passages would go somewhere they chose not to send them.
  */
-function post({ messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
-  return fetch(HOSTED_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, stream }),
-    signal,
-  })
+async function post({ messages, signal }: RequestOptions, stream: boolean): Promise<Response> {
+  const body = JSON.stringify({ messages, stream })
+  const headers = { 'Content-Type': 'application/json' }
+  const agent = localAgentState()
+
+  if (agent.kind === 'unreadable') {
+    throw new InferenceError(
+      "Rami can't read its local agent setting in this browser, so it sent nothing. Check that " +
+        'this site may store data, then pair again in Settings.',
+    )
+  }
+  if (agent.kind === 'off') {
+    return fetch(HOSTED_ENDPOINT, { method: 'POST', headers, body, signal })
+  }
+  try {
+    return await bridgeFetch('/v1/chat', agent.token, { method: 'POST', headers, body, signal })
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw new InferenceError(BRIDGE_UNREACHABLE)
+  }
 }
 
-/** Streams a chat completion, calling `onDelta` for each token chunk. */
+/** The bridge is local but still another program, so its labels are checked and capped. */
+function readActivity(value: unknown): ChatActivity | null {
+  const activity = value as { kind?: unknown; server?: unknown; tool?: unknown } | null
+  if (activity?.kind === 'thinking') return { kind: 'thinking' }
+  if (
+    activity?.kind === 'tool' &&
+    typeof activity.server === 'string' &&
+    typeof activity.tool === 'string'
+  ) {
+    return { kind: 'tool', server: activity.server.slice(0, 60), tool: activity.tool.slice(0, 60) }
+  }
+  return null
+}
+
+/**
+ * Streams a chat completion, calling `onDelta` for each token chunk and
+ * `onActivity` when a local agent reports thinking or calling a tool.
+ */
 export async function streamChat({
   onDelta,
+  onActivity,
   ...options
-}: RequestOptions & { onDelta: (text: string) => void }): Promise<string> {
+}: RequestOptions & {
+  onDelta: (text: string) => void
+  onActivity?: (activity: ChatActivity) => void
+}): Promise<string> {
   const response = await post(options, true)
 
   if (!response.ok || !response.body) {
@@ -79,6 +119,12 @@ export async function streamChat({
           parsed.error.message || 'The model provider failed part-way through the reply.',
           parsed.error.code,
         )
+      }
+
+      const activity = readActivity(parsed?.activity)
+      if (activity) {
+        onActivity?.(activity)
+        continue
       }
 
       const delta: string = parsed?.choices?.[0]?.delta?.content ?? ''

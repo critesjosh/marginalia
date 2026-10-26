@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { Readable } from 'node:stream'
 import { handleRelayRequest } from './shared/relay.ts'
+import { createAgentChat } from './dev/agentChat.ts'
+import { readAgentConfig } from './dev/agentCli.ts'
 import { handleGutenbergRequest } from './shared/gutenberg.ts'
 import { handleCoverRequest } from './shared/covers.ts'
 import { handleThreadPage } from './shared/threadPage.ts'
@@ -14,12 +16,18 @@ import { memoryLinkStore, type PublishOptions } from './shared/publishing.ts'
 import { visualizer } from 'rollup-plugin-visualizer'
 import { execFileSync } from 'node:child_process'
 
+type ChatHandler = (
+  request: Request,
+  context: { ip: string; signal: AbortSignal },
+) => Promise<Response>
+
 /**
- * Serves /api/chat in dev with the same handler the Cloudflare Worker uses,
- * so local runs exercise the real relay instead of a stand-in. Reads
- * OPENROUTER_API_KEY from .env.local; the deployed Worker has it as a secret.
+ * Serves /api/chat in dev. By default that is the handler the Cloudflare
+ * Worker uses, so local runs exercise the real relay instead of a stand-in; it
+ * reads OPENROUTER_API_KEY from .env.local, and the deployed Worker has it as a
+ * secret. CHAT_AGENT swaps in a local agent CLI instead (decision 0009).
  */
-function chatRelay(apiKey: string, enabled: boolean): Plugin {
+function chatRelay(handle: ChatHandler): Plugin {
   return {
     name: 'marginalia-chat-relay',
     configureServer(server) {
@@ -48,11 +56,13 @@ function chatRelay(apiKey: string, enabled: boolean): Plugin {
           body: chunks.length ? Buffer.concat(chunks) : undefined,
         })
 
-        const response = await handleRelayRequest(
-          request,
-          { apiKey, siteUrl: origin, enabled },
-          { ip: req.socket.remoteAddress ?? '' },
-        )
+        // Stops a local agent run when the reader closes the reply.
+        const closed = new AbortController()
+        res.on('close', () => closed.abort())
+        const response = await handle(request, {
+          ip: req.socket.remoteAddress ?? '',
+          signal: closed.signal,
+        })
 
         res.statusCode = response.status
         response.headers.forEach((value, key) => res.setHeader(key, value))
@@ -211,15 +221,31 @@ function buildCommit(): string {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const remoteRelay = env.CHAT_RELAY_URL?.trim()
+  const agent = readAgentConfig(env)
+  const remoteRelay = agent ? undefined : env.CHAT_RELAY_URL?.trim()
+  const apiKey = env.OPENROUTER_API_KEY ?? ''
+  const chatEnabled = env.CHAT_ENABLED !== 'false'
+  if (agent && mode === 'development') {
+    const mcp = agent.mcp === 'all' ? 'every MCP server' : agent.mcp.join(', ') || 'no MCP servers'
+    console.info(`Chat answered by the local ${agent.agent} CLI with ${mcp}.`)
+  }
+
+  const openRouterRelay: ChatHandler = (request, { ip }) =>
+    handleRelayRequest(
+      request,
+      { apiKey, siteUrl: new URL(request.url).origin, enabled: chatEnabled },
+      { ip },
+    )
+  const chatHandler =
+    agent && chatEnabled
+      ? createAgentChat({ config: agent, debugLog: env.CHAT_AGENT_DEBUG_LOG })
+      : openRouterRelay
 
   return {
     plugins: [
       react(),
       tailwindcss(),
-      ...(remoteRelay
-        ? []
-        : [chatRelay(env.OPENROUTER_API_KEY ?? '', env.CHAT_ENABLED !== 'false')]),
+      ...(remoteRelay ? [] : [chatRelay(chatHandler)]),
       getRelay('/api/gutenberg', handleGutenbergRequest),
       getRelay('/api/covers', handleCoverRequest),
       telemetryRelay(
