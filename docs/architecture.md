@@ -63,7 +63,9 @@ makes the Vite server do it at `/api/chat` (decision 0009). From the hosted
 app, a reader pairs in Settings with a local bridge, `npm run agent-bridge`,
 which the PWA calls at `http://127.0.0.1:47615` (decision 0010,
 [agent-bridge.md](agent-bridge.md)). Both run the same Node-only handler in
-`dev/`, which the Worker never loads. A bridge started with `--save-dir` also
+`dev/`, which the Worker never loads. `npm run build:agent-bridge` bundles the
+bridge into the `rami-agent-bridge` npm package in `packages/agent-bridge/`
+(decision 0012). A bridge started with `--save-dir` also
 keeps a one-way Markdown copy of each thread in that folder (decision 0011);
 IndexedDB stays the source of truth.
 
@@ -111,3 +113,4 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0009 Let the dev server answer chat with a local agent CLI](decisions/0009-local-agent-chat.md)
 - [0010 Let the hosted app reach a local agent through a paired bridge](decisions/0010-local-agent-bridge.md)
 - [0011 Mirror threads to Markdown files through the bridge](decisions/0011-mirror-threads-to-disk.md)
+- [0012 Publish the agent bridge to npm](decisions/0012-publish-agent-bridge-to-npm.md)

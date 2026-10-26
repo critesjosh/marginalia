@@ -228,7 +228,8 @@ function send(res: ServerResponse, response: Response, cors: string | null) {
   else res.end()
 }
 
-const USAGE = `Usage: npm run agent-bridge -- [options]
+const USAGE = `Usage: rami-agent-bridge [options]
+   or: npm run agent-bridge -- [options]   (from a checkout of Rami)
 
   --agent claude|codex   The CLI that answers (or CHAT_AGENT)
   --mcp <names>          MCP servers it may call, comma-separated, or * (or CHAT_AGENT_MCP)
