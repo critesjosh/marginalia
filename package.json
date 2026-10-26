@@ -73,7 +73,8 @@
       "@xmldom/xmldom": "0.9.12"
     },
     "miniflare": {
-      "sharp": "0.35.5"
+      "sharp": "0.35.5",
+      "undici": "7.30.1"
     }
   }
 }
