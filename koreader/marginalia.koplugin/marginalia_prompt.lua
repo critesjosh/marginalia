@@ -92,6 +92,7 @@ Builds the system prompt.
     book_instructions  the reader's own for this book, or nil; kept out of `book`,
                   which holds only what the EPUB supplied
     spoiler_guard boolean
+    brief_replies boolean or nil
     fence         a token from `Prompt.fence_token`
 @treturn string
 --]]
@@ -201,6 +202,15 @@ function Prompt.system(ctx)
         table.insert(
             lines,
             "The reader is partway through. Do not reveal plot developments beyond their current position unless they explicitly ask. If answering well requires going further, say so and ask first."
+        )
+    end
+
+    if ctx.brief_replies then
+        table.insert(lines, "")
+        table.insert(lines, "## Length")
+        table.insert(
+            lines,
+            "The reader prefers brief replies. Answer in two or three sentences unless they ask for more, even where a few paragraphs would otherwise fit."
         )
     end
 

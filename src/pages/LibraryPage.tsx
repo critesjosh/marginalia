@@ -154,11 +154,6 @@ export default function LibraryPage() {
             <h1 className="font-book text-[40px] leading-[44px] font-medium tracking-[-0.01em] sm:text-display">
               {greeting()}
             </h1>
-            <p className="mt-3 font-ui text-body text-ink-soft">
-              {continuing
-                ? 'Pick up where you left off, or wander somewhere new.'
-                : 'Open a book, select a line, and see where the question leads.'}
-            </p>
           </div>
           {books && (
             <p className="hidden shrink-0 font-ui text-meta text-ink-faint sm:block">

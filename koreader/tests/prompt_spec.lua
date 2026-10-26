@@ -89,9 +89,21 @@ do
     local prompt = build({ context = NONE, spoiler_guard = false, chapter = NONE, progress = NONE })
     H.absent(prompt, "## Surrounding text", "no context heading without context")
     H.absent(prompt, "## Spoilers", "no spoiler heading when off")
+    H.absent(prompt, "## Length", "no length section unless brief replies are on")
     H.absent(prompt, "Current chapter:", "no chapter line without a chapter")
     H.absent(prompt, "Position: roughly", "no position line without progress")
     H.contains(prompt, "## Where the reader is", "the heading itself stays, as in the app")
+end
+
+-- Brief replies close the prompt, after the spoiler guard, as in the app.
+do
+    local prompt = build({ brief_replies = true })
+    H.contains(prompt, "## Spoilers", "spoiler guard still present")
+    H.contains(prompt, "## Length\nThe reader prefers brief replies.", "brief replies section")
+    H.ok(
+        prompt:find("## Length", 1, true) > prompt:find("## Spoilers", 1, true),
+        "length comes last"
+    )
 end
 
 -- A digest, when there is one, is quoted material too.

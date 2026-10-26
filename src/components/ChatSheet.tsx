@@ -68,12 +68,10 @@ export default function ChatSheet({
     async () => (bookId ? Boolean(await db.bookMemory.get(bookId)) : false),
     [bookId],
   )
-  const threadHint = useUnseenHint('thread')
   // Shown once Rami has written something down, which takes a few exchanges.
   const memoryHint = useUnseenHint('memory') && hasMemory === true
 
-  // Each hint gets one thread: closing the sheet it was seen in retires it.
-  const threadHintSeen = useRetireOnceSeen('thread', threadHint)
+  // The hint gets one thread: closing the sheet it was seen in retires it.
   const memoryHintSeen = useRetireOnceSeen('memory', memoryHint)
 
   // Opening a conversation lands on its most recent message. Only once: every
@@ -310,18 +308,6 @@ export default function ChatSheet({
         style={{ overflowAnchor: 'none' }}
         className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-5"
       >
-        {threadHint && (
-          <HintNote
-            label="What Rami sees"
-            onDismiss={() => void retireHint('thread', 'dismissed')}
-            onSeen={threadHintSeen}
-          >
-            Rami reads this passage with the text around it, your chapter, and what it remembers
-            from your other threads about this book. Every thread is kept under Threads, and the
-            buttons below its messages share it or publish a link to it.
-          </HintNote>
-        )}
-
         {messages?.length === 0 && !streaming && (
           <p className="mt-6 text-center font-ui text-body text-ink-soft">
             Wonder aloud about this passage, or say what struck you.

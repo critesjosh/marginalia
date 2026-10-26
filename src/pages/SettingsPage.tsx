@@ -39,9 +39,6 @@ export default function SettingsPage() {
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-8">
         <section className={card}>
           <h2 className="font-book text-heading font-medium">How Rami works</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Asking about a passage, turning pages, memory, sharing and your library, in one place.
-          </p>
           <Link to="/help" className={`${button.secondary} mt-3`}>
             Read the guide
           </Link>
@@ -50,8 +47,7 @@ export default function SettingsPage() {
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Standing instructions</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
-            Sent with every message about every book. Tell Rami what to call you, how to answer, or
-            anything else it should always do. Each book can add its own on its Memory tab.
+            Sent with every message. Each book can add its own on its Memory tab.
           </p>
           <InstructionsEditor
             stored={settings.instructions}
@@ -64,10 +60,7 @@ export default function SettingsPage() {
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Data</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
-            Everything lives in this browser's IndexedDB. The export is a JSON file containing your
-            highlighted passages and the surrounding text, every thread, and Rami's running notes on
-            each book. It does not include the book files. Treat it as a record of what you read and
-            thought.
+            Highlights, threads and Rami's notes as JSON. Book files are not included.
           </p>
           <button onClick={() => void exportData()} className={`${button.secondary} mt-3`}>
             Export highlights and chats
@@ -77,13 +70,8 @@ export default function SettingsPage() {
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Feedback and community</h2>
           <p className="mt-1 font-ui text-body text-ink-soft">
-            Share an idea or wander through other readers’ questions in the discussions. Something
-            broken? Report a problem or open an issue. Anything else, write to {CONTACT_EMAIL}.
-          </p>
-          <p className="mt-2 font-ui text-meta text-ink-faint">
-            A new issue starts with this app’s version, your browser, and a short log of storage
-            problems on this device. It names no books or notes, and you can edit it before
-            submitting.
+            New issues include the app version, your browser and recent storage errors, never books
+            or notes.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <a href={DISCUSSIONS_URL} target="_blank" rel="noreferrer" className={button.secondary}>
@@ -105,9 +93,6 @@ export default function SettingsPage() {
 
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Reading font</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Used for the book's text in the reader.
-          </p>
           <div role="radiogroup" aria-label="Reading font" className="mt-3 space-y-2">
             {(Object.keys(READER_FONTS) as ReaderFont[]).map((font) => (
               <FontOption key={font} value={font} current={settings.readerFont} />
@@ -117,9 +102,6 @@ export default function SettingsPage() {
 
         <section className={card}>
           <h2 className="font-book text-heading font-medium">Highlight color</h2>
-          <p className="mt-1 font-ui text-body text-ink-soft">
-            Used for every highlight, old and new.
-          </p>
           <div role="radiogroup" aria-label="Highlight color" className="mt-3 flex gap-2">
             {(Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((color) => {
               const selected = settings.highlightColor === color
@@ -144,21 +126,19 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        <section className={card}>
-          <label className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              checked={settings.spoilerGuard}
-              onChange={(e) => void saveSettings({ spoilerGuard: e.target.checked })}
-              className="mt-1 h-4 w-4 accent-moss"
-            />
-            <span>
-              <span className="font-ui text-label font-medium">Avoid spoilers</span>
-              <span className="mt-0.5 block font-ui text-meta text-ink-soft">
-                Ask the model not to reveal anything past your current position unless you ask.
-              </span>
-            </span>
-          </label>
+        <section className={`${card} space-y-4`}>
+          <Toggle
+            label="Brief replies"
+            note="A few sentences instead of a few paragraphs, unless you ask for more."
+            checked={settings.briefReplies ?? false}
+            onChange={(briefReplies) => void saveSettings({ briefReplies })}
+          />
+          <Toggle
+            label="Avoid spoilers"
+            note="Nothing past where you are, unless you ask."
+            checked={settings.spoilerGuard}
+            onChange={(spoilerGuard) => void saveSettings({ spoilerGuard })}
+          />
         </section>
 
         <Ornament short />
@@ -196,31 +176,47 @@ function UsageDataSection() {
     <section className={card}>
       <h2 className="font-book text-heading font-medium">Usage data</h2>
       {configured ? (
-        <label className="mt-3 flex items-start gap-3">
-          <input
-            type="checkbox"
+        <div className="mt-3">
+          <Toggle
+            label="Share anonymous usage data"
+            note="Counts of actions and error types. Never titles, text, notes, chats or links."
             checked={preference === 'on'}
-            onChange={(e) => telemetry.setPreference(e.target.checked ? 'on' : 'off')}
-            className="mt-1 h-4 w-4 accent-moss"
+            onChange={(on) => telemetry.setPreference(on ? 'on' : 'off')}
           />
-          <span>
-            <span className="font-ui text-label font-medium">Share anonymous usage data</span>
-            <span className="mt-0.5 block font-ui text-meta text-ink-soft">
-              Counts of actions like opening a book or asking Rami, and error types, so we can see
-              what breaks. Never book titles, text, highlights, notes, chats, or links. No cookies,
-              and no id that outlasts this tab.
-            </span>
-          </span>
-        </label>
+        </div>
       ) : (
         <p className="mt-1 font-ui text-body text-ink-soft">
           This copy of Rami sends no usage data.
         </p>
       )}
-      <Link to="/privacy" className={`${button.quiet} mt-2 -ml-3`}>
-        How Rami handles your data
-      </Link>
     </section>
+  )
+}
+
+function Toggle({
+  label,
+  note,
+  checked,
+  onChange,
+}: {
+  label: string
+  note: string
+  checked: boolean
+  onChange: (checked: boolean) => void
+}) {
+  return (
+    <label className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-1 h-4 w-4 accent-moss"
+      />
+      <span>
+        <span className="font-ui text-label font-medium">{label}</span>
+        <span className="mt-0.5 block font-ui text-meta text-ink-soft">{note}</span>
+      </span>
+    </label>
   )
 }
 

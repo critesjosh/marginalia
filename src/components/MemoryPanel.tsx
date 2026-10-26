@@ -53,6 +53,7 @@ export default function MemoryPanel({
     memory: draft,
     instructions: settings.instructions,
     spoilerGuard: settings.spoilerGuard,
+    briefReplies: settings.briefReplies,
   })
 
   const commit = async (text: string) => {
