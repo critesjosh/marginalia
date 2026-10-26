@@ -159,6 +159,8 @@ storage, so there is no server to sync through.
 
 **More tools → Rami**:
 
+- **Brief replies** — off by default. Asks for a few sentences instead of a few
+  paragraphs, unless you ask for more.
 - **Avoid spoilers** — on by default. Asks the model not to reveal anything past
   where you are.
 - **Relay** — where questions are sent, `https://rami.agenticpossible.com/api/chat`

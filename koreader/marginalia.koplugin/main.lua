@@ -461,6 +461,19 @@ function Marginalia:addToMainMenu(menu_items)
                 end,
             },
             {
+                text = _("Brief replies"),
+                checked_func = function()
+                    return self.settings.brief_replies == true
+                end,
+                callback = function()
+                    self.settings.brief_replies = not self.settings.brief_replies
+                    self:saveSettings()
+                end,
+                help_text = _(
+                    "Asks for a few sentences instead of a few paragraphs, unless you ask for more."
+                ),
+            },
+            {
                 text = _("Avoid spoilers"),
                 checked_func = function()
                     return self.settings.spoiler_guard
