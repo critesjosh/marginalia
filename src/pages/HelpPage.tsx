@@ -46,7 +46,8 @@ export default function HelpPage() {
         <Topic title="Reading">
           <li>
             Tap the right side of the page to turn forward, the left to turn back, and the middle to
-            show or hide the toolbar. On a keyboard, use the arrow keys.
+            show or hide the toolbar. With a mouse, point above or below the page to show it. On a
+            keyboard, use the arrow keys, and Escape for the toolbar.
           </li>
           <li>The toolbar opens the table of contents and the text size and page color.</li>
           <li>
@@ -66,7 +67,8 @@ export default function HelpPage() {
           </li>
           <li>
             Standing instructions in <Link to="/settings">Settings</Link> apply to every book: what
-            to call you, how to answer, anything Rami should always do.
+            to call you, how to answer, anything Rami should always do. Turn on Brief replies there
+            for a few sentences instead of a few paragraphs.
           </li>
         </Topic>
 

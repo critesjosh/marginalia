@@ -9,6 +9,10 @@ const MAX_HISTORY_MESSAGES = 30
 /** Ceiling on the reader's standing instructions, which ride in every request. */
 export const MAX_INSTRUCTIONS_CHARS = 1000
 
+/** Sent when the reader turns on brief replies; mirrored in the KOReader prompt. */
+export const BRIEF_REPLIES_LINE =
+  'The reader prefers brief replies. Answer in two or three sentences unless they ask for more, even where a few paragraphs would otherwise fit.'
+
 /**
  * A fresh delimiter per request.
  *
@@ -41,6 +45,7 @@ export function buildSystemPrompt({
   memory,
   instructions,
   spoilerGuard,
+  briefReplies,
 }: {
   book: Book
   conversation: PromptContext
@@ -48,6 +53,7 @@ export function buildSystemPrompt({
   /** Written by the reader in settings, so trusted and left unfenced, as is `book.instructions`. */
   instructions?: string
   spoilerGuard: boolean
+  briefReplies?: boolean
 }): string {
   const fence = fenceToken()
   const general = instructions?.trim()
@@ -134,6 +140,8 @@ export function buildSystemPrompt({
     )
   }
 
+  if (briefReplies) lines.push('', '## Length', BRIEF_REPLIES_LINE)
+
   return lines.join('\n')
 }
 
@@ -156,6 +164,7 @@ export function buildMessages({
     memory,
     instructions: settings.instructions,
     spoilerGuard: settings.spoilerGuard,
+    briefReplies: settings.briefReplies,
   })
 
   // Drop the oldest turns first; the system prompt carries the durable context.

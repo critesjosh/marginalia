@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import type { Book } from '../db/types'
-import { buildSystemPrompt } from './prompt'
+import { BRIEF_REPLIES_LINE, buildSystemPrompt } from './prompt'
 
 const BOOK = { title: 'Moby-Dick', author: 'Herman Melville' } as Book
 
@@ -32,6 +32,22 @@ describe('buildSystemPrompt', () => {
     for (const line of voiceLines(prompt)) {
       expect(lua).toContain(`"${line}",`)
     }
+  })
+
+  it('asks for brief replies only when the reader turns them on', () => {
+    expect(prompt).not.toContain('## Length')
+    const brief = buildSystemPrompt({
+      book: BOOK,
+      conversation: { seedText: 'Call me Ishmael.' },
+      spoilerGuard: true,
+      briefReplies: true,
+    })
+    expect(brief.endsWith(`## Length\n${BRIEF_REPLIES_LINE}`)).toBe(true)
+  })
+
+  it('keeps the brief replies line mirrored in the KOReader prompt', () => {
+    const lua = readFileSync('koreader/marginalia.koplugin/marginalia_prompt.lua', 'utf8')
+    expect(lua).toContain(`"${BRIEF_REPLIES_LINE}"`)
   })
 
   it('omits standing instructions when none are set', () => {

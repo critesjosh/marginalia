@@ -46,6 +46,12 @@ export default function ReaderPage() {
   const navigate = useNavigate()
   const [viewer, setViewer] = useState<HTMLDivElement | null>(null)
   const [chromeVisible, setChromeVisible] = useState(false)
+  // A mouse resting on the margin above or below the page shows the bars until
+  // it leaves them; a tap or click still pins them open. The rest is a short
+  // dwell, so a click on the margin reaches it before a bar slides over it.
+  const [peeking, setPeeking] = useState(false)
+  const peekTimer = useRef<number>(undefined)
+  const barsVisible = chromeVisible || peeking
   const [panel, setPanel] = useState<'toc' | 'display' | null>(null)
   const [active, setActive] = useState<ActiveSelection>()
   const [chatId, setChatId] = useState<string>()
@@ -62,10 +68,32 @@ export default function ReaderPage() {
     [bookId],
   )
 
+  const stopPeeking = useCallback(() => {
+    window.clearTimeout(peekTimer.current)
+    setPeeking(false)
+  }, [])
   const toggleChrome = useCallback(() => {
     setActive(undefined)
+    stopPeeking()
     setChromeVisible((v) => !v)
+  }, [stopPeeking])
+  const peek = useCallback((event: React.PointerEvent) => {
+    if (event.pointerType !== 'mouse') return
+    window.clearTimeout(peekTimer.current)
+    peekTimer.current = window.setTimeout(() => setPeeking(true), PEEK_DELAY_MS)
   }, [])
+  // Moving from a margin onto the bar sliding over it keeps them up.
+  const unpeek = useCallback(
+    (event: React.PointerEvent) => {
+      const to = event.relatedTarget
+      if (to instanceof Element && to.closest('[data-reader-bar]')) return
+      stopPeeking()
+    },
+    [stopPeeking],
+  )
+  // A click on a bar that came up under the mouse keeps it up, as a margin click would.
+  const pinChrome = useCallback(() => setChromeVisible(true), [])
+  useEffect(() => () => window.clearTimeout(peekTimer.current), [])
 
   const handleSelected = useCallback((cfiRange: string, contents: Contents) => {
     const rect = selectionRect(contents, cfiRange)
@@ -95,7 +123,7 @@ export default function ReaderPage() {
       void retireHint('reader', 'seen')
     }
   }, [tapHint])
-  const interacted = chromeVisible || Boolean(active || chatId || panel)
+  const interacted = barsVisible || Boolean(active || chatId || panel)
   useEffect(() => {
     if (tapHint && interacted) void retireHint('reader', 'seen')
   }, [tapHint, interacted])
@@ -321,10 +349,8 @@ export default function ReaderPage() {
 
   const chromeClasses = useMemo(
     () =>
-      chromeVisible
-        ? 'translate-y-0 opacity-100'
-        : 'pointer-events-none -translate-y-full opacity-0',
-    [chromeVisible],
+      barsVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-full opacity-0',
+    [barsVisible],
   )
 
   if (bookId && book === undefined) {
@@ -378,6 +404,9 @@ export default function ReaderPage() {
       className="relative h-full overflow-hidden bg-paper text-ink"
     >
       <header
+        data-reader-bar
+        onPointerLeave={unpeek}
+        onClick={pinChrome}
         className={`pt-safe no-select absolute inset-x-0 top-0 z-30 border-b border-rule bg-paper transition-all duration-300 ease-out motion-reduce:translate-y-0 ${chromeClasses}`}
       >
         <div className="grid h-12 grid-cols-[1fr_auto] items-center gap-2 px-2.5 sm:h-14 sm:grid-cols-[1fr_auto_1fr] sm:px-6">
@@ -435,6 +464,8 @@ export default function ReaderPage() {
       <div className="mx-auto flex h-full w-full max-w-[760px] flex-col">
         <button
           onClick={toggleChrome}
+          onPointerEnter={peek}
+          onPointerLeave={unpeek}
           tabIndex={-1}
           aria-hidden
           className="reader-inset-top no-select"
@@ -443,6 +474,8 @@ export default function ReaderPage() {
         <div ref={setViewer} className="min-h-0 w-full flex-1" />
         <button
           onClick={toggleChrome}
+          onPointerEnter={peek}
+          onPointerLeave={unpeek}
           tabIndex={-1}
           aria-hidden
           className="reader-inset-bottom no-select"
@@ -483,8 +516,11 @@ export default function ReaderPage() {
       )}
 
       <footer
+        data-reader-bar
+        onPointerLeave={unpeek}
+        onClick={pinChrome}
         className={`pb-safe no-select absolute inset-x-0 bottom-0 z-30 border-t border-rule bg-paper transition-all duration-300 ease-out motion-reduce:translate-y-0 ${
-          chromeVisible ? 'opacity-100' : 'pointer-events-none translate-y-full opacity-0'
+          barsVisible ? 'opacity-100' : 'pointer-events-none translate-y-full opacity-0'
         }`}
       >
         <div className="flex items-center justify-center gap-3 px-2">
@@ -567,6 +603,7 @@ export default function ReaderPage() {
 }
 
 const TAP_HINT_MS = 6000
+const PEEK_DELAY_MS = 150
 
 const pageTurn =
   'grid h-11 w-14 place-items-center rounded-full text-ink-soft transition-colors duration-150 hover:bg-paper-sunk hover:text-ink'

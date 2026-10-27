@@ -152,6 +152,8 @@ export interface Settings {
   highlightColor: HighlightColor
   /** Ask the model to avoid spoiling content past the reader's position. */
   spoilerGuard: boolean
+  /** Ask the model for a few sentences rather than a few paragraphs. */
+  briefReplies?: boolean
   /** The reader's own standing instructions, sent unfenced with every chat. */
   instructions?: string
   /** Set once every bundled book has been offered, so deleting them sticks. */
@@ -172,7 +174,8 @@ export interface Settings {
 }
 
 /**
- * The library's “How Rami works” card, the note on a first thread, the note
+ * The library's “How Rami works” card, the retired note on a first thread
+ * (kept so stored lists still parse), the note
  * when Rami first writes a book's memory, the reader's tap zones on a first
  * book, and the library's later note on the ⋯ menu.
  */

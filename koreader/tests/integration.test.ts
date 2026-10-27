@@ -840,4 +840,35 @@ describe('the plugin driven end to end', () => {
     expect(report).toContain('submenu_hint=more_tools')
     expect(report).toContain('submenu_row=Conversations in this book')
   })
+
+  it('toggles brief replies from the plugin menu and saves the choice', async () => {
+    const report = await runLua(`
+      local Marginalia = require("main")
+      local plugin = setmetatable({
+        settings = { spoiler_guard = true },
+        saveSettings = function(self) self.saves = (self.saves or 0) + 1 end,
+      }, { __index = Marginalia })
+
+      local menu_items = {}
+      plugin:addToMainMenu(menu_items)
+      local row
+      for _, item in ipairs(menu_items.marginalia.sub_item_table) do
+        if item.text == "Brief replies" then row = item end
+      end
+
+      local before = row.checked_func()
+      row.callback()
+      return table.concat({
+        "before=" .. tostring(before),
+        "after=" .. tostring(row.checked_func()),
+        "stored=" .. tostring(plugin.settings.brief_replies),
+        "saves=" .. tostring(plugin.saves),
+      }, "\\n")
+    `)
+
+    expect(report).toContain('before=false')
+    expect(report).toContain('after=true')
+    expect(report).toContain('stored=true')
+    expect(report).toContain('saves=1')
+  })
 })

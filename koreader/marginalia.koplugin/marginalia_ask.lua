@@ -581,6 +581,7 @@ function Ask:run(snapshot, thread, question, index)
                 context = snapshot.context,
                 memory = memory,
                 spoiler_guard = self.settings.spoiler_guard,
+                brief_replies = self.settings.brief_replies,
                 fence = fence,
             }, history)
 
