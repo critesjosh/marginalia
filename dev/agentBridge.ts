@@ -30,7 +30,7 @@ import {
   type AgentChatOptions,
   type Pairing,
 } from './agentChat.ts'
-import { readAgentConfig, type AgentConfig } from './agentCli.ts'
+import { narrowedTools, readAgentConfig, type AgentConfig, type McpTools } from './agentCli.ts'
 import { configDir, loadToken, readToken } from './bridgeToken.ts'
 import { createThreadStore, openSaveDir, parseThreadExport, SaveError } from './threadStore.ts'
 
@@ -113,9 +113,10 @@ export function createBridgeServer(options: BridgeOptions): Server {
     if (path === '/v1/status') {
       if (req.method !== 'GET') return send(res, errorResponse(405, 'Use GET.'), cors)
       const refusal = refuseCaller(request, ip, pairing)
-      const { agent, mcp } = options.config
+      const { agent, mcp, mcpTools } = options.config
       const saveDir = options.saveDir ?? null
-      return send(res, refusal ?? Response.json({ agent, mcp, saveDir }), cors)
+      const status = { agent, mcp, ...(mcpTools ? { mcpTools } : {}), saveDir }
+      return send(res, refusal ?? Response.json(status), cors)
     }
     if (threadId) return send(res, await putThread(request, ip, threadId), cors)
 
@@ -228,10 +229,16 @@ function send(res: ServerResponse, response: Response, cors: string | null) {
   else res.end()
 }
 
+function withTools(server: string, mcpTools?: McpTools): string {
+  const tools = narrowedTools(mcpTools, server)
+  return tools ? `${server} (only ${tools.join(', ')})` : server
+}
+
 const USAGE = `Usage: npm run agent-bridge -- [options]
 
   --agent claude|codex   The CLI that answers (or CHAT_AGENT)
   --mcp <names>          MCP servers it may call, comma-separated, or * (or CHAT_AGENT_MCP)
+  --mcp-tools <list>     Servers it may call only some tools of, as server:tool,... (or CHAT_AGENT_MCP_TOOLS)
   --model <name>         Model for the agent (or CHAT_AGENT_MODEL)
   --reasoning-effort <n> Codex reasoning effort (or CHAT_AGENT_REASONING_EFFORT)
   --debug-log <path>    Private, bounded classified stderr log (or CHAT_AGENT_DEBUG_LOG)
@@ -248,6 +255,7 @@ async function main() {
     options: {
       agent: { type: 'string' },
       mcp: { type: 'string' },
+      'mcp-tools': { type: 'string' },
       model: { type: 'string' },
       'reasoning-effort': { type: 'string' },
       'debug-log': { type: 'string' },
@@ -269,6 +277,7 @@ async function main() {
     ...process.env,
     CHAT_AGENT: values.agent ?? process.env.CHAT_AGENT,
     CHAT_AGENT_MCP: values.mcp ?? process.env.CHAT_AGENT_MCP,
+    CHAT_AGENT_MCP_TOOLS: values['mcp-tools'] ?? process.env.CHAT_AGENT_MCP_TOOLS,
     CHAT_AGENT_MODEL: values.model ?? process.env.CHAT_AGENT_MODEL,
     CHAT_AGENT_REASONING_EFFORT:
       values['reasoning-effort'] ?? process.env.CHAT_AGENT_REASONING_EFFORT,
@@ -329,7 +338,10 @@ async function main() {
   }
   followToken(loaded.file, pairing)
 
-  const mcp = config.mcp === 'all' ? 'every MCP server' : config.mcp.join(', ') || 'no MCP servers'
+  const mcp =
+    config.mcp === 'all'
+      ? 'every MCP server'
+      : config.mcp.map((name) => withTools(name, config.mcpTools)).join(', ') || 'no MCP servers'
   console.log(`Rami agent bridge: ${config.agent} with ${mcp}, on http://127.0.0.1:${port}`)
   console.log(`Accepting: ${origins.join(', ')}`)
   if (saveDir) console.log(`Saving threads to ${saveDir}`)

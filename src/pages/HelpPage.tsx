@@ -91,8 +91,9 @@ export default function HelpPage() {
             Start the bridge from the Rami folder with{' '}
             <code>npm run agent-bridge -- --agent claude --mcp tavily</code>. Replace the agent and
             server names with yours; omit <code>--mcp</code> to allow no MCP tools. Add{' '}
-            <code>--model &lt;model name&gt;</code> to choose a model. Keep this terminal open while
-            reading.
+            <code>--model &lt;model name&gt;</code> to choose a model, or{' '}
+            <code>--mcp-tools miyo:search,miyo:read_file</code> to allow only some tools of a
+            server. Keep this terminal open while reading.
           </li>
           <li>
             In <Link to="/settings">Settings → Local agent</Link>, paste the pairing token printed

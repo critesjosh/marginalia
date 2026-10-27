@@ -42,7 +42,12 @@ const delta = (text: string) =>
     type: 'stream_event',
     event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
   })
-const INIT = line({ type: 'system', subtype: 'init', tools: ['mcp__tavily__tavily_search'] })
+const INIT = line({
+  type: 'system',
+  subtype: 'init',
+  tools: ['mcp__tavily__tavily_search'],
+  mcp_servers: [{ name: 'tavily' }],
+})
 const SUCCESS = line({ type: 'result', subtype: 'success', is_error: false })
 
 let dir: string

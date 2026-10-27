@@ -125,6 +125,15 @@ describe('checkBridge', () => {
       status: { agent: 'codex', mcp: 'all', saveDir: null },
     })
 
+    const narrowed = { agent: 'claude', mcp: ['miyo'], mcpTools: { miyo: ['search'] } }
+    vi.stubGlobal('fetch', async () => Response.json(narrowed))
+    expect(await checkBridge(TOKEN)).toEqual({ ok: true, status: { ...narrowed, saveDir: null } })
+    vi.stubGlobal('fetch', async () => Response.json({ ...narrowed, mcpTools: { miyo: 'search' } }))
+    expect(await checkBridge(TOKEN)).toEqual({
+      ok: true,
+      status: { agent: 'claude', mcp: ['miyo'], saveDir: null },
+    })
+
     vi.stubGlobal('fetch', async () => new Response(null, { status: 401 }))
     expect(await checkBridge(TOKEN)).toMatchObject({ ok: false, message: /rejected/ })
 

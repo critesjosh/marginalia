@@ -2,7 +2,7 @@
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { closeSync, constants, fchmodSync, fstatSync, openSync, writeSync } from 'node:fs'
-import type { AgentConfig } from './agentCli.ts'
+import type { AgentConfig, McpTools } from './agentCli.ts'
 
 type Stage = 'setup' | 'mcp_discovery' | 'cli_start' | 'model' | 'tool' | 'process' | 'reply'
 type Outcome = 'started' | 'success' | 'failed' | 'canceled' | 'timeout' | 'warning'
@@ -30,6 +30,15 @@ export function errorCategory(value: unknown) {
 
 function label(value: unknown): string {
   return typeof value === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(value) ? value : 'redacted'
+}
+
+/** Allowed tools per server, as labels, for the configuration record. */
+function toolLabels(mcpTools: McpTools): McpTools {
+  return Object.fromEntries(
+    Object.entries(mcpTools)
+      .slice(0, 32)
+      .map(([server, tools]) => [label(server), tools.slice(0, 32).map(label)]),
+  )
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -148,6 +157,7 @@ export function createDiagnostics(
         model: config.model ? label(config.model) : 'inherited',
         reasoningEffort: config.reasoningEffort ?? 'inherited',
         mcp: tools ? (config.mcp === 'all' ? 'all' : config.mcp.slice(0, 32).map(label)) : [],
+        ...(tools && config.mcpTools ? { mcpTools: toolLabels(config.mcpTools) } : {}),
         cliVersion: value,
       }),
     )

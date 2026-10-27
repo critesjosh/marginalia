@@ -6,10 +6,11 @@ import { afterAll, describe, expect, it } from 'vitest'
 import {
   agentPrompt,
   CLAUDE_GUARD_SCRIPT,
-  claudeAllowedPrefixes,
+  claudeAllowlist,
   claudeGuardSettings,
   claudeArgs,
   claudeParser,
+  claudeToolNote,
   claudeToolPrefix,
   codexArgs,
   codexParser,
@@ -53,6 +54,45 @@ describe('readAgentConfig', () => {
       CHAT_AGENT_TIMEOUT_SECONDS: '30',
     })
     expect(all).toMatchObject({ mcp: 'all', model: 'gpt-5.5', timeoutMs: 30_000 })
+  })
+
+  it('reads servers narrowed to named tools and adds them to the server list', () => {
+    const config = readAgentConfig({
+      CHAT_AGENT: 'claude',
+      CHAT_AGENT_MCP: 'tavily',
+      CHAT_AGENT_MCP_TOOLS: 'miyo:search, miyo:read_file,miyo:search,plugin:x:docs:query-docs',
+    })
+    expect(config).toMatchObject({
+      mcp: ['tavily', 'miyo', 'plugin:x:docs'],
+      mcpTools: { miyo: ['search', 'read_file'], 'plugin:x:docs': ['query-docs'] },
+    })
+    expect(readAgentConfig({ CHAT_AGENT: 'claude', CHAT_AGENT_MCP_TOOLS: ' ' })).not.toHaveProperty(
+      'mcpTools',
+    )
+  })
+
+  it('treats server names that look like object properties as plain names', () => {
+    const config = readAgentConfig({
+      CHAT_AGENT: 'claude',
+      CHAT_AGENT_MCP: 'toString',
+      CHAT_AGENT_MCP_TOOLS: '__proto__:search',
+    })!
+    expect(config.mcp).toEqual(['toString', '__proto__'])
+    expect(Object.keys(config.mcpTools ?? {})).toEqual(['__proto__'])
+    const args = claudeArgs(config, FILES, true)
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe('mcp__toString,mcp____proto____search')
+    expect(claudeArgs(claude(['constructor']), FILES, true)).toContain('mcp__constructor')
+  })
+
+  it('refuses tool entries it cannot enforce', () => {
+    const read = (tools: string, mcp = '') =>
+      readAgentConfig({ CHAT_AGENT: 'claude', CHAT_AGENT_MCP: mcp, CHAT_AGENT_MCP_TOOLS: tools })
+    expect(() => read('miyo')).toThrow('server:tool')
+    expect(() => read(':search')).toThrow('server:tool')
+    expect(() => read('miyo:')).toThrow('server:tool')
+    expect(() => read('miyo:read file')).toThrow('server:tool')
+    expect(() => read('miyo:search', 'miyo')).toThrow('both')
+    expect(() => read('miyo:search', '*')).toThrow('wildcard')
   })
 
   it('validates an explicit reasoning effort and passes it to Codex', () => {
@@ -132,6 +172,15 @@ describe('claudeArgs', () => {
     expect(args).not.toContain('--strict-mcp-config')
   })
 
+  it('allows only the named tools of a narrowed server', () => {
+    const config = { ...claude(['tavily', 'miyo']), mcpTools: { miyo: ['search', 'read_file'] } }
+    const args = claudeArgs(config, FILES, true)
+    expect(args[args.indexOf('--allowedTools') + 1]).toBe(
+      'mcp__tavily,mcp__miyo__search,mcp__miyo__read_file',
+    )
+    expect(claudeArgs(config, FILES, false)).not.toContain('--allowedTools')
+  })
+
   it('bypasses prompts only for the wildcard, and never for background work', () => {
     expect(claudeArgs(claude('all'), FILES, true)).toContain('bypassPermissions')
     const background = claudeArgs(claude('all'), FILES, false)
@@ -144,7 +193,10 @@ describe('claude guard hook', () => {
   const dir = mkdtempSync(join(tmpdir(), 'guard-test-'))
   const script = join(dir, "it's guard.cjs")
   writeFileSync(script, CLAUDE_GUARD_SCRIPT)
-  writeFileSync(join(dir, 'allowed.json'), JSON.stringify(claudeAllowedPrefixes(['tavily'])))
+  writeFileSync(
+    join(dir, 'allowed.json'),
+    JSON.stringify(claudeAllowlist(['tavily', 'miyo'], { miyo: ['search'] })),
+  )
   afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
   const hook = (input: string) => {
@@ -162,6 +214,12 @@ describe('claude guard hook', () => {
     expect(hook('not json').status).toBe(2)
   })
 
+  it('passes only the named tools of a narrowed server', () => {
+    expect(hook(line({ tool_name: 'mcp__miyo__search' })).status).toBe(0)
+    expect(hook(line({ tool_name: 'mcp__miyo__create_file' })).status).toBe(2)
+    expect(hook(line({ tool_name: 'mcp__miyo__search_and_replace' })).status).toBe(2)
+  })
+
   it('blocks when the allowlist is unreadable, and when the hook itself fails', () => {
     rmSync(join(dir, 'allowed.json'))
     expect(hook(line({ tool_name: 'mcp__tavily__tavily_search' })).status).toBe(2)
@@ -170,8 +228,8 @@ describe('claude guard hook', () => {
   })
 
   it('allows every MCP tool, and only MCP tools, for the wildcard', () => {
-    expect(claudeAllowedPrefixes('all')).toEqual(['mcp__'])
-    expect(claudeAllowedPrefixes([])).toEqual([])
+    expect(claudeAllowlist('all')).toEqual({ prefixes: ['mcp__'], names: [] })
+    expect(claudeAllowlist([])).toEqual({ prefixes: [], names: [] })
   })
 })
 
@@ -203,6 +261,14 @@ describe('codexArgs', () => {
     )
   })
 
+  it('limits a narrowed server to its named tools', () => {
+    const config = { ...codex(['tavily', 'gmail']), mcpTools: { gmail: ['search', 'read'] } }
+    const args = codexArgs(config, 'Rules', configured, true)
+    expect(args).toContain('mcp_servers.gmail.enabled_tools=["search","read"]')
+    expect(args.join(' ')).not.toContain('tavily.enabled_tools')
+    expect(codexArgs(config, 'Rules', configured, false).join(' ')).not.toContain('enabled_tools')
+  })
+
   it('passes the system prompt as a TOML string', () => {
     const args = codexArgs(codex([]), 'Say "hi"\n\x7f', [], true)
     expect(args).toContain('developer_instructions="Say \\"hi\\"\\n\\u007f"')
@@ -228,7 +294,12 @@ describe('claudeParser', () => {
     const parse = claudeParser(['tavily'])
     const messageStart = line({ type: 'stream_event', event: { type: 'message_start' } })
     const events = [
-      line({ type: 'system', subtype: 'init', tools: ['mcp__tavily__tavily_search'] }),
+      line({
+        type: 'system',
+        subtype: 'init',
+        tools: ['mcp__tavily__tavily_search'],
+        mcp_servers: [{ name: 'tavily' }],
+      }),
       messageStart,
       blockStart({ type: 'text' }),
       delta('Let me look.'),
@@ -264,6 +335,43 @@ describe('claudeParser', () => {
     expect(claudeParser('all')(blockStart({ type: 'tool_use', name: 'mcp__gmail__send' }))).toEqual(
       [{ activity: { kind: 'tool', server: 'gmail', tool: 'send' } }],
     )
+  })
+
+  it("lets a refused tool of a narrowed server pass back to the model, not other servers'", () => {
+    const parse = claudeParser(['miyo'], { miyo: ['search'] })
+    expect(parse(blockStart({ type: 'tool_use', name: 'mcp__miyo__search' }))).toEqual([
+      { activity: { kind: 'tool', server: 'miyo', tool: 'search' } },
+    ])
+    expect(parse(blockStart({ type: 'tool_use', name: 'mcp__miyo__create_file' }))).toEqual([
+      { activity: { kind: 'thinking' } },
+    ])
+    expect(parse(blockStart({ type: 'tool_use', name: 'mcp__gmail__send' }))).toEqual([
+      { fail: expect.stringContaining('mcp__gmail__send') },
+    ])
+  })
+
+  it('refuses to start when Claude could confuse an allowed server with another one', () => {
+    const init = (names: string[]) =>
+      line({
+        type: 'system',
+        subtype: 'init',
+        tools: [],
+        mcp_servers: names.map((name) => ({ name })),
+      })
+    const narrowed = claudeParser(['a__b'], { a__b: ['delete'] })
+    expect(narrowed(init(['a', 'a__b']))).toEqual([{ fail: expect.stringContaining('"a__b"') }])
+    expect(claudeParser(['a'])(init(['a', 'a__b']))).toEqual([{ fail: expect.any(String) }])
+    expect(claudeParser(['a.b'])(init(['a_b', 'a.b']))).toEqual([{ fail: expect.any(String) }])
+    expect(claudeParser(['a', 'a_b'])(init(['a', 'a_b', 'tavily']))).toEqual([])
+    expect(claudeParser(['tavily'])(line({ type: 'system', subtype: 'init', tools: [] }))).toEqual([
+      { fail: expect.any(String) },
+    ])
+    expect(claudeParser('all')(init(['a', 'a__b']))).toEqual([])
+  })
+
+  it("lists a narrowed server's tools for the model", () => {
+    expect(claudeToolNote()).toBe('')
+    expect(claudeToolNote({ miyo: ['search', 'read_file'] })).toContain('- miyo: search, read_file')
   })
 
   it('reports an unsuccessful result and ignores lines that are not JSON', () => {
@@ -321,6 +429,21 @@ describe('codexParser', () => {
     expect(parse(item('item.started', { type: 'command_execution' }))).toEqual([
       { fail: expect.stringContaining('command_execution') },
     ])
+  })
+
+  it('fails closed on a narrowed server tool outside its list', () => {
+    const parse = codexParser(['miyo'], { miyo: ['search'] })
+    const call = (type: string, value: Record<string, unknown>) =>
+      parse(item(type, { type: 'mcp_tool_call', server: 'miyo', ...value }))
+    expect(call('item.started', { tool: 'search' })).toEqual([
+      { activity: { kind: 'tool', server: 'miyo', tool: 'search' } },
+    ])
+    expect(call('item.completed', {})).toEqual([{ activity: { kind: 'thinking' } }])
+    expect(call('item.started', { tool: 'create_file' })).toEqual([
+      { fail: expect.stringContaining('create_file') },
+    ])
+    expect(call('item.started', {})).toEqual([{ fail: expect.any(String) }])
+    expect(call('item.completed', { tool: 'edit_file' })).toEqual([{ fail: expect.any(String) }])
   })
 
   it('reports a failed turn or a top-level error', () => {

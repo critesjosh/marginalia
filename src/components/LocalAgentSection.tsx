@@ -178,9 +178,13 @@ function agentName({ agent }: BridgeStatus): string {
   return agent
 }
 
-function servers({ mcp }: BridgeStatus): string {
+function servers({ mcp, mcpTools }: BridgeStatus): string {
   if (mcp === 'all') return 'every MCP server it has'
-  return mcp.length ? `MCP servers: ${mcp.join(', ')}` : 'no MCP servers'
+  const names = mcp.map((name) => {
+    const tools = mcpTools && Object.hasOwn(mcpTools, name) ? mcpTools[name] : undefined
+    return tools ? `${name} (only ${tools.join(', ')})` : name
+  })
+  return names.length ? `MCP servers: ${names.join(', ')}` : 'no MCP servers'
 }
 
 /** The bridge's save folder (decision 0011), set on its command line only. */
