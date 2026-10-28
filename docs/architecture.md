@@ -111,3 +111,4 @@ to `decisions/NNNN-short-title.md` and linking it here.
 - [0009 Let the dev server answer chat with a local agent CLI](decisions/0009-local-agent-chat.md)
 - [0010 Let the hosted app reach a local agent through a paired bridge](decisions/0010-local-agent-bridge.md)
 - [0011 Mirror threads to Markdown files through the bridge](decisions/0011-mirror-threads-to-disk.md)
+- [0013 Allow named tools of an MCP server, not only whole servers](decisions/0013-per-tool-mcp-allowlist.md)

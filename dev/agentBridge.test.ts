@@ -15,7 +15,7 @@ const FAKE_CLI = `
 process.stdin.resume()
 process.stdin.on('end', () => {
   const line = (value) => process.stdout.write(JSON.stringify(value) + '\\n')
-  line({ type: 'system', subtype: 'init', tools: [] })
+  line({ type: 'system', subtype: 'init', tools: [], mcp_servers: [{ name: 'tavily' }] })
   line({ type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Ahoy.' } } })
   line({ type: 'result', subtype: 'success', is_error: false })
 })
@@ -119,6 +119,24 @@ describe('preflight', () => {
 })
 
 describe('status', () => {
+  it('reports which tools a narrowed server may use', async () => {
+    await new Promise((resolve) => server.close(resolve))
+    server = createBridgeServer({
+      config: { agent: 'claude', mcp: ['miyo'], mcpTools: { miyo: ['search'] }, timeoutMs: 1 },
+      pairing: { token: TOKEN, origins: [APP] },
+      port: 0,
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    port = (server.address() as AddressInfo).port
+    const reply = await call('GET', '/v1/status', { ...auth, ...fromApp })
+    expect(JSON.parse(reply.body)).toEqual({
+      agent: 'claude',
+      mcp: ['miyo'],
+      mcpTools: { miyo: ['search'] },
+      saveDir: null,
+    })
+  })
+
   it('reports the agent and its servers to the paired app', async () => {
     const reply = await call('GET', '/v1/status', { ...auth, ...fromApp })
     expect(reply.status).toBe(200)

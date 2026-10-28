@@ -113,8 +113,21 @@ export const BRIDGE_UNREACHABLE =
 export interface BridgeStatus {
   agent: string
   mcp: string[] | 'all'
+  /** Servers in `mcp` the agent may call only these tools of (decision 0013). */
+  mcpTools?: Record<string, string[]>
   /** Where the bridge saves threads (decision 0011), or null when it does not. */
   saveDir?: string | null
+}
+
+function isToolMap(value: unknown): value is Record<string, string[]> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(
+      (tools) => Array.isArray(tools) && tools.every((tool) => typeof tool === 'string'),
+    )
+  )
 }
 
 export type BridgeCheck = { ok: true; status: BridgeStatus } | { ok: false; message: string }
@@ -136,13 +149,14 @@ export async function checkBridge(token: string, signal?: AbortSignal): Promise<
     return { ok: false, message: `The bridge answered with an error (${response.status}).` }
   }
   try {
-    const { agent, mcp, saveDir } = (await response.json()) as Partial<BridgeStatus>
+    const { agent, mcp, mcpTools, saveDir } = (await response.json()) as Partial<BridgeStatus>
     if (typeof agent !== 'string') throw new Error('No agent')
     return {
       ok: true,
       status: {
         agent,
         mcp: mcp === 'all' || Array.isArray(mcp) ? mcp : [],
+        ...(isToolMap(mcpTools) ? { mcpTools } : {}),
         saveDir: typeof saveDir === 'string' ? saveDir : null,
       },
     }

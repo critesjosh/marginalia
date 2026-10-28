@@ -23,10 +23,11 @@ import { operationMetric } from '../shared/telemetry.ts'
 import {
   agentPrompt,
   CLAUDE_GUARD_SCRIPT,
-  claudeAllowedPrefixes,
+  claudeAllowlist,
   claudeArgs,
   claudeGuardSettings,
   claudeParser,
+  claudeToolNote,
   CODEX_PLUGIN_FLAGS,
   codexArgs,
   codexParser,
@@ -308,6 +309,7 @@ async function prepare(
   const { config } = options
   await mkdir(join(dir, 'work'))
   const mcp = tools ? config.mcp : []
+  const mcpTools = tools ? config.mcpTools : undefined
 
   if (config.agent === 'claude') {
     const files = {
@@ -315,11 +317,13 @@ async function prepare(
       settings: join(dir, 'settings.json'),
     }
     const guard = join(dir, 'guard.cjs')
-    await writeFile(files.systemPrompt, prompt.system, { mode: 0o600 })
+    await writeFile(files.systemPrompt, prompt.system + claudeToolNote(mcpTools), {
+      mode: 0o600,
+    })
     await writeFile(guard, CLAUDE_GUARD_SCRIPT, { mode: 0o600 })
-    await writeFile(join(dir, 'allowed.json'), JSON.stringify(claudeAllowedPrefixes(mcp)))
+    await writeFile(join(dir, 'allowed.json'), JSON.stringify(claudeAllowlist(mcp, mcpTools)))
     await writeFile(files.settings, claudeGuardSettings(process.execPath, guard), { mode: 0o600 })
-    return { args: claudeArgs(config, files, tools), parser: claudeParser(mcp) }
+    return { args: claudeArgs(config, files, tools), parser: claudeParser(mcp, mcpTools) }
   }
 
   diagnostics.log('mcp_discovery', 'started')
@@ -337,7 +341,7 @@ async function prepare(
   if (args.some((arg) => Buffer.byteLength(arg) > MAX_ARG_BYTES)) {
     return { error: errorResponse(413, 'The book context is too long for Codex.') }
   }
-  return { args, parser: codexParser(mcp) }
+  return { args, parser: codexParser(mcp, mcpTools) }
 }
 
 function agentEnv(): NodeJS.ProcessEnv {

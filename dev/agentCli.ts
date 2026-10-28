@@ -6,25 +6,71 @@
  * or a Worker.
  *
  * Book text is untrusted and an agent with tools can act on it, so every
- * built-in tool is switched off and MCP servers are allowed only by name. The
- * translators also fail closed: a built-in tool, a file change, or a call to a
- * server outside the allowlist ends the run.
+ * built-in tool is switched off and MCP servers are allowed only by name,
+ * optionally narrowed to named tools (decision 0013). The translators also
+ * fail closed: a built-in tool, a file change, or a call to a server or tool
+ * outside the allowlist ends the run.
  */
 
 import type { RelayMessage } from '../shared/relay.ts'
 
 type AgentName = 'claude' | 'codex'
 
+/** Servers the agent may call only some tools of, keyed by server name. */
+export type McpTools = Record<string, string[]>
+
+/** A server's tool list, if narrowed. Own keys only: a server may be named `toString`. */
+export function narrowedTools(
+  mcpTools: McpTools | undefined,
+  server: string,
+): string[] | undefined {
+  return mcpTools && Object.hasOwn(mcpTools, server) ? mcpTools[server] : undefined
+}
+
 export interface AgentConfig {
   agent: AgentName
   /** MCP servers the agent may call during chat, or 'all'. Empty allows none. */
   mcp: string[] | 'all'
+  /** Servers in `mcp` limited to these tools; any other server allows every tool. */
+  mcpTools?: McpTools
   model?: string
   reasoningEffort?: string
   timeoutMs: number
 }
 
 const DEFAULT_TIMEOUT_SECONDS = 300
+
+/** The tool names MCP clients accept, which are also safe in a flag or TOML array. */
+const TOOL_NAME = /^[A-Za-z0-9_-]{1,64}$/
+
+/**
+ * Reads `server:tool` entries. Server names can contain colons (Claude's
+ * `plugin:x:y`), tool names cannot, so the tool is whatever follows the last.
+ */
+function readMcpTools(value: string | undefined, mcp: string[] | 'all'): McpTools {
+  const tools = new Map<string, string[]>()
+  for (const entry of (value ?? '').split(',').map((part) => part.trim())) {
+    if (!entry) continue
+    const at = entry.lastIndexOf(':')
+    const server = entry.slice(0, at).trim()
+    const tool = entry.slice(at + 1).trim()
+    if (at < 1 || !server || !TOOL_NAME.test(tool)) {
+      throw new Error(`CHAT_AGENT_MCP_TOOLS entries are server:tool, not "${entry}".`)
+    }
+    const list = tools.get(server) ?? []
+    if (!list.includes(tool)) tools.set(server, [...list, tool])
+  }
+  const servers = [...tools.keys()]
+  if (servers.length && mcp === 'all') {
+    throw new Error('CHAT_AGENT_MCP_TOOLS cannot narrow the * wildcard; name the servers instead.')
+  }
+  const both = mcp === 'all' ? undefined : servers.find((server) => mcp.includes(server))
+  if (both !== undefined) {
+    throw new Error(`"${both}" is in both CHAT_AGENT_MCP and CHAT_AGENT_MCP_TOOLS; list it once.`)
+  }
+  // fromEntries defines own properties, so even `__proto__` stays a plain key.
+  return Object.fromEntries(tools)
+}
 
 /** Reads `CHAT_AGENT*` from the dev server's env. Null means use OpenRouter. */
 export function readAgentConfig(env: Record<string, string | undefined>): AgentConfig | null {
@@ -45,9 +91,13 @@ export function readAgentConfig(env: Record<string, string | undefined>): AgentC
   ) {
     throw new Error('CHAT_AGENT_REASONING_EFFORT must be low, medium, high, xhigh, max, or ultra.')
   }
+  const mcp = servers.includes('*') ? 'all' : servers
+  const mcpTools = readMcpTools(env.CHAT_AGENT_MCP_TOOLS, mcp)
+  const narrowed = Object.keys(mcpTools)
   return {
     agent,
-    mcp: servers.includes('*') ? 'all' : servers,
+    mcp: mcp === 'all' ? mcp : [...mcp, ...narrowed],
+    ...(narrowed.length ? { mcpTools } : {}),
     model: env.CHAT_AGENT_MODEL?.trim() || undefined,
     ...(reasoningEffort ? { reasoningEffort } : {}),
     timeoutMs: (seconds > 0 ? seconds : DEFAULT_TIMEOUT_SECONDS) * 1000,
@@ -93,16 +143,63 @@ export function claudeToolPrefix(server: string): string {
   return `mcp__${server.replace(/[^A-Za-z0-9_-]/g, '_')}`
 }
 
-/** Tool name prefixes a run may call. */
-export function claudeAllowedPrefixes(mcp: string[] | 'all'): string[] {
-  return mcp === 'all' ? ['mcp__'] : mcp.map((name) => `${claudeToolPrefix(name)}__`)
+/** What every tool of a server starts with. */
+const claudeServerPrefix = (server: string) => `${claudeToolPrefix(server)}__`
+const claudeToolName = (server: string, tool: string) => claudeServerPrefix(server) + tool
+
+/** Tools a run may call: any starting with one of `prefixes`, or exactly one of `names`. */
+export interface ClaudeAllowlist {
+  prefixes: string[]
+  names: string[]
+}
+
+export function claudeAllowlist(mcp: string[] | 'all', mcpTools: McpTools = {}): ClaudeAllowlist {
+  if (mcp === 'all') return { prefixes: ['mcp__'], names: [] }
+  const prefixes: string[] = []
+  const names: string[] = []
+  for (const server of mcp) {
+    const tools = narrowedTools(mcpTools, server)
+    if (tools) names.push(...tools.map((tool) => claudeToolName(server, tool)))
+    else prefixes.push(claudeServerPrefix(server))
+  }
+  return { prefixes, names }
 }
 
 /**
- * A PreToolUse hook that refuses any tool outside the prefixes in the
- * `allowed.json` beside it. Allow rules in the reader's own settings would
- * otherwise still let a pre-approved server through, and a hook's refusal
- * overrides them before the call is made.
+ * Claude joins server and tool with `__`, so `a` and `a__b` (or `a.b` and
+ * `a_b`, once normalized) can produce the same tool name. Returns an allowed
+ * server whose tools Claude could confuse with another loaded server's.
+ */
+function claudeAmbiguousServer(allowed: string[], loaded: string[]): string | undefined {
+  return allowed.find((server) => {
+    const own = claudeServerPrefix(server)
+    return loaded.some((other) => {
+      const theirs = claudeServerPrefix(other)
+      return other !== server && (own.startsWith(theirs) || theirs.startsWith(own))
+    })
+  })
+}
+
+const claudeToolAllowed = ({ prefixes, names }: ClaudeAllowlist, tool: string) =>
+  names.includes(tool) || prefixes.some((prefix) => tool.startsWith(prefix))
+
+/**
+ * Claude cannot hide some of a server's tools, so a narrowed server's others
+ * stay visible. This tells the model which it may use; the rest are refused.
+ */
+export function claudeToolNote(mcpTools: McpTools = {}): string {
+  const lines = Object.entries(mcpTools).map(
+    ([server, tools]) => `- ${server}: ${tools.join(', ')}`,
+  )
+  if (!lines.length) return ''
+  return `\n\nFrom these MCP servers, use only the tools listed; any other is refused:\n${lines.join('\n')}`
+}
+
+/**
+ * A PreToolUse hook that refuses any tool outside the `allowed.json` beside
+ * it. Allow rules in the reader's own settings would otherwise still let a
+ * pre-approved server through, and a hook's refusal overrides them before the
+ * call is made.
  */
 export const CLAUDE_GUARD_SCRIPT = `
 const { readFileSync } = require('node:fs')
@@ -113,10 +210,12 @@ process.stdin.on('end', () => {
   let tool = ''
   try {
     tool = String(JSON.parse(input).tool_name ?? '')
-    const allowed = JSON.parse(readFileSync(join(__dirname, 'allowed.json'), 'utf8'))
-    if (tool && allowed.some((prefix) => tool.startsWith(prefix))) process.exit(0)
+    const { prefixes, names } = JSON.parse(readFileSync(join(__dirname, 'allowed.json'), 'utf8'))
+    if (tool && (names.includes(tool) || prefixes.some((prefix) => tool.startsWith(prefix)))) {
+      process.exit(0)
+    }
   } catch {}
-  process.stderr.write(tool + ' is not allowed in Rami chat (CHAT_AGENT_MCP).')
+  process.stderr.write(tool + ' is not allowed in Rami chat (CHAT_AGENT_MCP, CHAT_AGENT_MCP_TOOLS).')
   process.exit(2)
 })
 `
@@ -163,7 +262,13 @@ export function claudeArgs(
   else if (mcp.length === 0) args.push('--strict-mcp-config', '--permission-mode', 'dontAsk')
   else {
     // dontAsk denies anything not allowed here instead of waiting for a prompt.
-    args.push('--permission-mode', 'dontAsk', '--allowedTools', mcp.map(claudeToolPrefix).join(','))
+    const allowed = mcp.flatMap(
+      (server) =>
+        narrowedTools(config.mcpTools, server)?.map((tool) => claudeToolName(server, tool)) ?? [
+          claudeToolPrefix(server),
+        ],
+    )
+    args.push('--permission-mode', 'dontAsk', '--allowedTools', allowed.join(','))
   }
   return args
 }
@@ -254,6 +359,12 @@ export function codexArgs(
   for (const name of configured) {
     if (mcp !== 'all' && !mcp.includes(name)) args.push('-c', `mcp_servers.${name}.enabled=false`)
   }
+  // Server names are bare keys (codexServerProblem) and tool names match
+  // TOOL_NAME, so the JSON array is also a valid TOML one.
+  for (const name of mcp === 'all' ? [] : mcp) {
+    const tools = narrowedTools(config.mcpTools, name)
+    if (tools) args.push('-c', `mcp_servers.${name}.enabled_tools=${JSON.stringify(tools)}`)
+  }
   args.push('-')
   return args
 }
@@ -267,6 +378,8 @@ export type AgentEvent =
 
 export type AgentParser = (line: string) => AgentEvent[]
 
+const AMBIGUOUS = (server: string) =>
+  `Claude names the tools of MCP server "${server}" like another server's, so Rami cannot keep them apart. Rename one of them.`
 const DISALLOWED = (name: string) =>
   `The agent tried to use ${name}, which CHAT_AGENT_MCP does not allow, so the reply was stopped.`
 const FAILED =
@@ -306,10 +419,11 @@ function textJoiner() {
  * Text comes only from partial deltas; the full assistant and result messages
  * repeat it and are ignored.
  */
-export function claudeParser(mcp: string[] | 'all'): AgentParser {
+export function claudeParser(mcp: string[] | 'all', mcpTools: McpTools = {}): AgentParser {
   const joiner = textJoiner()
-  const prefixes = claudeAllowedPrefixes(mcp)
-  const allowed = (tool: string) => prefixes.some((prefix) => tool.startsWith(prefix))
+  const allowlist = claudeAllowlist(mcp, mcpTools)
+  const allowed = (tool: string) => claudeToolAllowed(allowlist, tool)
+  const narrowed = Object.keys(mcpTools).map(claudeServerPrefix)
 
   return (line) => {
     const event = parseLine(line)
@@ -318,7 +432,14 @@ export function claudeParser(mcp: string[] | 'all'): AgentParser {
     if (event.type === 'system' && event.subtype === 'init') {
       const tools = Array.isArray(event.tools) ? event.tools.map(String) : []
       const builtIn = tools.find((tool) => !tool.startsWith('mcp__'))
-      return builtIn ? [{ fail: DISALLOWED(builtIn) }] : []
+      if (builtIn) return [{ fail: DISALLOWED(builtIn) }]
+      if (mcp === 'all' || mcp.length === 0) return []
+      // Checked against every loaded server, listed or not, before the model runs.
+      const servers = Array.isArray(event.mcp_servers) ? event.mcp_servers : null
+      if (!servers) return [{ fail: FAILED }]
+      const loaded = servers.map((server) => String((server as { name?: unknown })?.name))
+      const ambiguous = claudeAmbiguousServer(mcp, loaded)
+      return ambiguous === undefined ? [] : [{ fail: AMBIGUOUS(ambiguous) }]
     }
     if (event.type === 'result') {
       return event.subtype === 'success' && event.is_error !== true
@@ -338,7 +459,13 @@ export function claudeParser(mcp: string[] | 'all'): AgentParser {
       const block = stream.content_block
       if (block?.type === 'tool_use') {
         const name = String(block.name)
-        if (!allowed(name)) return [{ fail: DISALLOWED(name) }]
+        if (!allowed(name)) {
+          // A narrowed server's other tools are visible but refused by
+          // dontAsk and the guard hook before they run, and the model is told,
+          // so it can carry on. Any other server's tool still ends the run.
+          if (narrowed.some((prefix) => name.startsWith(prefix))) return [THINKING]
+          return [{ fail: DISALLOWED(name) }]
+        }
         const [, server = name, tool = name] = /^mcp__(.+?)__(.+)$/.exec(name) ?? []
         return [{ activity: { kind: 'tool', server, tool } }]
       }
@@ -358,7 +485,7 @@ export function claudeParser(mcp: string[] | 'all'): AgentParser {
  * complete rather than token by token. `error` items are warnings, such as
  * unrecognized config keys; a failed turn or a top-level error ends the run.
  */
-export function codexParser(mcp: string[] | 'all'): AgentParser {
+export function codexParser(mcp: string[] | 'all', mcpTools: McpTools = {}): AgentParser {
   const joiner = textJoiner()
   const seen = new Set<string>()
 
@@ -379,6 +506,12 @@ export function codexParser(mcp: string[] | 'all'): AgentParser {
     if (item.type === 'mcp_tool_call') {
       const server = String(item.server)
       if (mcp !== 'all' && !mcp.includes(server)) return [{ fail: DISALLOWED(server) }]
+      // A completed item may omit the tool; the started one must name an allowed one.
+      const tools = narrowedTools(mcpTools, server)
+      const named = event.type === 'item.started' || item.tool !== undefined
+      if (tools && named && !tools.includes(String(item.tool))) {
+        return [{ fail: DISALLOWED(`${server} ${String(item.tool)}`) }]
+      }
       if (event.type === 'item.completed') return [THINKING]
       return [{ activity: { kind: 'tool', server, tool: String(item.tool ?? server) } }]
     }

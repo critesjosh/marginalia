@@ -39,6 +39,7 @@ shows an error instead of switching to Rami's hosted relay.
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `--agent claude\|codex`      | The CLI that answers (or `CHAT_AGENT`)                                                                                                |
 | `--mcp <names>`              | MCP servers it may call, comma-separated, or `*` (or `CHAT_AGENT_MCP`). Empty allows none.                                            |
+| `--mcp-tools <list>`         | Servers it may call only some tools of, as `server:tool` entries, comma-separated (or `CHAT_AGENT_MCP_TOOLS`). See below.             |
 | `--model <name>`             | Model for the agent (or `CHAT_AGENT_MODEL`)                                                                                           |
 | `--reasoning-effort <level>` | Codex effort: `low`, `medium`, `high`, `xhigh`, `max`, or `ultra` (or `CHAT_AGENT_REASONING_EFFORT`). Unset inherits the CLI setting. |
 | `--debug-log <path>`         | Opt-in local classified stderr log (or `CHAT_AGENT_DEBUG_LOG`); see diagnostics below.                                                |
@@ -55,6 +56,31 @@ browser's copy; `--new-token` is what stops an old copy from working. A
 running bridge picks up a rotated token, and refuses everything if the file
 disappears. A bridge started with `--new-token` while another holds its port
 exits without changing the token.
+
+## Allowing only some tools of a server
+
+To let chat search your notes without editing them, name the tools instead of
+the server ([decision 0013](decisions/0013-per-tool-mcp-allowlist.md)):
+
+```bash
+npm run agent-bridge -- --agent claude --mcp tavily \
+  --mcp-tools miyo:search,miyo:read_file,miyo:list_files,miyo:list_folders
+```
+
+Each entry is a server name, a colon and one tool name; the tool is what
+follows the last colon. A server goes in `--mcp` or `--mcp-tools`, not both,
+and `--mcp-tools` cannot be combined with `--mcp '*'`. Tool names are the part
+after `mcp__<server>__` in Claude Code, or what `codex mcp` reports.
+
+With Claude, a reply stops before the model runs if an allowed server's tool
+names could be confused with another server's, such as `a` and `a__b`, or
+`a.b` and `a_b`. Rename one of them.
+
+Codex is given only the listed tools. Claude still sees the server's other
+tools, so the bridge tells it which ones it may use; if it calls another, the
+call is refused before it runs and the reply continues. A server that offers
+only reads can still leak them: an agent that can read your notes and search
+the web can be steered into putting note text in a search query.
 
 ## Saving threads to your computer
 
@@ -144,7 +170,7 @@ can be terminated by the bridge after its success event; a process signal
 does not override a successful reply.
 
 Configuration records show the model, explicit Codex reasoning effort, MCP
-names and CLI version. `inherited` means Rami did not override the CLI setting,
+names, any `--mcp-tools` tool names and CLI version. `inherited` means Rami did not override the CLI setting,
 not that it inspected your user configuration. Tool records include the MCP
 server/tool names and elapsed time, never arguments, queries or results.
 Error events are reduced to fixed categories such as `authentication`,
@@ -164,7 +190,7 @@ to discard stderr. These logs stay on your machine and are never telemetry.
 
 Both require the token. Errors are `{ "error": { "message": string } }`.
 
-`GET /v1/status` returns `{ "agent": "claude" | "codex", "mcp": string[] | "all", "saveDir": string | null }`.
+`GET /v1/status` returns `{ "agent": "claude" | "codex", "mcp": string[] | "all", "mcpTools"?: { [server]: string[] }, "saveDir": string | null }`. `mcp` includes the servers in `mcpTools`, which appears only when `--mcp-tools` is set.
 
 `PUT /v1/threads/:id` saves one thread when the bridge has `--save-dir`, and
 answers 204. The body is
